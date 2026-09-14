@@ -24,13 +24,13 @@ const TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 const TILE_ATTR = '&copy; OpenStreetMap contributors';
 
 const COLOR = {
-  phase1: '#003b36',
-  phase2: '#e98a15',
-  closure: '#59114d',
-  congestion: '#c1121f',
-  hub: '#003b36',
-  patient: '#e98a15',
-  hospital: '#012622',
+  phase1: '#3a3842',
+  phase2: '#e8a020',
+  closure: '#c23a2b',
+  congestion: '#c23a2b',
+  hub: '#2e2c32',
+  patient: '#e8a020',
+  hospital: '#2e2c32',
 };
 
 function marker(kind, label) {

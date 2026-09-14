@@ -207,7 +207,7 @@ function OutcomeCard({ outcome }) {
         <p
           className={`mt-2.5 rounded-sm border px-3 py-2 text-[12px] leading-relaxed ${
             delta > 1
-              ? 'border-verified/30 bg-verified-wash text-verified'
+              ? 'border-ink bg-paper text-text'
               : 'border-rule bg-paper-sunk text-text-muted'
           }`}
         >

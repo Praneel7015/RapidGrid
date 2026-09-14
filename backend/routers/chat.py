@@ -1,10 +1,10 @@
 # Real-time WebSocket Emergency Chat Router
 from __future__ import annotations
-import json
+import uuid
 from typing import Dict, List, Set
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException
 from pydantic import BaseModel
-from datetime import datetime
+from datetime import datetime, timezone
 
 router = APIRouter(prefix="/api/chat", tags=["Realtime Emergency Chat"])
 
@@ -47,6 +47,17 @@ class ChatMessagePayload(BaseModel):
     sender_name: str
     message: str
 
+def _build_message(incident_id: str, sender_role: str, sender_name: str, message: str) -> Dict:
+    return {
+        "id": str(uuid.uuid4()),
+        "incident_id": incident_id,
+        "sender_role": sender_role,
+        "sender_name": sender_name,
+        "message": message,
+        "timestamp": datetime.now().strftime("%H:%M:%S"),
+        "timestamp_iso": datetime.now(timezone.utc).isoformat(),
+    }
+
 @router.get("/{incident_id}/messages")
 async def get_chat_history(incident_id: str):
     history = manager.chat_history.get(incident_id, [])
@@ -54,12 +65,14 @@ async def get_chat_history(incident_id: str):
 
 @router.post("/{incident_id}/send")
 async def send_chat_message(incident_id: str, payload: ChatMessagePayload):
-    msg_data = {
-        "incident_id": incident_id,
-        "sender_role": payload.sender_role,
-        "sender_name": payload.sender_name,
-        "message": payload.message,
-        "timestamp": datetime.now().strftime("%H:%M:%S")
-    }
+    body = (payload.message or "").strip()
+    if not body:
+        raise HTTPException(status_code=400, detail="Message cannot be empty")
+    msg_data = _build_message(
+        incident_id,
+        payload.sender_role,
+        payload.sender_name,
+        body,
+    )
     await manager.broadcast(incident_id, msg_data)
     return {"status": "sent", "message": msg_data}

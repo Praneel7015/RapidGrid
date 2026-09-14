@@ -176,19 +176,28 @@ async def health():
     """
     Health check endpoint.
 
-    Every service exposes /health for the platform layer's monitoring
-    (see technology-stack.md conventions).
+    Honest status: degraded when offline graph is missing; unhealthy when
+    neither live routing nor offline graph can serve paths.
     """
+    live = bool(route_agent.api_key)
+    offline = bool(local_router.available)
+    if not live and not offline:
+        status_value = "unhealthy"
+    elif not offline or not live:
+        status_value = "degraded"
+    else:
+        status_value = "healthy"
+
     return {
-        "status": "healthy",
+        "status": status_value,
         "service": "geoagentic-backend",
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "city_model": (
             city_state.snapshot() if city_state.ready else {"status": "unattached"}
         ),
         "routing": {
-            "live_api_key_configured": bool(route_agent.api_key),
-            "offline_graph_available": local_router.available,
+            "live_api_key_configured": live,
+            "offline_graph_available": offline,
             **route_agent.stats(),
         },
         "agents": {
@@ -214,13 +223,15 @@ async def websocket_chat_endpoint(websocket: WebSocket, incident_id: str):
             data = await websocket.receive_text()
             try:
                 payload = json.loads(data)
-                msg_data = {
-                    "incident_id": incident_id,
-                    "sender_role": payload.get("sender_role", "citizen"),
-                    "sender_name": payload.get("sender_name", "Anonymous"),
-                    "message": payload.get("message", ""),
-                    "timestamp": datetime.now().strftime("%H:%M:%S")
-                }
+                body = (payload.get("message") or "").strip()
+                if not body:
+                    continue
+                msg_data = chat._build_message(
+                    incident_id,
+                    payload.get("sender_role", "citizen"),
+                    payload.get("sender_name", "Anonymous"),
+                    body,
+                )
                 await chat.manager.broadcast(incident_id, msg_data)
             except Exception:
                 logger.exception("WebSocket chat message failed for %s", incident_id)

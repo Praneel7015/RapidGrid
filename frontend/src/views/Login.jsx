@@ -1,23 +1,22 @@
 /**
  * Role selection.
  *
- * This is a demonstration sign-in: choosing a role grants it, with no
- * credential check. That is a deliberate demo affordance, and the screen says
- * so plainly rather than implying an authentication system that does not
- * exist. A judge who spots the gap should find we already named it.
+ * Demonstration sign-in: choosing a role grants it, with no credential check.
+ * Profiles carry demo phone numbers for click-to-call.
  */
 
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { Radio, Truck, PlusSquare, Heart, ChevronRight, ChevronLeft, Info } from 'lucide-react';
-import { Panel, PanelHead, Button } from '../components/ui';
+import { Panel, PanelHead } from '../components/ui';
 
 const ROLES = [
   {
     id: 'citizen',
     Icon: Heart,
     title: 'Citizen',
+    glyph: 'C',
     blurb: 'Report an emergency and follow the response.',
     needsProfile: true,
   },
@@ -25,12 +24,14 @@ const ROLES = [
     id: 'dispatcher',
     Icon: Radio,
     title: 'City dispatch',
+    glyph: 'D',
     blurb: 'Review recommendations, approve or override, dispatch units.',
   },
   {
     id: 'driver',
     Icon: Truck,
     title: 'Field unit',
+    glyph: 'F',
     blurb: 'Navigate to the patient, then to the receiving hospital.',
     needsProfile: true,
   },
@@ -38,18 +39,19 @@ const ROLES = [
     id: 'hospital',
     Icon: PlusSquare,
     title: 'Emergency department',
+    glyph: 'E',
     blurb: 'See inbound patients and set ICU capacity.',
     needsProfile: true,
   },
 ];
 
 const UNITS = [
-  { unitId: 'AMB-UNIT-04', vehicleType: 'Ambulance', driverName: 'Suresh Kumar', hubName: 'Aster CMI Emergency Ambulance Hub' },
-  { unitId: 'AMB-UNIT-01', vehicleType: 'Ambulance', driverName: 'Ramesh Gowda', hubName: 'Manipal Ambulance Base Depot' },
-  { unitId: 'AMB-UNIT-02', vehicleType: 'Ambulance', driverName: 'Vijay Naik', hubName: 'Victoria Hospital Paramedic Base' },
-  { unitId: 'FIRE-UNIT-09', vehicleType: 'Fire Engine', driverName: 'Capt. Rajesh Rao', hubName: 'Hebbal Fire & Rescue Station #4' },
-  { unitId: 'POLICE-UNIT-02', vehicleType: 'Police Cruiser', driverName: 'Insp. Vikram Singh', hubName: 'Hebbal Police Patrol Base' },
-  { unitId: 'RESCUE-UNIT-01', vehicleType: 'Disaster Rescue', driverName: 'Cmdr. Arjun Reddy', hubName: 'NDRF Disaster Rescue Hub North' },
+  { unitId: 'AMB-UNIT-04', vehicleType: 'Ambulance', driverName: 'Suresh Kumar', hubName: 'Aster CMI Emergency Ambulance Hub', phone: '+91 98001 10004' },
+  { unitId: 'AMB-UNIT-01', vehicleType: 'Ambulance', driverName: 'Ramesh Gowda', hubName: 'Manipal Ambulance Base Depot', phone: '+91 98001 10001' },
+  { unitId: 'AMB-UNIT-02', vehicleType: 'Ambulance', driverName: 'Vijay Naik', hubName: 'Victoria Hospital Paramedic Base', phone: '+91 98001 10002' },
+  { unitId: 'FIRE-UNIT-09', vehicleType: 'Fire Engine', driverName: 'Capt. Rajesh Rao', hubName: 'Hebbal Fire & Rescue Station #4', phone: '+91 98001 20009' },
+  { unitId: 'POLICE-UNIT-02', vehicleType: 'Police Cruiser', driverName: 'Insp. Vikram Singh', hubName: 'Hebbal Police Patrol Base', phone: '+91 98001 30002' },
+  { unitId: 'RESCUE-UNIT-01', vehicleType: 'Disaster Rescue', driverName: 'Cmdr. Arjun Reddy', hubName: 'NDRF Disaster Rescue Hub North', phone: '+91 98001 40001' },
 ];
 
 const CITIZENS = [
@@ -59,14 +61,14 @@ const CITIZENS = [
 ];
 
 const HOSPITALS = [
-  { id: 'all', name: 'All receiving facilities' },
-  { id: 'blr-007', name: 'Aster CMI Hospital (Hebbal)' },
-  { id: 'blr-001', name: 'Manipal Hospital (Old Airport Road)' },
-  { id: 'blr-002', name: 'Fortis Hospital (Bannerghatta Road)' },
-  { id: 'blr-019', name: 'Sri Jayadeva Institute of Cardiovascular Sciences' },
-  { id: 'blr-010', name: 'NIMHANS' },
-  { id: 'blr-005', name: "St. John's Medical College Hospital" },
-  { id: 'blr-022', name: 'Victoria Hospital (BMCRI)' },
+  { id: 'all', name: 'All receiving facilities', phone: null },
+  { id: 'blr-007', name: 'Aster CMI Hospital (Hebbal)', phone: '+91 80 4342 0107' },
+  { id: 'blr-001', name: 'Manipal Hospital (Old Airport Road)', phone: '+91 80 2502 4444' },
+  { id: 'blr-002', name: 'Fortis Hospital (Bannerghatta Road)', phone: '+91 80 6621 4444' },
+  { id: 'blr-019', name: 'Sri Jayadeva Institute of Cardiovascular Sciences', phone: '+91 80 2297 7200' },
+  { id: 'blr-010', name: 'NIMHANS', phone: '+91 80 2699 5000' },
+  { id: 'blr-005', name: "St. John's Medical College Hospital", phone: '+91 80 2206 5000' },
+  { id: 'blr-022', name: 'Victoria Hospital (BMCRI)', phone: '+91 80 2670 1150' },
 ];
 
 export default function Login() {
@@ -90,7 +92,7 @@ export default function Login() {
         <button
           key={i}
           onClick={() => onPick(item)}
-          className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left transition-colors hover:bg-signal-wash"
+          className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left transition-colors hover:bg-paper-hover"
         >
           {render(item)}
           <ChevronRight size={15} className="shrink-0 text-text-faint" />
@@ -104,20 +106,20 @@ export default function Login() {
       <div className="mx-auto max-w-[640px] px-4 py-10">
         <header className="mb-7">
           <div className="flex items-center gap-2.5">
-            <div className="grid h-9 w-9 place-items-center rounded-sm bg-ink text-signal">
-              <Radio size={17} className="stroke-[2.4]" />
+            <div className="grid h-9 w-9 place-items-center rounded-sm bg-signal font-mono text-[13px] font-bold text-ink">
+              R
             </div>
-            <span className="font-display text-[17px] font-extrabold tracking-tight text-text">
+            <span className="font-display text-[17px] font-semibold tracking-[0.08em] text-text uppercase">
               RapidGrid
             </span>
           </div>
-          <h1 className="mt-5 font-display text-[clamp(24px,6vw,30px)] font-extrabold leading-tight text-text">
-            {picking ? 'Choose a profile' : 'Open a portal'}
+          <h1 className="mt-5 font-display text-[clamp(24px,6vw,32px)] font-semibold leading-tight text-text">
+            {picking ? 'Choose a profile' : 'Choose a portal'}
           </h1>
           <p className="mt-1.5 text-[13px] leading-relaxed text-text-muted">
             {picking
               ? 'Pick who you are signing in as for this session.'
-              : 'Four roles share one incident. Open several tabs to watch a call move between them.'}
+              : 'Four roles share one incident. Open several tabs to watch a call move between them. No credential check.'}
           </p>
         </header>
 
@@ -128,13 +130,13 @@ export default function Login() {
                 <button
                   key={role.id}
                   onClick={() => choose(role)}
-                  className="flex w-full items-center gap-4 rounded-md border border-rule bg-paper p-4 text-left transition-colors hover:border-signal hover:bg-paper-hover"
+                  className="flex w-full items-center gap-4 rounded-md border border-rule bg-paper p-4 text-left transition-colors hover:border-ink hover:bg-paper-hover"
                 >
-                  <div className="grid h-10 w-10 shrink-0 place-items-center rounded-sm bg-ink text-signal">
-                    <role.Icon size={18} className="stroke-[2.2]" />
+                  <div className="grid h-10 w-10 shrink-0 place-items-center rounded-sm bg-ink font-mono text-[13px] font-bold text-signal">
+                    {role.glyph}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="text-[14px] font-bold text-text">{role.title}</div>
+                    <div className="text-[14px] font-semibold text-text">{role.title}</div>
                     <p className="mt-0.5 text-[12px] leading-relaxed text-text-muted">
                       {role.blurb}
                     </p>
@@ -202,6 +204,9 @@ export default function Login() {
                         <span className="mt-1 block text-[12px] text-text-muted">
                           {u.driverName} · {u.hubName}
                         </span>
+                        <span className="mt-0.5 block font-mono text-[11px] text-text-faint">
+                          {u.phone}
+                        </span>
                       </span>
                     )}
                   />
@@ -215,7 +220,14 @@ export default function Login() {
                     items={HOSPITALS}
                     onPick={(h) => enter('hospital', h)}
                     render={(h) => (
-                      <span className="min-w-0 text-[13px] font-semibold text-text">{h.name}</span>
+                      <span className="min-w-0">
+                        <span className="block text-[13px] font-semibold text-text">{h.name}</span>
+                        {h.phone && (
+                          <span className="mt-0.5 block font-mono text-[11px] text-text-faint">
+                            {h.phone}
+                          </span>
+                        )}
+                      </span>
                     )}
                   />
                 </>

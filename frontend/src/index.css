@@ -4,74 +4,70 @@
    RapidGrid design system
 
    Register: emergency dispatch console, not consumer SaaS. Dense, legible at
-   a glance, readable at 3am. Elevation comes from surface value and hairline
-   rules rather than large shadows and 24px radii.
-
-   The palette is the project's own: evergreen / lavender-mist / amber-earth /
-   deep-purple. Every colour below derives from those five. Nothing else is
-   permitted - no stray violets, no stray cyans.
+   a glance. Elevation comes from surface value and a 1px rule — never a shadow.
+   Softened from the design export's zero-radius grid: 2–4px radii, muted rules
+   between modules, bone paper + command ink + one amber signal + P1 red.
    =========================================================================== */
 
 @theme {
-  /* --- Source palette ---------------------------------------------------- */
-  --color-evergreen:      #012622;
-  --color-evergreen-2:    #003b36;
-  --color-lavender-mist:  #ece5f0;
-  --color-amber-earth:    #e98a15;
-  --color-deep-purple:    #59114d;
+  /* --- Source palette (bone / command / amber / P1) ---------------------- */
+  --color-bone:           oklch(0.96 0.003 100);
+  --color-bone-raised:    oklch(0.925 0.004 100);
+  --color-command:        oklch(0.19 0.004 280);
+  --color-amber:          oklch(0.78 0.17 72);
+  --color-p1:             oklch(0.55 0.22 25);
 
   /* --- Semantic surfaces -------------------------------------------------
      `ink` is the command surface (dark). `field` is the light working area. */
-  --color-ink:            #012622;
-  --color-ink-raised:     #003b36;
-  --color-ink-hover:      #014f48;
-  --color-on-ink:         #eef4f2;
-  --color-on-ink-muted:   #8fa8a3;
+  --color-ink:            oklch(0.19 0.004 280);
+  --color-ink-raised:     oklch(0.245 0.005 280);
+  --color-ink-hover:      oklch(0.295 0.006 280);
+  --color-on-ink:         oklch(0.93 0.003 100);
+  --color-on-ink-muted:   oklch(0.705 0.006 280);
 
-  --color-field:          #ece5f0;
-  --color-paper:          #ffffff;
-  --color-paper-sunk:     #f5f1f8;
-  --color-paper-hover:    #faf7fc;
+  --color-field:          oklch(0.885 0.004 100);
+  --color-paper:          oklch(0.99 0.003 100);
+  --color-paper-sunk:     oklch(0.96 0.003 100);
+  --color-paper-hover:    oklch(0.925 0.004 100);
 
   /* --- Text -------------------------------------------------------------- */
-  --color-text:           #012622;
-  --color-text-muted:     #4d6661;
-  --color-text-faint:     #7d918d;
+  --color-text:           oklch(0.19 0.004 280);
+  --color-text-muted:     oklch(0.40 0.006 280);
+  --color-text-faint:     oklch(0.52 0.006 280);
 
   /* --- Rules & edges ----------------------------------------------------- */
-  --color-rule:           #dcd3e3;
-  --color-rule-strong:    #c3b6cd;
-  --color-rule-ink:       #0d423c;
-  --color-ink-sunk:       #0d423c;
+  --color-rule:           oklch(0.85 0.004 100);
+  --color-rule-strong:    oklch(0.78 0.004 100);
+  --color-rule-ink:       oklch(0.34 0.006 280);
+  --color-ink-sunk:       oklch(0.165 0.006 280);
 
   /* --- Signal: the single accent. Urgency, action, live state. ----------- */
-  --color-signal:         #e98a15;
-  --color-signal-hover:   #cf7708;
-  --color-signal-wash:    #fdf3e7;
-  --color-signal-edge:    #f3c185;
+  --color-signal:         oklch(0.78 0.17 72);
+  --color-signal-hover:   oklch(0.72 0.16 68);
+  --color-signal-wash:    oklch(0.96 0.04 85);
+  --color-signal-edge:    oklch(0.88 0.10 78);
 
-  /* --- Critical: reserved for highest severity ONLY. --------------------- */
-  --color-critical:       #59114d;
-  --color-critical-wash:  #f6ecf4;
-  --color-critical-edge:  #c98fbd;
+  /* --- Critical: reserved for highest severity ONLY (P1 red). ------------ */
+  --color-critical:       oklch(0.55 0.22 25);
+  --color-critical-wash:  oklch(0.96 0.03 25);
+  --color-critical-edge:  oklch(0.78 0.12 25);
 
-  /* --- Provenance. The signature dimension. -----------------------------
-     Verified data reads solid and confident; modelled data reads honest. */
-  --color-verified:       #1c6b3f;
-  --color-verified-wash:  #e8f3ec;
-  --color-modelled:       #6b5b7d;
-  --color-modelled-wash:  #f0ecf3;
+  /* --- Provenance. Texture and weight, never a third hue. --------------- */
+  --color-verified:       oklch(0.19 0.004 280);
+  --color-verified-wash:  oklch(0.99 0.003 100);
+  --color-modelled:       oklch(0.52 0.006 280);
+  --color-modelled-wash:  oklch(0.96 0.003 100);
 
   /* --- Type -------------------------------------------------------------- */
-  --font-display: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
-  --font-body:    "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-mono:    "JetBrains Mono", ui-monospace, "SFMono-Regular", monospace;
+  --font-display: "Archivo Narrow", "Archivo", ui-sans-serif, system-ui, sans-serif;
+  --font-body:    "Archivo", system-ui, sans-serif;
+  --font-mono:    "Azeret Mono", ui-monospace, "SFMono-Regular", monospace;
 
-  /* --- Radii. Instrument panel, not chat bubble. ------------------------- */
-  --radius-xs: 3px;
-  --radius-sm: 5px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
+  /* --- Radii. Softened instrument panel (export was 0). ------------------ */
+  --radius-xs: 0px;
+  --radius-sm: 2px;
+  --radius-md: 4px;
+  --radius-lg: 4px;
 }
 
 @layer base {
@@ -88,7 +84,7 @@
     background-color: var(--color-field);
     color: var(--color-text);
     font-family: var(--font-body);
-    font-feature-settings: "cv05" 1, "cv08" 1;
+    font-variant-numeric: tabular-nums;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     overscroll-behavior: none;
@@ -97,7 +93,7 @@
   h1, h2, h3, h4, h5, h6 {
     font-family: var(--font-display);
     color: var(--color-text);
-    letter-spacing: -0.02em;
+    letter-spacing: -0.015em;
     text-wrap: balance;
   }
 
@@ -115,7 +111,7 @@
 
   ::selection {
     background: var(--color-signal);
-    color: #fff;
+    color: var(--color-ink);
   }
 }
 
@@ -132,40 +128,59 @@
 }
 ::-webkit-scrollbar-thumb:hover { background-clip: content-box; background-color: var(--color-text-faint); }
 
-.scroll-ink::-webkit-scrollbar-thumb { background-color: #14514a; background-clip: content-box; }
+.scroll-ink::-webkit-scrollbar-thumb {
+  background-color: oklch(0.34 0.006 280);
+  background-clip: content-box;
+}
 
 /* ===========================================================================
-   Provenance - the signature treatment
-
-   The product's whole thesis is that it distinguishes what it knows from what
-   it models. That distinction is drawn, not just labelled: verified values sit
-   on a solid ground; modelled values carry a hatched underlay so they read as
-   estimates even at a glance, before you read the tag.
+   Provenance - texture and weight carry it, never hue
    =========================================================================== */
 .prov-verified {
-  color: var(--color-verified);
-  background: var(--color-verified-wash);
-  border: 1px solid color-mix(in srgb, var(--color-verified) 25%, transparent);
+  color: var(--color-text);
+  background: var(--color-paper);
+  border: 1px solid var(--color-ink);
 }
 
 .prov-modelled {
-  color: var(--color-modelled);
-  border: 1px solid color-mix(in srgb, var(--color-modelled) 28%, transparent);
-  background-color: var(--color-modelled-wash);
+  color: var(--color-text-muted);
+  border: 1px dashed var(--color-text-faint);
+  background-color: var(--color-paper-sunk);
   background-image: repeating-linear-gradient(
-    -45deg,
-    transparent 0 3px,
-    color-mix(in srgb, var(--color-modelled) 14%, transparent) 3px 4px
+    45deg,
+    oklch(0.19 0.004 280 / 0.13) 0 1px,
+    transparent 1px 5px
   );
 }
 
-/* A modelled number inline in prose: dotted underline, never silent. */
+/* Verified number: solid 2px rule, weight 600. */
+.val-verified {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  border-bottom: 2px solid currentColor;
+  padding-bottom: 2px;
+}
+
+/* Modelled number: hatch + dashed underline, weight 400. */
 .val-modelled {
-  text-decoration: underline;
-  text-decoration-style: dotted;
-  text-decoration-thickness: 1px;
-  text-underline-offset: 3px;
-  text-decoration-color: color-mix(in srgb, var(--color-modelled) 55%, transparent);
+  font-family: var(--font-mono);
+  font-weight: 400;
+  color: var(--color-text-muted);
+  background-image: repeating-linear-gradient(
+    45deg,
+    oklch(0.19 0.004 280 / 0.13) 0 1px,
+    transparent 1px 5px
+  );
+  border-bottom: 1px dashed var(--color-text-faint);
+  padding: 0 4px 2px;
+}
+
+.hz-refuse {
+  background-image: repeating-linear-gradient(
+    45deg,
+    oklch(0.55 0.22 25 / 0.3) 0 1.5px,
+    transparent 1.5px 6px
+  );
 }
 
 /* ===========================================================================
@@ -188,7 +203,7 @@
 .eyebrow {
   font-family: var(--font-mono);
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--color-text-faint);
@@ -198,17 +213,11 @@
 
 /* ---------------------------------------------------------------------------
    Responsive type floor
-
-   A dispatch console wants dense labels, but 9px is below what most people can
-   read on a phone held at arm's length - and the audit found 63 sub-10.5px
-   nodes on the console alone. These three classes carry every small label in
-   the app, so the floor is raised in one place: comfortably larger on touch,
-   tightening only once there is a pointer and the screen is wide.
    --------------------------------------------------------------------------- */
 .t-tag {
   font-family: var(--font-mono);
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: 0.09em;
   text-transform: uppercase;
   line-height: 1.25;
@@ -234,15 +243,6 @@
 
 /* ---------------------------------------------------------------------------
    Touch targets
-
-   Anything interactive needs a 44px-ish hit area on a small screen. The hit
-   area is extended with a pseudo-element rather than by inflating the control,
-   so the layout stays dense while the target does not.
-
-   Keyed on viewport width, NOT on `pointer: coarse`. Pointer media queries are
-   unreliable: they miss touch laptops and hybrid devices, and they do not
-   report coarse in most automated browsers - which meant this rule silently
-   did nothing everywhere it was measured.
    --------------------------------------------------------------------------- */
 @media (max-width: 1023px) {
   .tap {
@@ -258,7 +258,6 @@
     transform: translate(-50%, -50%);
   }
 
-  /* Leaflet ships 30x30 zoom controls - below the touch minimum. */
   .leaflet-bar a,
   .leaflet-touch .leaflet-bar a {
     width: 42px !important;
@@ -267,7 +266,6 @@
     font-size: 20px !important;
   }
 
-  /* Its attribution link is a 52x12 tap target; give it room. */
   .leaflet-control-attribution {
     padding: 4px 6px !important;
     line-height: 1.6 !important;
@@ -275,21 +273,20 @@
 }
 
 /* ===========================================================================
-   Live state - a dispatch console should feel awake
+   Live state
    =========================================================================== */
 @keyframes rg-pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50%      { opacity: 0.45; transform: scale(0.82); }
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.3; }
 }
 .live-dot {
-  animation: rg-pulse 1.8s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  animation: rg-pulse 2.4s ease-in-out infinite;
 }
 
 @keyframes rg-sweep {
   from { transform: translateX(-100%); }
   to   { transform: translateX(400%); }
 }
-/* A slow light sweep across an active panel edge - the console breathing. */
 .sweep::after {
   content: "";
   position: absolute;
@@ -316,40 +313,23 @@
 }
 
 /* ===========================================================================
-   Map - tinted into the palette
-
-   OpenStreetMap's raster tiles are the only free, key-free source that still
-   serves real imagery (CARTO's anonymous basemaps now return a watermark).
-   Rather than embed the stock OSM look, the tiles are desaturated and tinted
-   so the map reads as part of this product rather than a third-party widget.
+   Map - cool ink ground, amber phase-2 routes
    =========================================================================== */
 .leaflet-container {
   font-family: var(--font-body) !important;
-  background: var(--color-paper-sunk) !important;
-
-  /* Leaflet gives its panes and controls z-index values from 200 up to 1000.
-     Because .leaflet-container is positioned but has no z-index of its own, it
-     creates no stacking context - so those values compete with the rest of the
-     page and the map paints straight over the sticky header when you scroll.
-     Giving the container its own stacking context traps that whole scale
-     inside the map, where it belongs. */
+  background: var(--color-ink-sunk) !important;
   position: relative;
   z-index: 0;
   isolation: isolate;
-
-  /* Leaflet draws its canvas and tiles wider than the viewport as a panning
-     buffer. Leaflet's own stylesheet clips that, but be explicit: without it
-     the buffer leaks past the container and shows up as page overflow on a
-     narrow screen. */
   overflow: hidden;
 }
 
 .map-tinted .leaflet-tile-pane {
-  filter: grayscale(0.92) brightness(1.06) contrast(0.88) sepia(0.16) hue-rotate(232deg) saturate(1.25);
+  filter: grayscale(0.88) brightness(1.02) contrast(0.92) sepia(0.08) hue-rotate(220deg) saturate(0.7);
 }
 
 .map-ink .leaflet-tile-pane {
-  filter: grayscale(1) invert(0.93) brightness(0.92) contrast(1.08) sepia(0.35) hue-rotate(120deg) saturate(1.5);
+  filter: grayscale(1) invert(0.92) brightness(0.88) contrast(1.1) sepia(0.12) hue-rotate(220deg) saturate(0.6);
 }
 
 .leaflet-container a.leaflet-popup-close-button { color: var(--color-text-muted); }
@@ -357,28 +337,27 @@
 .leaflet-popup-content-wrapper {
   border-radius: var(--radius-sm) !important;
   border: 1px solid var(--color-rule);
-  box-shadow: 0 6px 20px -6px rgba(1, 38, 34, 0.28);
+  box-shadow: none;
 }
 .leaflet-popup-content { margin: 10px 12px !important; font-size: 12px; }
 
 .leaflet-control-attribution {
-  background: rgba(255, 255, 255, 0.82) !important;
+  background: oklch(0.99 0.003 100 / 0.88) !important;
   font-size: 9px !important;
   font-family: var(--font-mono) !important;
   color: var(--color-text-faint) !important;
 }
 
-/* Map markers are drawn, not imported - keeps the icon language consistent. */
 .rg-marker {
   display: grid;
   place-items: center;
-  border-radius: 99px;
+  border-radius: 2px;
   font-family: var(--font-mono);
   font-weight: 700;
   font-size: 10px;
   color: #fff;
   border: 2px solid #fff;
-  box-shadow: 0 2px 8px rgba(1, 38, 34, 0.4);
+  box-shadow: none;
 }
 
 @keyframes rg-ping {
@@ -389,7 +368,28 @@
   content: "";
   position: absolute;
   inset: 0;
-  border-radius: 99px;
+  border-radius: 2px;
   background: currentColor;
   animation: rg-ping 2s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+/* Tier chips: filled amber = live; dashed hatch = offline A*; solid red = down */
+.tier-live {
+  background: var(--color-signal);
+  color: var(--color-ink);
+  border: 1px solid var(--color-ink);
+}
+.tier-offline {
+  color: var(--color-on-ink);
+  border: 1px dashed var(--color-on-ink-muted);
+  background-image: repeating-linear-gradient(
+    45deg,
+    oklch(0.93 0.003 100 / 0.18) 0 1px,
+    transparent 1px 5px
+  );
+}
+.tier-down {
+  background: var(--color-critical);
+  color: var(--color-on-ink);
+  border: 1px solid var(--color-critical);
 }

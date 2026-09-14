@@ -314,6 +314,11 @@ export default function DriverDashboard() {
         senderRole="driver"
         senderName={driverInfo?.unitId ?? 'Responder'}
         height="min(32vh, 260px)"
+        contacts={{
+          citizen: active.citizen_phone,
+          hospital: active.hospital_phone ?? view?.hospital_phone,
+          unit: driverInfo?.phone ?? active.unit_phone ?? view?.unit_phone,
+        }}
       />
     </div>
   );
