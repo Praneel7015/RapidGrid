@@ -4,6 +4,7 @@ API smoke tests for incident report, chat, and honest /health.
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
@@ -18,13 +19,29 @@ from routers import incident as incident_router  # noqa: E402
 from routers import chat as chat_router  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def _reset_disk_db(tmp_path, monkeypatch):
+    """
+    Redirect DB_FILE to a per-test temp file so that save_db() / load_db()
+    never touch the real backend/data/incidents_db.json and never leak state
+    between test runs.  The real file is never written during the test suite.
+    """
+    tmp_db = tmp_path / "incidents_db.json"
+    tmp_db.write_text("[]", encoding="utf-8")
+    monkeypatch.setattr(incident_router, "DB_FILE", tmp_db)
+
+
 @pytest.fixture
 def client():
     # Isolate in-memory stores between tests.
     incident_router.ACTIVE_INCIDENTS.clear()
     chat_router.manager.chat_history.clear()
     chat_router.manager.active_connections.clear()
-    return TestClient(app)
+    yield TestClient(app)
+    # Teardown: wipe in-memory stores so nothing leaks to the next test.
+    incident_router.ACTIVE_INCIDENTS.clear()
+    chat_router.manager.chat_history.clear()
+    chat_router.manager.active_connections.clear()
 
 
 def test_health_reports_status_and_routing(client):
@@ -98,7 +115,9 @@ def test_incident_report_accepts_voice_modality(client):
     assert body["status"] == "processing"
 
 
-def test_pipeline_failure_marks_incident_failed():
+def test_pipeline_failure_marks_incident_failed(client):  # noqa: ARG001
+    # Use the `client` fixture so _reset_disk_db (autouse) has already
+    # redirected DB_FILE to a temp path before this test touches ACTIVE_INCIDENTS.
     incident_router.ACTIVE_INCIDENTS.clear()
     incident_router.ACTIVE_INCIDENTS.append(
         {
@@ -107,9 +126,11 @@ def test_pipeline_failure_marks_incident_failed():
             "citizen_phone": "+91 98765 43210",
         }
     )
+    # save_db() writes to the temp DB_FILE (redirected by _reset_disk_db),
+    # so no real patch needed — but we keep one to avoid unnecessary I/O.
     with patch.object(incident_router, "save_db"):
         incident_router._mark_failed("INC-fail", RuntimeError("fusion exploded"))
     inc = incident_router.ACTIVE_INCIDENTS[0]
     assert inc["status"] == "failed"
     assert "fusion exploded" in inc["error"]
-    incident_router.ACTIVE_INCIDENTS.clear()
+    # Teardown is handled by the client fixture's yield + ACTIVE_INCIDENTS.clear().

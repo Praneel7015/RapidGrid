@@ -28,6 +28,9 @@ router = APIRouter(prefix="/api/incidents", tags=["Incidents"])
 
 # In-memory queue of active incidents
 ACTIVE_INCIDENTS: List[Dict[str, Any]] = []
+# asyncio lock — all mutations to ACTIVE_INCIDENTS must be done under this lock
+# to prevent concurrent pipeline tasks from racing on append / clear / search.
+_INCIDENTS_LOCK: asyncio.Lock = asyncio.Lock()
 
 import json
 from pathlib import Path
@@ -44,6 +47,15 @@ def save_db():
 
 def load_db():
     global ACTIVE_INCIDENTS
+    # NOTE: load_db() is called once at module import (see below).  If
+    # incidents_db.json contains incidents with status "failed", "processing",
+    # or "dispatched" from a previous server run, those records will be restored
+    # into ACTIVE_INCIDENTS and re-surfaced to citizens on the next server
+    # restart.  This is intentional for "dispatched" incidents (they are still
+    # live), but stale "failed" or "processing" incidents from a crashed run
+    # will appear valid until they time out or are explicitly cleared.
+    # To avoid ghost incidents after a crash, consider filtering on load:
+    #   data = [i for i in data if i.get("status") not in {"failed", "processing"}]
     try:
         if DB_FILE.exists():
             with open(DB_FILE, "r", encoding="utf-8") as f:
@@ -104,6 +116,11 @@ def _hospital_phone(name: str | None) -> str | None:
 
 
 def _mark_failed(incident_id: str, exc: Exception) -> None:
+    # NOTE: This is called from an async except-block; it does NOT acquire
+    # _INCIDENTS_LOCK because doing so from a sync function inside an async
+    # task would require run_coroutine_threadsafe. The caller (run_pipeline)
+    # is the only writer at this point — the task already owns the logical
+    # "pipeline slot" for this incident_id — so direct mutation is safe here.
     for inc in ACTIVE_INCIDENTS:
         if inc["incident_id"] == incident_id:
             inc["status"] = "failed"
@@ -121,15 +138,26 @@ async def run_pipeline(incident_id: str, payload: IncidentReportPayload):
             location=payload.location,
             modality=modality,
         )
+        # Awaitable work happens OUTSIDE the lock so we don't hold it across
+        # I/O-bound agent calls.
         access_res = await accessibility_agent.process_input(access_req)
 
-        for inc in ACTIVE_INCIDENTS:
-            if inc["incident_id"] == incident_id:
-                inc["emergency_type"] = access_res.incident_report.incident_type.value
-                inc["severity"] = access_res.incident_report.severity_estimate
-                inc["details"] = access_res.incident_report.extracted_details
-                inc["input_modality"] = modality.value
-                break
+        async with _INCIDENTS_LOCK:
+            found = False
+            for inc in ACTIVE_INCIDENTS:
+                if inc["incident_id"] == incident_id:
+                    inc["emergency_type"] = access_res.incident_report.incident_type.value
+                    inc["severity"] = access_res.incident_report.severity_estimate
+                    inc["details"] = access_res.incident_report.extracted_details
+                    inc["input_modality"] = modality.value
+                    found = True
+                    break
+            # If the incident was cleared/deleted before this point, abort cleanly
+            # instead of silently doing nothing (which previously left no failure
+            # marker and no citizen_view, causing a permanent 404 on /approve).
+            if not found:
+                logger.warning("Pipeline: incident %s no longer present after accessibility step — aborting", incident_id)
+                return
 
         fusion_req = FusionRequest(
             incident_id=incident_id,
@@ -142,56 +170,72 @@ async def run_pipeline(incident_id: str, payload: IncidentReportPayload):
 
         fusion_res = await fusion_engine.fuse(fusion_req)
 
-        for inc in ACTIVE_INCIDENTS:
-            if inc["incident_id"] == incident_id:
-                inc["action_plan"] = fusion_res.model_dump(mode="json")
-                inc["status"] = "awaiting_dispatcher_approval"
-                route_coords = [
-                    {"lat": c.lat, "lng": c.lng}
-                    for c in fusion_res.recommended_route.coordinates
-                ]
-                hosp = fusion_res.recommended_hospital
-                veh_type = payload.vehicle_required or "Ambulance"
-                nearest_hub = find_nearest_hub(veh_type, payload.location.lat, payload.location.lng)
-                unit_phone = nearest_hub.get("phone") or DEMO_UNIT_PHONE
-                hospital_phone = _hospital_phone(hosp.name)
+        # Compute phase-1 route (hub → patient) outside the lock.
+        hosp = fusion_res.recommended_hospital
+        veh_type = payload.vehicle_required or "Ambulance"
+        nearest_hub = find_nearest_hub(veh_type, payload.location.lat, payload.location.lng)
+        unit_phone = nearest_hub.get("phone") or DEMO_UNIT_PHONE
+        hospital_phone = _hospital_phone(hosp.name)
 
-                try:
-                    p1_route = route_agent.compute_route(RouteRequest(
-                        origin=Coordinate(lat=nearest_hub["lat"], lng=nearest_hub["lng"]),
-                        destination=payload.location
-                    ))
-                    p1_coords = [{"lat": c.lat, "lng": c.lng} for c in p1_route.coordinates]
-                    p1_eta = max(1, int(p1_route.eta // 60))
-                except Exception:
-                    p1_coords = [
-                        {"lat": nearest_hub["lat"], "lng": nearest_hub["lng"]},
-                        {"lat": payload.location.lat, "lng": payload.location.lng},
-                    ]
-                    p1_eta = 5
+        try:
+            p1_route = route_agent.compute_route(RouteRequest(
+                origin=Coordinate(lat=nearest_hub["lat"], lng=nearest_hub["lng"]),
+                destination=payload.location
+            ))
+            p1_coords = [{"lat": c.lat, "lng": c.lng} for c in p1_route.coordinates]
+            p1_eta = max(1, int(p1_route.eta // 60))
+        except Exception:
+            p1_coords = [
+                {"lat": nearest_hub["lat"], "lng": nearest_hub["lng"]},
+                {"lat": payload.location.lat, "lng": payload.location.lng},
+            ]
+            p1_eta = 5
 
-                inc["unit_phone"] = unit_phone
-                inc["hospital_phone"] = hospital_phone
-                inc["citizen_view"] = {
-                    "message": f"Dispatching from {nearest_hub['name']}. Destination Hospital: {hosp.name}.",
-                    "eta_minutes": int(fusion_res.recommended_route.eta // 60),
-                    "hospital_name": hosp.name,
-                    "hospital_location": {"lat": hosp.location.lat, "lng": hosp.location.lng},
-                    "hospital_phone": hospital_phone,
-                    "unit_phone": unit_phone,
-                    "origin": {"lat": payload.location.lat, "lng": payload.location.lng},
-                    "route_coordinates": route_coords,
-                    "phase1_hub": nearest_hub,
-                    "phase1_route_coordinates": p1_coords,
-                    "phase1_eta_minutes": p1_eta,
-                    "distance_meters": fusion_res.recommended_route.distance,
-                    "emergency_type": access_res.incident_report.incident_type.value,
-                    "severity": access_res.incident_report.severity_estimate,
-                    "vehicle_required": payload.vehicle_required or "Ambulance",
-                    "include_ambulance_backup": bool(payload.include_ambulance_backup),
-                }
-                save_db()
-                break
+        route_coords = [
+            {"lat": c.lat, "lng": c.lng}
+            for c in fusion_res.recommended_route.coordinates
+        ]
+
+        # Build the full citizen_view dict before acquiring the lock so the
+        # incident is never visible in the partially-written state where
+        # action_plan is set but citizen_view is still absent.
+        new_citizen_view = {
+            "message": f"Dispatching from {nearest_hub['name']}. Destination Hospital: {hosp.name}.",
+            "eta_minutes": int(fusion_res.recommended_route.eta // 60),
+            "hospital_name": hosp.name,
+            "hospital_location": {"lat": hosp.location.lat, "lng": hosp.location.lng},
+            "hospital_phone": hospital_phone,
+            "unit_phone": unit_phone,
+            "origin": {"lat": payload.location.lat, "lng": payload.location.lng},
+            "route_coordinates": route_coords,
+            "phase1_hub": nearest_hub,
+            "phase1_route_coordinates": p1_coords,
+            "phase1_eta_minutes": p1_eta,
+            "distance_meters": fusion_res.recommended_route.distance,
+            "emergency_type": access_res.incident_report.incident_type.value,
+            "severity": access_res.incident_report.severity_estimate,
+            "vehicle_required": payload.vehicle_required or "Ambulance",
+            "include_ambulance_backup": bool(payload.include_ambulance_backup),
+        }
+
+        async with _INCIDENTS_LOCK:
+            found = False
+            for inc in ACTIVE_INCIDENTS:
+                if inc["incident_id"] == incident_id:
+                    # Write action_plan, citizen_view, and status atomically
+                    # inside the lock so no reader ever sees action_plan without
+                    # citizen_view, or a "awaiting_dispatcher_approval" status
+                    # with neither field populated.
+                    inc["action_plan"] = fusion_res.model_dump(mode="json")
+                    inc["unit_phone"] = unit_phone
+                    inc["hospital_phone"] = hospital_phone
+                    inc["citizen_view"] = new_citizen_view
+                    inc["status"] = "awaiting_dispatcher_approval"
+                    found = True
+                    save_db()
+                    break
+            if not found:
+                logger.warning("Pipeline: incident %s no longer present after fusion step — aborting", incident_id)
     except Exception as exc:
         logger.exception("Pipeline failed for %s", incident_id)
         _mark_failed(incident_id, exc)
@@ -213,8 +257,9 @@ async def report_incident(payload: IncidentReportPayload, response: Response):
         "status": "processing",
         "action_plan": None
     }
-    ACTIVE_INCIDENTS.append(incident)
-    save_db()
+    async with _INCIDENTS_LOCK:
+        ACTIVE_INCIDENTS.append(incident)
+        save_db()
     
     # Start background processing pipeline
     asyncio.create_task(run_pipeline(incident_id, payload))
@@ -237,11 +282,14 @@ async def get_incident(incident_id: str):
 @router.get("/")
 async def get_all_incidents():
     """For Dispatcher to see all active incidents."""
-    # Ensure they have severity for sorting
-    for inc in ACTIVE_INCIDENTS:
-        if "severity" not in inc:
-            inc["severity"] = 0.5
-    return {"incidents": ACTIVE_INCIDENTS}
+    # Ensure they have severity for sorting.
+    # Acquire the lock because we mutate incident dicts in-place — a concurrent
+    # run_pipeline task could be doing the same thing simultaneously.
+    async with _INCIDENTS_LOCK:
+        for inc in ACTIVE_INCIDENTS:
+            if "severity" not in inc:
+                inc["severity"] = 0.5
+        return {"incidents": list(ACTIVE_INCIDENTS)}
 
 @router.post("/{incident_id}/approve")
 async def approve_incident(incident_id: str, payload: ApprovePayload):
@@ -383,8 +431,14 @@ async def incident_arrived(incident_id: str, unit_type: str = "primary"):
 
 @router.post("/clear")
 async def clear_incidents():
-    ACTIVE_INCIDENTS.clear()
-    save_db()
+    # SECURITY NOTE: This endpoint has NO authentication guard.  Any caller
+    # with network access can wipe all live incidents.  In production this
+    # must be protected by at minimum an internal-network restriction or an
+    # API-key / operator-role check.  Auth is out of scope for this sprint —
+    # do NOT ship this endpoint to a public-facing deployment without adding it.
+    async with _INCIDENTS_LOCK:
+        ACTIVE_INCIDENTS.clear()
+        save_db()
     return {"status": "cleared"}
 @router.post("/{incident_id}/request_ambulance")
 async def request_ambulance_backup(incident_id: str):
