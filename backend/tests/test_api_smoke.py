@@ -107,7 +107,9 @@ def test_pipeline_failure_marks_incident_failed():
             "citizen_phone": "+91 98765 43210",
         }
     )
-    incident_router._mark_failed("INC-fail", RuntimeError("fusion exploded"))
+    with patch.object(incident_router, "save_db"):
+        incident_router._mark_failed("INC-fail", RuntimeError("fusion exploded"))
     inc = incident_router.ACTIVE_INCIDENTS[0]
     assert inc["status"] == "failed"
     assert "fusion exploded" in inc["error"]
+    incident_router.ACTIVE_INCIDENTS.clear()
