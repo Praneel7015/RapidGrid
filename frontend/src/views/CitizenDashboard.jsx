@@ -236,6 +236,8 @@ export default function CitizenDashboard() {
           onClick={() => {
             setStage('home');
             setError(null);
+            setIncident(null);
+            setPollUrl(null);
           }}
           className="tap mb-4 inline-flex items-center gap-1 py-1 t-tag text-text-muted hover:text-text"
         >

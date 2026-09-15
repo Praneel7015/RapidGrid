@@ -62,13 +62,15 @@ export default function SharedShell({ children }) {
   const status = health?.status;
   const live = status === 'healthy' && health?.routing?.live_api_key_configured;
   const degraded = status === 'degraded' || (reachable && health?.routing && !health.routing.live_api_key_configured);
-  const tier = !reachable || status === 'unhealthy'
-    ? { label: 'Backend offline', tone: 'bad' }
-    : degraded
-      ? { label: 'Offline A*', tone: 'warn' }
-      : live
-        ? { label: 'Live routing', tone: 'ok' }
-        : { label: 'Live routing', tone: 'ok' };
+  const tier = health === null
+    ? { label: 'Connecting…', tone: 'warn' }
+    : !reachable || status === 'unhealthy'
+      ? { label: 'Backend offline', tone: 'bad' }
+      : degraded
+        ? { label: 'Offline A*', tone: 'warn' }
+        : live
+          ? { label: 'Live routing', tone: 'ok' }
+          : { label: 'Backend online', tone: 'warn' };
 
   const tones = {
     ok: 'tier-live',

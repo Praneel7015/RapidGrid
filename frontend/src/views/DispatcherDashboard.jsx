@@ -149,6 +149,9 @@ export default function DispatcherDashboard() {
     (i) => i.status === 'processing' || i.status === 'awaiting_dispatcher_approval',
   );
   const active = incidents.filter((i) => i.status === 'dispatched');
+  const queueVisible = incidents.filter(
+    (i) => !['failed', 'completed'].includes(i.status),
+  );
   const needsAction = incidents.filter(
     (i) => i.status === 'awaiting_dispatcher_approval',
   ).length;
@@ -201,7 +204,7 @@ export default function DispatcherDashboard() {
         {/* ---- Queue ----------------------------------------------------- */}
         <Panel className="flex flex-col overflow-hidden md:max-h-[calc(100vh-150px)]">
           <PanelHead
-            label={`Call queue · ${incidents.length}`}
+            label={`Call queue · ${queueVisible.length}`}
             right={
               needsAction > 0 && (
                 <span className="t-tag text-signal-hover">
@@ -210,14 +213,14 @@ export default function DispatcherDashboard() {
               )
             }
           />
-          {incidents.length === 0 ? (
+          {queueVisible.length === 0 ? (
             <Empty
               title="No active calls"
               hint="Incidents raised from the citizen app appear here the moment the agents finish assessing them."
             />
           ) : (
             <div className="min-h-0 flex-1 md:overflow-y-auto">
-              {incidents
+              {queueVisible
                 .slice()
                 .reverse()
                 .map((inc) => {
@@ -477,20 +480,6 @@ export default function DispatcherDashboard() {
                   modelled — no hospital HMIS feed is integrated.
                 </p>
               </Panel>
-
-              {selected?.incident_id && (
-                <LiveEmergencyChat
-                  incidentId={selected.incident_id}
-                  senderRole="dispatcher"
-                  senderName="Dispatch"
-                  height="220px"
-                  contacts={{
-                    citizen: selected.citizen_phone,
-                    unit: selected.unit_phone ?? view?.unit_phone,
-                    hospital: selected.hospital_phone ?? view?.hospital_phone,
-                  }}
-                />
-              )}
             </>
           ) : selected ? (
             <Panel className="grid place-items-center">
@@ -500,6 +489,20 @@ export default function DispatcherDashboard() {
               />
             </Panel>
           ) : null}
+
+          {selected?.incident_id && (
+            <LiveEmergencyChat
+              incidentId={selected.incident_id}
+              senderRole="dispatcher"
+              senderName="Dispatch"
+              height="220px"
+              contacts={{
+                citizen: selected.citizen_phone,
+                unit: selected.unit_phone ?? view?.unit_phone,
+                hospital: selected.hospital_phone ?? view?.hospital_phone,
+              }}
+            />
+          )}
         </div>
       </div>
     </div>

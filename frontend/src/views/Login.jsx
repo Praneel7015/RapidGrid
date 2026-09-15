@@ -86,11 +86,11 @@ export default function Login() {
     else enter(role.id);
   };
 
-  const OptionList = ({ items, render, onPick }) => (
+  const OptionList = ({ items, render, onPick, getKey }) => (
     <div className="divide-y divide-rule">
       {items.map((item, i) => (
         <button
-          key={i}
+          key={getKey ? getKey(item) : i}
           onClick={() => onPick(item)}
           className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left transition-colors hover:bg-paper-hover"
         >
@@ -171,6 +171,7 @@ export default function Login() {
                   <OptionList
                     items={CITIZENS}
                     onPick={(c) => enter('citizen', c)}
+                    getKey={(c) => c.phone}
                     render={(c) => (
                       <span className="min-w-0">
                         <span className="block text-[13.5px] font-semibold text-text">
@@ -191,6 +192,7 @@ export default function Login() {
                   <OptionList
                     items={UNITS}
                     onPick={(u) => enter('driver', u)}
+                    getKey={(u) => u.unitId}
                     render={(u) => (
                       <span className="min-w-0">
                         <span className="flex items-center gap-2">
@@ -219,6 +221,7 @@ export default function Login() {
                   <OptionList
                     items={HOSPITALS}
                     onPick={(h) => enter('hospital', h)}
+                    getKey={(h) => h.id}
                     render={(h) => (
                       <span className="min-w-0">
                         <span className="block text-[13px] font-semibold text-text">{h.name}</span>

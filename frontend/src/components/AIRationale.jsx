@@ -272,7 +272,7 @@ export default function AIRationale({ plan }) {
         <div className="eyebrow mb-1">Weighted factors</div>
         <div className="divide-y divide-rule/60">
           {factors.map((f, i) => (
-            <FactorBar key={i} factor={f} />
+            <FactorBar key={f.factor ?? i} factor={f} />
           ))}
         </div>
       </section>
