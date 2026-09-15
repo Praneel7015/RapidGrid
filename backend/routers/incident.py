@@ -72,84 +72,129 @@ class ApprovePayload(BaseModel):
     approved_hospital: str
     approved_route: str
 
-async def run_pipeline(incident_id: str, payload: IncidentReportPayload):
-    """Background task simulating the event-driven bus pipeline."""
-    # Step 2a: Accessibility Agent
-    access_req = AccessibilityRequest(
-        raw_input=payload.citizen_text,
-        location=payload.location,
-        modality=AccessibilityInputModality.TEXT
-    )
-    access_res = await accessibility_agent.process_input(access_req)
-    
-    # Update incident with classification details
-    for inc in ACTIVE_INCIDENTS:
-        if inc["incident_id"] == incident_id:
-            inc["emergency_type"] = access_res.incident_report.incident_type.value
-            inc["severity"] = access_res.incident_report.severity_estimate
-            inc["details"] = access_res.incident_report.extracted_details
-            break
-            
-    # Step 2b: Decision Fusion Engine (which coordinates Traffic, Route, Hospital, Prediction)
-    # Use citizen's location for hospital search + route origin (nearest ambulance station)
-    # In production this would be the nearest dispatched ambulance's real-time GPS
-    fusion_req = FusionRequest(
-        incident_id=incident_id,
-        incident_location=payload.location,
-        emergency_type=access_res.incident_report.incident_type,
-        severity=access_res.incident_report.severity_estimate,
-        vehicle_location=payload.location,  # Nearest ambulance dispatches from citizen area
-        accessibility_needs=access_res.citizen_accessibility_profile.model_dump()
-    )
-    
-    # Run the fusion engine to generate action plan
-    fusion_res = await fusion_engine.fuse(fusion_req)
-    
-    # Attach plan and update status to awaiting_dispatcher_approval
-    for inc in ACTIVE_INCIDENTS:
-        if inc["incident_id"] == incident_id:
-            inc["action_plan"] = fusion_res.model_dump(mode="json")
-            inc["status"] = "awaiting_dispatcher_approval"
-            # Build route polyline for map rendering
-            route_coords = [
-                {"lat": c.lat, "lng": c.lng}
-                for c in fusion_res.recommended_route.coordinates
-            ]
-            hosp = fusion_res.recommended_hospital
-            # Compute 2-Phase Shortest Routes: Phase 1 (Station Hub -> Citizen) and Phase 2 (Citizen -> Hospital)
-            veh_type = payload.vehicle_required or "Ambulance"
-            nearest_hub = find_nearest_hub(veh_type, payload.location.lat, payload.location.lng)
-            
-            # Phase 1: Hub -> Citizen
-            try:
-                p1_route = route_agent.compute_route(RouteRequest(
-                    origin=Coordinate(lat=nearest_hub["lat"], lng=nearest_hub["lng"]),
-                    destination=payload.location
-                ))
-                p1_coords = [{"lat": c.lat, "lng": c.lng} for c in p1_route.coordinates]
-                p1_eta = max(1, int(p1_route.eta // 60))
-            except Exception as e:
-                p1_coords = [{"lat": nearest_hub["lat"], "lng": nearest_hub["lng"]}, {"lat": payload.location.lat, "lng": payload.location.lng}]
-                p1_eta = 5
+# Demo click-to-call numbers (no live hospital/unit directory feed).
+DEMO_HOSPITAL_PHONES = {
+    "Aster CMI Hospital (Hebbal)": "+91 80 4342 0107",
+    "Manipal Hospital (Old Airport Road)": "+91 80 2502 4444",
+    "Fortis Hospital (Bannerghatta Road)": "+91 80 6621 4444",
+    "Sri Jayadeva Institute of Cardiovascular Sciences": "+91 80 2297 7200",
+    "NIMHANS": "+91 80 2699 5000",
+    "St. John's Medical College Hospital": "+91 80 2206 5000",
+    "Victoria Hospital (BMCRI)": "+91 80 2670 1150",
+}
+DEMO_UNIT_PHONE = "+91 98001 10004"
 
-            inc["citizen_view"] = {
-                "message": f"Dispatching from {nearest_hub['name']}. Destination Hospital: {hosp.name}.",
-                "eta_minutes": int(fusion_res.recommended_route.eta // 60),
-                "hospital_name": hosp.name,
-                "hospital_location": {"lat": hosp.location.lat, "lng": hosp.location.lng},
-                "origin": {"lat": payload.location.lat, "lng": payload.location.lng},
-                "route_coordinates": route_coords,
-                "phase1_hub": nearest_hub,
-                "phase1_route_coordinates": p1_coords,
-                "phase1_eta_minutes": p1_eta,
-                "distance_meters": fusion_res.recommended_route.distance,
-                "emergency_type": access_res.incident_report.incident_type.value,
-                "severity": access_res.incident_report.severity_estimate,
-                "vehicle_required": payload.vehicle_required or "Ambulance",
-                "include_ambulance_backup": bool(payload.include_ambulance_backup),
-            }
+
+def _resolve_modality(raw: str) -> AccessibilityInputModality:
+    try:
+        return AccessibilityInputModality(str(raw or "text").strip().lower())
+    except ValueError:
+        return AccessibilityInputModality.TEXT
+
+
+def _hospital_phone(name: str | None) -> str | None:
+    if not name:
+        return None
+    if name in DEMO_HOSPITAL_PHONES:
+        return DEMO_HOSPITAL_PHONES[name]
+    for key, phone in DEMO_HOSPITAL_PHONES.items():
+        if key.lower() in name.lower() or name.lower() in key.lower():
+            return phone
+    return "+91 80 0000 0000"
+
+
+def _mark_failed(incident_id: str, exc: Exception) -> None:
+    for inc in ACTIVE_INCIDENTS:
+        if inc["incident_id"] == incident_id:
+            inc["status"] = "failed"
+            inc["error"] = str(exc) or "Pipeline failed"
             save_db()
             break
+
+
+async def run_pipeline(incident_id: str, payload: IncidentReportPayload):
+    """Background task simulating the event-driven bus pipeline."""
+    try:
+        modality = _resolve_modality(payload.input_modality)
+        access_req = AccessibilityRequest(
+            raw_input=payload.citizen_text,
+            location=payload.location,
+            modality=modality,
+        )
+        access_res = await accessibility_agent.process_input(access_req)
+
+        for inc in ACTIVE_INCIDENTS:
+            if inc["incident_id"] == incident_id:
+                inc["emergency_type"] = access_res.incident_report.incident_type.value
+                inc["severity"] = access_res.incident_report.severity_estimate
+                inc["details"] = access_res.incident_report.extracted_details
+                inc["input_modality"] = modality.value
+                break
+
+        fusion_req = FusionRequest(
+            incident_id=incident_id,
+            incident_location=payload.location,
+            emergency_type=access_res.incident_report.incident_type,
+            severity=access_res.incident_report.severity_estimate,
+            vehicle_location=payload.location,
+            accessibility_needs=access_res.citizen_accessibility_profile.model_dump()
+        )
+
+        fusion_res = await fusion_engine.fuse(fusion_req)
+
+        for inc in ACTIVE_INCIDENTS:
+            if inc["incident_id"] == incident_id:
+                inc["action_plan"] = fusion_res.model_dump(mode="json")
+                inc["status"] = "awaiting_dispatcher_approval"
+                route_coords = [
+                    {"lat": c.lat, "lng": c.lng}
+                    for c in fusion_res.recommended_route.coordinates
+                ]
+                hosp = fusion_res.recommended_hospital
+                veh_type = payload.vehicle_required or "Ambulance"
+                nearest_hub = find_nearest_hub(veh_type, payload.location.lat, payload.location.lng)
+                unit_phone = nearest_hub.get("phone") or DEMO_UNIT_PHONE
+                hospital_phone = _hospital_phone(hosp.name)
+
+                try:
+                    p1_route = route_agent.compute_route(RouteRequest(
+                        origin=Coordinate(lat=nearest_hub["lat"], lng=nearest_hub["lng"]),
+                        destination=payload.location
+                    ))
+                    p1_coords = [{"lat": c.lat, "lng": c.lng} for c in p1_route.coordinates]
+                    p1_eta = max(1, int(p1_route.eta // 60))
+                except Exception:
+                    p1_coords = [
+                        {"lat": nearest_hub["lat"], "lng": nearest_hub["lng"]},
+                        {"lat": payload.location.lat, "lng": payload.location.lng},
+                    ]
+                    p1_eta = 5
+
+                inc["unit_phone"] = unit_phone
+                inc["hospital_phone"] = hospital_phone
+                inc["citizen_view"] = {
+                    "message": f"Dispatching from {nearest_hub['name']}. Destination Hospital: {hosp.name}.",
+                    "eta_minutes": int(fusion_res.recommended_route.eta // 60),
+                    "hospital_name": hosp.name,
+                    "hospital_location": {"lat": hosp.location.lat, "lng": hosp.location.lng},
+                    "hospital_phone": hospital_phone,
+                    "unit_phone": unit_phone,
+                    "origin": {"lat": payload.location.lat, "lng": payload.location.lng},
+                    "route_coordinates": route_coords,
+                    "phase1_hub": nearest_hub,
+                    "phase1_route_coordinates": p1_coords,
+                    "phase1_eta_minutes": p1_eta,
+                    "distance_meters": fusion_res.recommended_route.distance,
+                    "emergency_type": access_res.incident_report.incident_type.value,
+                    "severity": access_res.incident_report.severity_estimate,
+                    "vehicle_required": payload.vehicle_required or "Ambulance",
+                    "include_ambulance_backup": bool(payload.include_ambulance_backup),
+                }
+                save_db()
+                break
+    except Exception as exc:
+        logger.exception("Pipeline failed for %s", incident_id)
+        _mark_failed(incident_id, exc)
 
 @router.post("")
 async def report_incident(payload: IncidentReportPayload, response: Response):
@@ -164,6 +209,7 @@ async def report_incident(payload: IncidentReportPayload, response: Response):
         "citizen_phone": payload.citizen_phone or "Unregistered",
         "vehicle_required": payload.vehicle_required or "Ambulance",
         "include_ambulance_backup": bool(payload.include_ambulance_backup),
+        "input_modality": _resolve_modality(payload.input_modality).value,
         "status": "processing",
         "action_plan": None
     }
@@ -279,12 +325,16 @@ async def approve_incident(incident_id: str, payload: ApprovePayload):
         # phase1_route_coordinates, phase1_eta_minutes, vehicle_required and
         # include_ambulance_backup — so approving wiped the 2-phase route off
         # the citizen's map at the exact moment it mattered most.
+        hospital_phone = _hospital_phone(target_hosp.get("name"))
+        unit_phone = inc.get("unit_phone") or DEMO_UNIT_PHONE
         citizen_view = dict(inc.get("citizen_view") or {})
         citizen_view.update({
             "message": f"Help is being dispatched. Approved Hospital: {target_hosp.get('name')}.",
             "eta_minutes": eta_mins,
             "hospital_name": target_hosp.get("name"),
             "hospital_location": {"lat": hosp_lat, "lng": hosp_lng},
+            "hospital_phone": hospital_phone,
+            "unit_phone": unit_phone,
             "origin": {"lat": cit_lat, "lng": cit_lng},
             "route_coordinates": new_coords,
             "distance_meters": dist_meters,
@@ -292,6 +342,8 @@ async def approve_incident(incident_id: str, payload: ApprovePayload):
             "severity": inc.get("severity", 0.5),
             "route_degraded": not route_ok,
         })
+        inc["hospital_phone"] = hospital_phone
+        inc["unit_phone"] = unit_phone
         inc["citizen_view"] = citizen_view
 
         # Persist AFTER the view is built, not before.

@@ -1,14 +1,8 @@
 /**
  * Citizen emergency app.
  *
- * The only screen whose user is in crisis. Everything is sized for a shaking
- * hand and a glance: one unmistakable action, short sentences, no jargon, and
- * no decision that can be deferred to the dispatcher instead.
- *
- * The progress steps below name what the system is genuinely doing. The
- * previous version cycled invented telemetry - "SIGNAL STRENGTH: EXCELLENT",
- * "ACCURACY: 3 METERS" - which was theatre, and would have been the first
- * thing to unravel under a judge's question.
+ * Sized for crisis: one unmistakable action, short sentences, voice dictation
+ * on the report form, and click-to-call once a unit/hospital is assigned.
  */
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -16,7 +10,11 @@ import { useAuth } from '../context/AuthContext';
 import { MapPin, Phone, Check, AlertTriangle, ChevronLeft } from 'lucide-react';
 import MapOverlay from '../components/MapOverlay';
 import LiveEmergencyChat from '../components/LiveEmergencyChat';
-import { Panel, PanelHead, Button, Stat, StatusTag, Empty, fmt } from '../components/ui';
+import MicButton from '../components/MicButton';
+import CallButton from '../components/CallButton';
+import useSpeechToText from '../hooks/useSpeechToText';
+import { Panel, PanelHead, Button, Stat, StatusTag } from '../components/ui';
+import { fmt } from '../components/ui';
 
 const SERVICES = [
   { id: 'Ambulance', label: 'Medical', hint: 'Injury or illness' },
@@ -25,7 +23,6 @@ const SERVICES = [
   { id: 'Disaster Rescue', label: 'Disaster', hint: 'Collapse or flood' },
 ];
 
-/** What the backend is actually doing, in the order it does it. */
 const PIPELINE = [
   'Reading your report',
   'Assessing severity',
@@ -40,9 +37,10 @@ const FALLBACK_LOCATION = { lat: 12.9756, lng: 77.6068 };
 export default function CitizenDashboard() {
   const { citizenInfo } = useAuth();
 
-  const [stage, setStage] = useState('home'); // home | report | sending | tracking
+  const [stage, setStage] = useState('home'); // home | report | sending | tracking | failed
   const [service, setService] = useState('Ambulance');
   const [details, setDetails] = useState('');
+  const [usedVoice, setUsedVoice] = useState(false);
   const [coords, setCoords] = useState(null);
   const [locationLabel, setLocationLabel] = useState('Locating you…');
   const [error, setError] = useState(null);
@@ -52,10 +50,17 @@ export default function CitizenDashboard() {
   const [incident, setIncident] = useState(null);
   const view = incident?.citizen_view ?? null;
 
+  const speech = useSpeechToText({ lang: 'en-IN' });
   const mounted = useRef(true);
   useEffect(() => () => { mounted.current = false; }, []);
 
-  // Locate on load so the SOS button is armed before it's needed.
+  useEffect(() => {
+    speech.setOnFinal((finalText) => {
+      setUsedVoice(true);
+      setDetails((prev) => (prev ? `${prev.trim()} ${finalText}` : finalText).trim());
+    });
+  }, [speech.setOnFinal]);
+
   useEffect(() => {
     if (!navigator.geolocation) {
       setCoords(FALLBACK_LOCATION);
@@ -79,7 +84,6 @@ export default function CitizenDashboard() {
     );
   }, []);
 
-  // Rejoin an in-flight incident if the page was reloaded.
   useEffect(() => {
     if (stage !== 'home' || !citizenInfo?.phone) return;
     let cancelled = false;
@@ -92,7 +96,12 @@ export default function CitizenDashboard() {
           (i) => i.citizen_phone?.trim() === citizenInfo.phone.trim(),
         );
         const latest = mine[mine.length - 1];
-        if (!cancelled && latest?.citizen_view) {
+        if (!cancelled && latest?.status === 'failed') {
+          setIncident(latest);
+          setPollUrl(`/api/incidents/${latest.incident_id}`);
+          setError(latest.error || 'Dispatch could not complete your report.');
+          setStage('failed');
+        } else if (!cancelled && latest?.citizen_view) {
           setIncident(latest);
           setPollUrl(`/api/incidents/${latest.incident_id}`);
           setStage('tracking');
@@ -102,7 +111,6 @@ export default function CitizenDashboard() {
     return () => { cancelled = true; };
   }, [stage, citizenInfo]);
 
-  // Progress steps while the agents work.
   useEffect(() => {
     if (stage !== 'sending') return;
     setStep(0);
@@ -113,7 +121,6 @@ export default function CitizenDashboard() {
     return () => clearInterval(timer);
   }, [stage]);
 
-  // Poll the incident until a plan exists, then keep tracking it.
   useEffect(() => {
     if (!pollUrl || (stage !== 'sending' && stage !== 'tracking')) return;
     let cancelled = false;
@@ -124,6 +131,11 @@ export default function CitizenDashboard() {
         const data = await res.json();
         if (cancelled) return;
         setIncident(data);
+        if (data.status === 'failed') {
+          setError(data.error || 'Dispatch could not complete your report.');
+          setStage('failed');
+          return;
+        }
         if (data.citizen_view) setStage('tracking');
       } catch {
         if (!cancelled) setError('Lost connection to dispatch. Retrying…');
@@ -135,6 +147,7 @@ export default function CitizenDashboard() {
   }, [pollUrl, stage]);
 
   const sendSOS = async () => {
+    speech.stop();
     navigator.vibrate?.([180, 90, 180]);
     setError(null);
     setStage('sending');
@@ -148,7 +161,7 @@ export default function CitizenDashboard() {
           citizen_phone: citizenInfo?.phone ?? 'Unregistered',
           vehicle_required: service,
           location: coords ?? FALLBACK_LOCATION,
-          input_modality: 'text',
+          input_modality: usedVoice ? 'voice' : 'text',
           timestamp: new Date().toISOString(),
         }),
       });
@@ -169,27 +182,26 @@ export default function CitizenDashboard() {
     <div className="mx-auto w-full max-w-[520px] px-4 py-5 lg:max-w-[720px]">{children}</div>
   );
 
-  /* ---- Home: one action ------------------------------------------------ */
   if (stage === 'home') {
     return shell(
       <div className="flex min-h-[calc(100vh-120px)] flex-col">
         <div className="mb-6">
-          <h1 className="font-display text-[clamp(22px,6vw,28px)] font-extrabold leading-tight text-text">
+          <h1 className="font-display text-[clamp(22px,6vw,28px)] font-semibold leading-tight text-text">
             Need emergency help?
           </h1>
           <p className="mt-1.5 text-[13px] leading-relaxed text-text-muted">
-            Press and hold to send your location to city dispatch. You can add details next.
+            Tap SOS to send your location to city dispatch. You can add details next — including by voice.
           </p>
         </div>
 
         <div className="flex flex-1 flex-col items-center justify-center gap-6">
           <button
             onClick={() => setStage('report')}
-            className="group relative grid aspect-square w-[min(62vw,240px)] place-items-center rounded-full border-4 border-critical bg-critical text-white transition-transform active:scale-95"
+            className="group relative grid aspect-square w-[min(62vw,240px)] place-items-center rounded-full border-4 border-critical bg-critical text-on-ink transition-transform active:scale-95"
           >
             <span className="rg-ping absolute inset-0 rounded-full text-critical opacity-30" />
             <span className="relative text-center">
-              <span className="block font-display text-[clamp(34px,9vw,44px)] font-extrabold leading-none tracking-tight">
+              <span className="block font-display text-[clamp(34px,9vw,44px)] font-semibold leading-none tracking-tight">
                 SOS
               </span>
               <span className="mt-2 block t-tag opacity-80">
@@ -206,7 +218,7 @@ export default function CitizenDashboard() {
 
         <a
           href="tel:112"
-          className="tap mt-6 flex items-center justify-center gap-2 rounded-sm border border-rule bg-paper py-4 t-tag text-text"
+          className="tap mt-6 flex items-center justify-center gap-2 rounded-sm border border-ink bg-paper py-4 t-tag text-text hover:bg-ink hover:text-on-ink"
         >
           <Phone size={15} /> Or call 112
         </a>
@@ -214,20 +226,31 @@ export default function CitizenDashboard() {
     );
   }
 
-  /* ---- Report: what kind of help --------------------------------------- */
-  if (stage === 'report') {
+  if (stage === 'report' || stage === 'failed') {
     return shell(
       <div>
         <button
-          onClick={() => setStage('home')}
+          onClick={() => {
+            setStage('home');
+            setError(null);
+          }}
           className="tap mb-4 inline-flex items-center gap-1 py-1 t-tag text-text-muted hover:text-text"
         >
           <ChevronLeft size={14} /> Back
         </button>
 
-        <h1 className="font-display text-[clamp(20px,5.5vw,24px)] font-extrabold leading-tight text-text">
-          What kind of help?
+        <h1 className="font-display text-[clamp(20px,5.5vw,24px)] font-semibold leading-tight text-text">
+          {stage === 'failed' ? 'Report could not be completed' : 'What kind of help?'}
         </h1>
+
+        {stage === 'failed' && (
+          <div className="mt-3 flex items-start gap-2 rounded-sm border border-critical bg-critical-wash px-3 py-2.5 hz-refuse">
+            <AlertTriangle size={14} className="mt-px shrink-0 text-critical" />
+            <p className="text-[12px] leading-relaxed text-critical">
+              {error || 'Dispatch could not finish routing. Try again or call 112.'}
+            </p>
+          </div>
+        )}
 
         <div className="mt-4 grid grid-cols-2 gap-2">
           {SERVICES.map((s) => (
@@ -236,13 +259,13 @@ export default function CitizenDashboard() {
               onClick={() => setService(s.id)}
               className={`tap rounded-sm border p-4 text-left transition-colors lg:p-3.5 ${
                 service === s.id
-                  ? 'border-signal bg-signal-wash'
+                  ? 'border-ink bg-signal'
                   : 'border-rule bg-paper hover:border-rule-strong'
               }`}
             >
               <div className="flex items-center justify-between">
-                <span className="text-[14px] font-bold text-text">{s.label}</span>
-                {service === s.id && <Check size={15} className="text-signal" />}
+                <span className="text-[14px] font-semibold text-text">{s.label}</span>
+                {service === s.id && <Check size={15} className="text-ink" />}
               </div>
               <p className="mt-0.5 text-[11px] text-text-muted">{s.hint}</p>
             </button>
@@ -250,16 +273,25 @@ export default function CitizenDashboard() {
         </div>
 
         <label className="mt-5 block">
-          <span className="eyebrow">What is happening?</span>
+          <div className="flex items-center justify-between gap-2">
+            <span className="eyebrow">What is happening?</span>
+            <MicButton
+              supported={speech.supported}
+              listening={speech.listening}
+              onToggle={speech.toggle}
+            />
+          </div>
           <textarea
-            value={details}
+            value={speech.listening && speech.interim ? `${details} ${speech.interim}`.trim() : details}
             onChange={(e) => setDetails(e.target.value)}
             rows={4}
-            placeholder="Chest pain, difficulty breathing, road accident…"
+            placeholder="Chest pain, difficulty breathing, road accident… or tap the mic"
             className="mt-2 w-full resize-none rounded-sm border border-rule bg-paper p-3 text-[16px] leading-relaxed text-text placeholder:text-text-faint focus:border-signal focus:outline-none lg:text-[14px]"
           />
           <span className="mt-2 block t-micro text-text-faint">
-            The more specific you are, the better the hospital match.
+            {speech.listening
+              ? 'Listening… speak clearly.'
+              : 'The more specific you are, the better the hospital match. You can dictate.'}
           </span>
         </label>
 
@@ -268,7 +300,7 @@ export default function CitizenDashboard() {
           <span className="t-meta text-text-muted">{locationLabel}</span>
         </div>
 
-        {error && (
+        {error && stage === 'report' && (
           <div className="mt-3 flex items-start gap-2 rounded-sm border border-critical-edge bg-critical-wash px-3 py-2.5">
             <AlertTriangle size={14} className="mt-px shrink-0 text-critical" />
             <p className="text-[12px] leading-relaxed text-critical">{error}</p>
@@ -276,19 +308,25 @@ export default function CitizenDashboard() {
         )}
 
         <Button onClick={sendSOS} size="lg" className="mt-5 w-full">
-          Send emergency report
+          {stage === 'failed' ? 'Try again' : 'Send emergency report'}
         </Button>
+
+        <a
+          href="tel:112"
+          className="tap mt-3 flex w-full items-center justify-center gap-2 rounded-sm border border-rule py-3 t-tag text-text-muted hover:text-text"
+        >
+          <Phone size={14} /> Call 112 instead
+        </a>
       </div>,
     );
   }
 
-  /* ---- Sending: honest pipeline ---------------------------------------- */
   if (stage === 'sending') {
     return shell(
       <div className="flex min-h-[calc(100vh-120px)] flex-col justify-center">
         <div className="mb-8 text-center">
           <div className="live-dot mx-auto mb-4 h-3 w-3 rounded-full bg-signal" />
-          <h1 className="font-display text-[20px] font-extrabold text-text">
+          <h1 className="font-display text-[20px] font-semibold text-text">
             Help is being arranged
           </h1>
           <p className="mt-1.5 text-[13px] text-text-muted">Stay on this screen.</p>
@@ -301,11 +339,11 @@ export default function CitizenDashboard() {
             return (
               <li key={label} className="flex items-center gap-3 py-2.5">
                 <span
-                  className={`grid h-5 w-5 shrink-0 place-items-center rounded-full border t-micro ${
+                  className={`grid h-5 w-5 shrink-0 place-items-center rounded-sm border t-micro ${
                     done
-                      ? 'border-verified bg-verified text-white'
+                      ? 'border-ink bg-ink text-on-ink'
                       : current
-                        ? 'border-signal bg-signal text-white'
+                        ? 'border-ink bg-signal text-ink'
                         : 'border-rule bg-paper text-text-faint'
                   }`}
                 >
@@ -326,8 +364,11 @@ export default function CitizenDashboard() {
     );
   }
 
-  /* ---- Tracking -------------------------------------------------------- */
-  const dispatched = incident?.status === 'dispatched' || incident?.status === 'completed';
+  const dispatched = ['dispatched', 'claimed', 'patient_picked_up', 'arrived', 'completed'].includes(
+    incident?.status,
+  );
+  const unitPhone = incident?.unit_phone ?? view?.unit_phone ?? null;
+  const hospitalPhone = incident?.hospital_phone ?? view?.hospital_phone ?? null;
 
   return shell(
     <div className="space-y-3">
@@ -347,6 +388,11 @@ export default function CitizenDashboard() {
               You will be taken to <span className="font-semibold text-text">{view.hospital_name}</span>.
             </p>
           )}
+          <div className="mt-3 flex flex-wrap gap-2">
+            <CallButton phone={unitPhone} label="Call unit" variant="primary" />
+            <CallButton phone={hospitalPhone} label="Call ER" />
+            <CallButton phone="112" label="Call 112" />
+          </div>
         </div>
 
         {view && (
@@ -392,6 +438,11 @@ export default function CitizenDashboard() {
           incidentId={incident.incident_id}
           senderRole="citizen"
           senderName={citizenInfo?.name}
+          contacts={{
+            unit: unitPhone,
+            hospital: hospitalPhone,
+            citizen: citizenInfo?.phone,
+          }}
         />
       )}
 
@@ -401,6 +452,8 @@ export default function CitizenDashboard() {
           setIncident(null);
           setPollUrl(null);
           setDetails('');
+          setUsedVoice(false);
+          setError(null);
         }}
         className="tap w-full rounded-sm border border-rule bg-paper py-3 t-tag text-text-muted hover:text-text"
       >

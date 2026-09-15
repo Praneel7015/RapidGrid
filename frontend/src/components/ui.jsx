@@ -2,9 +2,7 @@
  * Shared primitives.
  *
  * Every colour here comes from the theme tokens in index.css. If you find
- * yourself writing a hex value in a view, add a token instead - the previous
- * iteration of this app carried 843 hardcoded arbitrary colours across three
- * competing palettes, which is why it never felt like one product.
+ * yourself writing a hex value in a view, add a token instead.
  */
 
 import React from 'react';
@@ -38,7 +36,7 @@ export function PanelHead({ label, ink = false, right = null, className = '' }) 
    ------------------------------------------------------------------------- */
 export function Provenance({ kind, children, title, className = '' }) {
   const verified = kind === 'curated' || kind === 'verified' || kind === 'live';
-  const label = children ?? (verified ? 'Verified' : 'Simulated');
+  const label = children ?? (verified ? 'Verified' : 'Modelled');
   return (
     <span
       title={
@@ -52,8 +50,9 @@ export function Provenance({ kind, children, title, className = '' }) {
       } ${className}`}
     >
       <span
-        className="inline-block h-1.5 w-1.5 rounded-full"
-        style={{ background: 'currentColor' }}
+        className={`inline-block h-1.5 w-1.5 ${
+          verified ? 'bg-current' : 'border border-dashed border-current bg-transparent'
+        }`}
       />
       {label}
     </span>
@@ -63,7 +62,7 @@ export function Provenance({ kind, children, title, className = '' }) {
 /* -------------------------------------------------------------------------
    Stat - a labelled telemetry readout. Mono, tabular, sized for glancing.
    ------------------------------------------------------------------------- */
-export function Stat({ label, value, unit, tone = 'default', sub, ink = false }) {
+export function Stat({ label, value, unit, tone = 'default', sub, ink = false, modelled = false }) {
   const tones = {
     default: ink ? 'text-on-ink' : 'text-text',
     signal: 'text-signal',
@@ -73,8 +72,10 @@ export function Stat({ label, value, unit, tone = 'default', sub, ink = false })
   return (
     <div className="min-w-0">
       <div className={ink ? 'eyebrow eyebrow-ink' : 'eyebrow'}>{label}</div>
-      <div className={`mt-1 font-mono font-bold leading-none ${tones[tone]}`}>
-        <span className="text-[26px] tracking-tight">{value}</span>
+      <div className={`mt-1 font-mono leading-none ${tones[tone]} ${modelled ? 'font-normal' : 'font-semibold'}`}>
+        <span className={`text-[26px] tracking-tight ${modelled ? 'val-modelled' : 'val-verified'}`}>
+          {value}
+        </span>
         {unit && <span className="ml-1 text-[13px] font-medium opacity-60">{unit}</span>}
       </div>
       {sub && (
@@ -87,7 +88,7 @@ export function Stat({ label, value, unit, tone = 'default', sub, ink = false })
 }
 
 /* -------------------------------------------------------------------------
-   Severity - triage language. Critical is the only user of deep-purple.
+   Severity - triage language. Critical is the only user of P1 red.
    ------------------------------------------------------------------------- */
 export function severityBand(severity = 0) {
   if (severity >= 0.8) return { key: 'critical', label: 'Critical', short: 'P1' };
@@ -99,8 +100,8 @@ export function severityBand(severity = 0) {
 export function SeverityTag({ severity = 0, className = '' }) {
   const band = severityBand(severity);
   const styles = {
-    critical: 'bg-critical text-white border-critical',
-    high: 'bg-signal text-white border-signal',
+    critical: 'bg-critical text-on-ink border-critical',
+    high: 'bg-signal text-ink border-ink',
     moderate: 'bg-signal-wash text-signal-hover border-signal-edge',
     low: 'bg-paper-sunk text-text-muted border-rule',
   };
@@ -119,6 +120,7 @@ export function SeverityTag({ severity = 0, className = '' }) {
    ------------------------------------------------------------------------- */
 const STATUS_COPY = {
   processing: { label: 'Assessing', tone: 'wait' },
+  failed: { label: 'Failed', tone: 'bad' },
   awaiting_dispatcher_approval: { label: 'Needs approval', tone: 'act' },
   dispatched: { label: 'En route', tone: 'live' },
   claimed: { label: 'Unit claimed', tone: 'live' },
@@ -138,9 +140,10 @@ export function StatusTag({ status, className = '' }) {
   const meta = STATUS_COPY[status] ?? { label: humanise(status), tone: 'wait' };
   const styles = {
     wait: 'bg-paper-sunk text-text-muted border-rule',
-    act: 'bg-signal text-white border-signal',
+    act: 'bg-signal text-ink border-ink',
     live: 'bg-ink text-on-ink border-ink',
-    done: 'bg-verified-wash text-verified border-verified/30',
+    done: 'bg-paper text-text border-ink',
+    bad: 'bg-critical-wash text-critical border-critical',
   };
   return (
     <span
@@ -165,12 +168,12 @@ export function Button({
   ...rest
 }) {
   const variants = {
-    primary: 'bg-signal text-white border-signal hover:bg-signal-hover',
+    primary: 'bg-signal text-ink border-ink hover:bg-ink hover:text-signal',
     ink: 'bg-ink text-on-ink border-ink hover:bg-ink-raised',
-    quiet: 'bg-paper text-text border-rule hover:bg-paper-hover hover:border-rule-strong',
+    quiet: 'bg-paper text-text border-ink hover:bg-ink hover:text-on-ink',
     ghost: 'bg-transparent text-text-muted border-transparent hover:bg-paper-sunk hover:text-text',
+    critical: 'bg-critical text-on-ink border-critical hover:bg-ink',
   };
-  // Generous on touch, tightened once there is a pointer.
   const sizes = {
     sm: 'px-3 py-2 text-[12px] lg:px-2.5 lg:py-1.5 lg:text-[11px]',
     md: 'px-4 py-3 text-[13px] lg:py-2.5 lg:text-[12px]',
@@ -188,9 +191,6 @@ export function Button({
 
 /* -------------------------------------------------------------------------
    ConnectionState - the app must never silently fail.
-
-   The previous build had 17 empty catch blocks; when the backend went down the
-   UI simply sat there looking healthy. Any view that polls renders this.
    ------------------------------------------------------------------------- */
 export function ConnectionState({ status, lastOk, ink = false }) {
   if (status === 'ok') return null;
@@ -200,7 +200,7 @@ export function ConnectionState({ status, lastOk, ink = false }) {
       role="status"
       className={`flex items-center gap-2 rounded-sm border px-2.5 py-2 t-tag ${
         down
-          ? 'border-critical-edge bg-critical-wash text-critical'
+          ? 'border-critical bg-critical-wash text-critical'
           : 'border-signal-edge bg-signal-wash text-signal-hover'
       }`}
     >
@@ -218,7 +218,7 @@ export function Empty({ title, hint, action = null, ink = false }) {
   return (
     <div className="flex flex-col items-center justify-center gap-2 px-6 py-14 text-center">
       <div
-        className={`font-display text-[15px] font-bold ${ink ? 'text-on-ink' : 'text-text'}`}
+        className={`font-display text-[15px] font-semibold ${ink ? 'text-on-ink' : 'text-text'}`}
       >
         {title}
       </div>

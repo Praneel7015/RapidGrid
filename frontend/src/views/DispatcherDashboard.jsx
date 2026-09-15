@@ -16,6 +16,7 @@ import { Check, CornerUpRight, X } from 'lucide-react';
 import MapOverlay from '../components/MapOverlay';
 import AIRationale from '../components/AIRationale';
 import CityControls from '../components/CityControls';
+import LiveEmergencyChat from '../components/LiveEmergencyChat';
 import {
   Panel,
   PanelHead,
@@ -279,7 +280,7 @@ export default function DispatcherDashboard() {
                       <span className="flex items-center gap-1.5 text-critical">
                         <span
                           className="inline-block h-[3px] w-4"
-                          style={{ backgroundImage: 'repeating-linear-gradient(90deg,#59114d 0 2px,transparent 2px 5px)' }}
+                          style={{ backgroundImage: 'repeating-linear-gradient(90deg,#c23a2b 0 2px,transparent 2px 5px)' }}
                         />
                         Closed
                       </span>
@@ -476,6 +477,20 @@ export default function DispatcherDashboard() {
                   modelled — no hospital HMIS feed is integrated.
                 </p>
               </Panel>
+
+              {selected?.incident_id && (
+                <LiveEmergencyChat
+                  incidentId={selected.incident_id}
+                  senderRole="dispatcher"
+                  senderName="Dispatch"
+                  height="220px"
+                  contacts={{
+                    citizen: selected.citizen_phone,
+                    unit: selected.unit_phone ?? view?.unit_phone,
+                    hospital: selected.hospital_phone ?? view?.hospital_phone,
+                  }}
+                />
+              )}
             </>
           ) : selected ? (
             <Panel className="grid place-items-center">

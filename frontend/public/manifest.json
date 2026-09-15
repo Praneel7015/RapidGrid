@@ -1,10 +1,10 @@
 {
-  "name": "GeoAgentic Citizen App",
-  "short_name": "Citizen SOS",
+  "name": "RapidGrid",
+  "short_name": "RapidGrid",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0b1326",
-  "theme_color": "#ffb3ad",
+  "background_color": "#2e2c32",
+  "theme_color": "#e8a020",
   "icons": [
     {
       "src": "/vite.svg",

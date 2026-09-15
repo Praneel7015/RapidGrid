@@ -4,7 +4,7 @@ const AuthContext = createContext();
 
 export function AuthProvider({ children }) {
   const [role, setRole] = useState(sessionStorage.getItem('geoagentic_role') || null);
-  
+
   const [hospitalInfo, setHospitalInfo] = useState(() => {
     try {
       return JSON.parse(sessionStorage.getItem('geoagentic_hosp')) || { id: 'all', name: 'Bangalore Central ER Desk' };
@@ -21,6 +21,14 @@ export function AuthProvider({ children }) {
     }
   });
 
+  const [driverInfo, setDriverInfo] = useState(() => {
+    try {
+      return JSON.parse(sessionStorage.getItem('geoagentic_driver')) || null;
+    } catch {
+      return null;
+    }
+  });
+
   const login = (selectedRole, extraData = null) => {
     setRole(selectedRole);
     sessionStorage.setItem('geoagentic_role', selectedRole);
@@ -30,6 +38,9 @@ export function AuthProvider({ children }) {
     } else if (selectedRole === 'citizen' && extraData) {
       setCitizenInfo(extraData);
       sessionStorage.setItem('geoagentic_citizen', JSON.stringify(extraData));
+    } else if (selectedRole === 'driver' && extraData) {
+      setDriverInfo(extraData);
+      sessionStorage.setItem('geoagentic_driver', JSON.stringify(extraData));
     }
   };
 
@@ -39,7 +50,7 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthContext.Provider value={{ role, hospitalInfo, citizenInfo, login, logout }}>
+    <AuthContext.Provider value={{ role, hospitalInfo, citizenInfo, driverInfo, login, logout }}>
       {children}
     </AuthContext.Provider>
   );

@@ -106,7 +106,7 @@ export default function HospitalDashboard() {
                 <button
                   onClick={() => setCapacity(true)}
                   className={`tap px-3 py-2.5 t-tag transition-colors lg:px-2.5 lg:py-1 ${
-                    icuOpen ? 'bg-verified text-white' : 'bg-transparent text-on-ink-muted'
+                    icuOpen ? 'bg-signal text-ink' : 'bg-transparent text-on-ink-muted'
                   }`}
                 >
                   Accepting
@@ -190,7 +190,7 @@ export default function HospitalDashboard() {
                           </div>
                         </div>
                         {ack ? (
-                          <span className="inline-flex items-center gap-1.5 rounded-xs border border-verified/30 bg-verified-wash px-2.5 py-1.5 t-tag text-verified">
+                          <span className="inline-flex items-center gap-1.5 rounded-xs border border-ink px-2.5 py-1.5 t-tag text-text">
                             <Check size={12} /> Bay ready
                           </span>
                         ) : (
@@ -224,6 +224,11 @@ export default function HospitalDashboard() {
                           senderRole="hospital"
                           senderName={hospitalInfo?.name ?? 'ER desk'}
                           height="180px"
+                          contacts={{
+                            citizen: c.citizen_phone,
+                            unit: c.unit_phone ?? c.citizen_view?.unit_phone,
+                            hospital: hospitalInfo?.phone ?? c.hospital_phone,
+                          }}
                         />
                       </div>
                     )}

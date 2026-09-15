@@ -1,11 +1,8 @@
 /**
  * Portal frame.
  *
- * A slim command bar rather than a marketing header - the portals below it
- * need the vertical space. The previous version showed a permanently green
- * "LIVE SYNC" badge that was hardcoded and never reflected backend state; this
- * one polls /health and tells the truth, including which routing tier is
- * actually serving requests.
+ * A slim command bar rather than a marketing header. Polls /health and tells
+ * the truth about routing tier, including offline A* and backend down.
  */
 
 import React, { useEffect, useState } from 'react';
@@ -14,10 +11,10 @@ import { useNavigate } from 'react-router-dom';
 import { LogOut, Radio, Truck, PlusSquare, Heart, Activity } from 'lucide-react';
 
 const PORTALS = {
-  dispatcher: { title: 'City dispatch', sub: 'Multi-agent oversight', Icon: Radio },
-  driver: { title: 'Field unit', sub: 'Navigation and handover', Icon: Truck },
-  hospital: { title: 'Emergency department', sub: 'Incoming patients and capacity', Icon: PlusSquare },
-  citizen: { title: 'Emergency assistance', sub: 'Report and track', Icon: Heart },
+  dispatcher: { title: 'City dispatch', sub: 'Bengaluru Central Control', Icon: Radio, glyph: 'D' },
+  driver: { title: 'Field unit', sub: 'Navigation and handover', Icon: Truck, glyph: 'F' },
+  hospital: { title: 'Emergency department', sub: 'Incoming patients and capacity', Icon: PlusSquare, glyph: 'E' },
+  citizen: { title: 'Emergency assistance', sub: 'Report and track', Icon: Heart, glyph: 'C' },
 };
 
 export default function SharedShell({ children }) {
@@ -49,7 +46,7 @@ export default function SharedShell({ children }) {
     };
   }, []);
 
-  const meta = PORTALS[role] ?? { title: 'RapidGrid', sub: 'Emergency response', Icon: Activity };
+  const meta = PORTALS[role] ?? { title: 'RapidGrid', sub: 'Emergency response', Icon: Activity, glyph: 'R' };
   const Icon = meta.Icon;
 
   let title = meta.title;
@@ -62,32 +59,34 @@ export default function SharedShell({ children }) {
     sub = meta.sub;
   }
 
-  // Say which tier is actually serving routes, rather than always "LIVE".
-  const live = health?.routing?.live_api_key_configured && health?.routing?.billable_api_calls >= 0;
-  const offlineOnly = health?.routing && !health.routing.live_api_key_configured;
-  const tier = !reachable
+  const status = health?.status;
+  const live = status === 'healthy' && health?.routing?.live_api_key_configured;
+  const degraded = status === 'degraded' || (reachable && health?.routing && !health.routing.live_api_key_configured);
+  const tier = !reachable || status === 'unhealthy'
     ? { label: 'Backend offline', tone: 'bad' }
-    : offlineOnly
-      ? { label: 'Offline routing', tone: 'warn' }
-      : { label: 'Live routing', tone: 'ok' };
+    : degraded
+      ? { label: 'Offline A*', tone: 'warn' }
+      : live
+        ? { label: 'Live routing', tone: 'ok' }
+        : { label: 'Live routing', tone: 'ok' };
 
   const tones = {
-    ok: 'border-verified/30 bg-verified-wash text-verified',
-    warn: 'border-signal-edge bg-signal-wash text-signal-hover',
-    bad: 'border-critical-edge bg-critical-wash text-critical',
+    ok: 'tier-live',
+    warn: 'tier-offline',
+    bad: 'tier-down',
   };
 
   return (
     <div className="flex min-h-screen flex-col bg-field">
       <header className="sticky top-0 z-50 border-b border-rule-ink bg-ink">
-        <div className="mx-auto flex max-w-[1600px] items-center justify-between gap-4 px-4 py-2.5">
+        <div className="mx-auto flex max-w-[1600px] items-center justify-between gap-4 px-4 py-2.5 sm:px-6">
           <div className="flex min-w-0 items-center gap-3">
-            <div className="grid h-8 w-8 shrink-0 place-items-center rounded-sm bg-signal text-white">
-              <Icon size={16} className="stroke-[2.4]" />
+            <div className="grid h-8 w-8 shrink-0 place-items-center rounded-sm bg-signal text-ink">
+              <span className="font-mono text-[11px] font-bold leading-none">{meta.glyph}</span>
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <h1 className="truncate font-display text-[13px] font-bold leading-none text-on-ink">
+                <h1 className="truncate font-display text-[14px] font-semibold leading-none tracking-[0.08em] text-on-ink uppercase">
                   {title}
                 </h1>
                 <span className="shrink-0 rounded-xs border border-rule-ink px-1.5 py-[3px] t-tag text-on-ink-muted">
@@ -102,7 +101,7 @@ export default function SharedShell({ children }) {
 
           <div className="flex shrink-0 items-center gap-2">
             <span
-              className={`hidden items-center gap-1.5 rounded-xs border px-2 py-1.5 t-tag sm:inline-flex ${tones[tier.tone]}`}
+              className={`hidden items-center gap-1.5 rounded-xs px-2 py-1.5 t-tag sm:inline-flex ${tones[tier.tone]}`}
             >
               <span
                 className={`inline-block h-1.5 w-1.5 rounded-full bg-current ${
@@ -116,7 +115,7 @@ export default function SharedShell({ children }) {
                 logout();
                 navigate('/', { replace: true });
               }}
-              className="tap inline-flex items-center gap-1.5 rounded-sm border border-rule-ink bg-ink-raised px-3 py-2.5 t-tag text-on-ink transition-colors hover:bg-ink-hover lg:py-1.5"
+              className="tap inline-flex items-center gap-1.5 rounded-sm border border-rule-ink bg-transparent px-3 py-2.5 t-tag text-on-ink transition-colors hover:border-signal hover:text-signal lg:py-1.5"
             >
               <LogOut size={13} />
               <span className="hidden sm:inline">Sign out</span>
