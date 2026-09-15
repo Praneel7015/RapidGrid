@@ -38,11 +38,16 @@ async def get_active_dispatches():
                 "distance_meters": cit_view.get("distance_meters") or 2400,
                 "route_coordinates": route_coords,
                 "hospital": rec_hosp,
+                "citizen_text": inc.get("citizen_text") or inc.get("details") or "Emergency reported by citizen.",
                 "details": inc.get("details") or inc.get("citizen_text") or "Emergency reported by citizen.",
                 "vehicle_required": inc.get("vehicle_required") or "Ambulance",
                 "include_ambulance_backup": inc.get("include_ambulance_backup") or cit_view.get("include_ambulance_backup") or False,
                 "assigned_driver": inc.get("assigned_driver"),
-                "driver_claimed": inc.get("driver_claimed", False)
+                "driver_claimed": inc.get("driver_claimed", False),
+                # Phone numbers needed by DriverDashboard LiveEmergencyChat contacts prop
+                "citizen_phone": inc.get("citizen_phone"),
+                "unit_phone": inc.get("unit_phone") or cit_view.get("unit_phone"),
+                "hospital_phone": inc.get("hospital_phone") or cit_view.get("hospital_phone"),
             })
     active_list.reverse() # Newest incidents first
     return {"dispatches": active_list}
@@ -96,17 +101,28 @@ async def arrived_pickup(payload: ClaimPayload):
             cit_view = inc.get("citizen_view") or {}
             origin = cit_view.get("origin") or inc.get("location") or {"lat": 12.9756, "lng": 77.6068}
             hosp_loc = cit_view.get("hospital_location") or {"lat": 13.0473, "lng": 77.5908}
-            
+
+            # Guard against dicts that are missing lat/lng keys (e.g. loaded
+            # from an older DB record written before these fields were added).
+            origin_lat = origin.get("lat") if isinstance(origin, dict) else 12.9756
+            origin_lng = origin.get("lng") if isinstance(origin, dict) else 77.6068
+            hosp_lat   = hosp_loc.get("lat") if isinstance(hosp_loc, dict) else 13.0473
+            hosp_lng   = hosp_loc.get("lng") if isinstance(hosp_loc, dict) else 77.5908
+            if origin_lat is None: origin_lat = 12.9756
+            if origin_lng is None: origin_lng = 77.6068
+            if hosp_lat is None:   hosp_lat   = 13.0473
+            if hosp_lng is None:   hosp_lng   = 77.5908
+
             try:
                 p2_route = route_agent.compute_route(RouteRequest(
-                    origin=Coordinate(lat=origin["lat"], lng=origin["lng"]),
-                    destination=Coordinate(lat=hosp_loc["lat"], lng=hosp_loc["lng"])
+                    origin=Coordinate(lat=origin_lat, lng=origin_lng),
+                    destination=Coordinate(lat=hosp_lat, lng=hosp_lng)
                 ))
                 new_coords = [{"lat": c.lat, "lng": c.lng} for c in p2_route.coordinates]
                 eta_mins = max(1, int(p2_route.eta // 60))
                 dist_meters = p2_route.distance
             except Exception as e:
-                new_coords = [{"lat": origin["lat"], "lng": origin["lng"]}, {"lat": hosp_loc["lat"], "lng": hosp_loc["lng"]}]
+                new_coords = [{"lat": origin_lat, "lng": origin_lng}, {"lat": hosp_lat, "lng": hosp_lng}]
                 eta_mins = 6
                 dist_meters = 2800
 
@@ -129,18 +145,28 @@ async def change_hospital(payload: HospitalChangePayload):
             
             cit_view = inc.get("citizen_view") or {}
             origin = cit_view.get("origin") or inc.get("location") or {"lat": 12.9756, "lng": 77.6068}
+
+            # Guard against dicts missing lat/lng (stale DB records).
+            origin_lat = origin.get("lat") if isinstance(origin, dict) else 12.9756
+            origin_lng = origin.get("lng") if isinstance(origin, dict) else 77.6068
+            h_lat      = h_coords.get("lat") if isinstance(h_coords, dict) else 13.0473
+            h_lng      = h_coords.get("lng") if isinstance(h_coords, dict) else 77.5908
+            if origin_lat is None: origin_lat = 12.9756
+            if origin_lng is None: origin_lng = 77.6068
+            if h_lat is None:      h_lat      = 13.0473
+            if h_lng is None:      h_lng      = 77.5908
             
             # Recompute live Google route from Patient Location -> New Selected Hospital
             try:
                 new_route = route_agent.compute_route(RouteRequest(
-                    origin=Coordinate(lat=origin["lat"], lng=origin["lng"]),
-                    destination=Coordinate(lat=h_coords["lat"], lng=h_coords["lng"])
+                    origin=Coordinate(lat=origin_lat, lng=origin_lng),
+                    destination=Coordinate(lat=h_lat, lng=h_lng)
                 ))
                 new_coords = [{"lat": c.lat, "lng": c.lng} for c in new_route.coordinates]
                 eta_mins = max(1, int(new_route.eta // 60))
                 dist_meters = new_route.distance
             except Exception as e:
-                new_coords = [{"lat": origin["lat"], "lng": origin["lng"]}, {"lat": h_coords["lat"], "lng": h_coords["lng"]}]
+                new_coords = [{"lat": origin_lat, "lng": origin_lng}, {"lat": h_lat, "lng": h_lng}]
                 eta_mins = 7
                 dist_meters = 3200
 

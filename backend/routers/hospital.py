@@ -116,7 +116,10 @@ async def get_all_incoming_cases():
                 "hospital_name": hosp_name,
                 "eta_minutes": cit_view.get("eta_minutes") or 7,
                 "patient_summary": inc.get("details") or inc.get("citizen_text") or "Emergency reported by citizen.",
-                "assigned_driver": inc.get("assigned_driver", "AMB-IND-04")
+                "assigned_driver": inc.get("assigned_driver", "AMB-IND-04"),
+                # Phone numbers needed by HospitalDashboard LiveEmergencyChat contacts prop
+                "citizen_phone": inc.get("citizen_phone"),
+                "unit_phone": inc.get("unit_phone") or cit_view.get("unit_phone"),
             })
     return {"incoming": incoming}
 
@@ -166,7 +169,10 @@ async def get_incoming_cases(hospital_id: str, name: str = None):
                     "hospital_name": hosp_name,
                     "eta_minutes": cit_view.get("eta_minutes") or 7,
                     "patient_summary": inc.get("details") or inc.get("citizen_text") or "Emergency reported by citizen.",
-                    "assigned_driver": inc.get("assigned_driver", "AMB-UNIT-04")
+                    "assigned_driver": inc.get("assigned_driver", "AMB-UNIT-04"),
+                    # Phone numbers needed by HospitalDashboard LiveEmergencyChat contacts prop
+                    "citizen_phone": inc.get("citizen_phone"),
+                    "unit_phone": inc.get("unit_phone") or cit_view.get("unit_phone"),
                 })
     return {"incoming": incoming}
 
