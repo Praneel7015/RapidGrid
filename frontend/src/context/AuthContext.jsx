@@ -46,7 +46,11 @@ export function AuthProvider({ children }) {
 
   const logout = () => {
     setRole(null);
+    setDriverInfo(null);
     sessionStorage.removeItem('geoagentic_role');
+    sessionStorage.removeItem('geoagentic_driver');
+    sessionStorage.removeItem('geoagentic_hosp');
+    sessionStorage.removeItem('geoagentic_citizen');
   };
 
   return (

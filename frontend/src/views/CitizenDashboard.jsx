@@ -48,6 +48,7 @@ export default function CitizenDashboard() {
 
   const [pollUrl, setPollUrl] = useState(null);
   const [incident, setIncident] = useState(null);
+  const [sending, setSending] = useState(false); // double-submit guard
   const view = incident?.citizen_view ?? null;
 
   const speech = useSpeechToText({ lang: 'en-IN' });
@@ -59,6 +60,7 @@ export default function CitizenDashboard() {
       setUsedVoice(true);
       setDetails((prev) => (prev ? `${prev.trim()} ${finalText}` : finalText).trim());
     });
+    return () => speech.setOnFinal(null);
   }, [speech.setOnFinal]);
 
   useEffect(() => {
@@ -148,6 +150,8 @@ export default function CitizenDashboard() {
   }, [pollUrl, stage]);
 
   const sendSOS = async () => {
+    if (sending) return; // double-submit guard
+    setSending(true);
     speech.stop();
     navigator.vibrate?.([180, 90, 180]);
     setError(null);
@@ -178,6 +182,8 @@ export default function CitizenDashboard() {
     } catch {
       setError('Cannot reach emergency dispatch. Check your connection and try again.');
       setStage('report');
+    } finally {
+      setSending(false);
     }
   };
 
@@ -305,14 +311,14 @@ export default function CitizenDashboard() {
           <span className="t-meta text-text-muted">{locationLabel}</span>
         </div>
 
-        {error && stage === 'report' && (
+        {error && (stage === 'report' || stage === 'failed') && (
           <div className="mt-3 flex items-start gap-2 rounded-sm border border-critical-edge bg-critical-wash px-3 py-2.5">
             <AlertTriangle size={14} className="mt-px shrink-0 text-critical" />
             <p className="text-[12px] leading-relaxed text-critical">{error}</p>
           </div>
         )}
 
-        <Button onClick={sendSOS} size="lg" className="mt-5 w-full">
+        <Button onClick={sendSOS} disabled={sending} size="lg" className="mt-5 w-full">
           {stage === 'failed' ? 'Try again' : 'Send emergency report'}
         </Button>
 

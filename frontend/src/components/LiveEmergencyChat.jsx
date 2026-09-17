@@ -39,6 +39,7 @@ export default function LiveEmergencyChat({
     speech.setOnFinal((finalText) => {
       setText((prev) => (prev ? `${prev.trim()} ${finalText}` : finalText).trim());
     });
+    return () => speech.setOnFinal(null);
   }, [speech.setOnFinal]);
 
   const scrollDown = useCallback(() => {
@@ -56,7 +57,16 @@ export default function LiveEmergencyChat({
         const res = await fetch(`/api/chat/${incidentId}/messages`);
         if (!res.ok) return;
         const data = await res.json();
-        if (!cancelled) setMessages(data.messages ?? []);
+        if (!cancelled) {
+          // Merge incoming messages rather than replacing — prevents a WS
+          // message from disappearing if the poll fires before the server persists it.
+          const incoming = data.messages ?? [];
+          setMessages((prev) => {
+            const seen = new Set(prev.map((m) => m.id));
+            const fresh = incoming.filter((m) => !seen.has(m.id));
+            return fresh.length ? [...prev, ...fresh] : prev;
+          });
+        }
       } catch {
         if (!cancelled) setTransport('offline');
       }

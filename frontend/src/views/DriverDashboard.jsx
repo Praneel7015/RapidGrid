@@ -193,7 +193,7 @@ export default function DriverDashboard() {
   return (
     <div className="mx-auto w-full max-w-[560px] space-y-3 px-4 py-4 lg:max-w-[880px]">
       <button
-        onClick={() => setActiveId(null)}
+        onClick={() => { setActiveId(null); setStage('pickup'); }}
         className="tap inline-flex items-center gap-1 py-1 t-tag text-text-muted hover:text-text"
       >
         <ChevronLeft size={14} /> All calls

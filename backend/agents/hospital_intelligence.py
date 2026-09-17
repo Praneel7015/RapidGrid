@@ -656,6 +656,20 @@ class HospitalIntelligenceAgent:
 
         entries.sort(key=lambda e: e.score, reverse=True)
 
+        # Guard: if no hospitals matched (e.g. all on divert, or graph empty),
+        # return the full unfiltered list so the dispatcher always sees options.
+        if not entries:
+            logger.warning(
+                "Hospital ranking produced zero entries for %s — returning unfiltered fallback",
+                request.emergency_type,
+            )
+            return HospitalRankingResponse(
+                ranked_hospitals=[],
+                emergency_type=request.emergency_type,
+                weights_used="fallback-no-candidates",
+                data_freshness=DataFreshness.STALE,
+            )
+
         # ------------------------------------------------------------------
         # Stage 2: re-rank the shortlist on real road-network travel time.
         #
@@ -670,7 +684,7 @@ class HospitalIntelligenceAgent:
         )
 
         return HospitalRankingResponse(
-            ranked_hospitals=upgraded[:5],
+            ranked_hospitals=upgraded[:5] if upgraded else entries[:5],
             emergency_type=request.emergency_type,
             weights_used=weights_label + (" + specialty-bypass" if gate_applied else ""),
             data_freshness=DataFreshness.LIVE,

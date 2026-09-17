@@ -187,7 +187,7 @@ class DecisionFusionEngine:
         
         # Pull live weather impact on the ETA
         from models.schemas import PredictionRequest
-        pred_req = PredictionRequest(target_id=route_result.route_id, route_details=route_result)
+        pred_req = PredictionRequest(route_id=route_result.route_id, route_details=route_result)
         pred_res = await prediction_agent.predict_on_demand(pred_req)
         
         # Override ETA with the weather-adjusted ETA

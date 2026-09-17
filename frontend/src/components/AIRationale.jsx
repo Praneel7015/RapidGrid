@@ -39,7 +39,7 @@ function FactorBar({ factor }) {
       </div>
       <div className="text-right font-mono text-[11px] leading-tight">
         <div className="font-bold text-text">{fmt.score(factor.weighted_score)}</div>
-        <div className="text-text-faint">w {factor.weight.toFixed(2)}</div>
+        <div className="text-text-faint">w {factor.weight != null ? factor.weight.toFixed(2) : '--'}</div>
       </div>
     </div>
   );

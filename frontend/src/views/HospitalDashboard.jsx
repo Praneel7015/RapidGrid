@@ -47,6 +47,16 @@ export default function HospitalDashboard() {
           setIncoming(data.incoming ?? []);
           setConn('ok');
         }
+        // Sync ICU/divert state from backend so refresh doesn't show stale "Accepting".
+        if (id !== 'all' && !cancelled) {
+          try {
+            const hRes = await fetch(`/api/hospital/${id}`);
+            if (hRes.ok) {
+              const hData = await hRes.json();
+              setIcuOpen(hData.icu_available > 0);
+            }
+          } catch { /* non-critical — keep UI value */ }
+        }
       } catch {
         if (!cancelled) setConn('down');
       }

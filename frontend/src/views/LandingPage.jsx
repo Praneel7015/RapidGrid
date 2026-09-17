@@ -102,10 +102,6 @@ export default function LandingPage() {
             </span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="hidden items-center gap-1.5 rounded-xs border border-rule-ink px-2 py-1.5 t-tag text-on-ink sm:inline-flex">
-              <span className="live-dot inline-block h-1.5 w-1.5 rounded-full bg-signal" />
-              Live routing
-            </span>
             <Link
               to="/login"
               className="tap inline-flex items-center gap-1.5 rounded-sm border border-rule-ink px-3 py-2 t-tag text-on-ink transition-colors hover:border-signal hover:text-signal"

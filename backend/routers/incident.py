@@ -295,116 +295,137 @@ async def get_all_incidents():
 async def approve_incident(incident_id: str, payload: ApprovePayload):
     """Step 4 - Dispatcher approves the AI plan, or overrides the hospital."""
 
-    for inc in ACTIVE_INCIDENTS:
-        if inc["incident_id"] != incident_id:
-            continue
+    async with _INCIDENTS_LOCK:
+        for inc in ACTIVE_INCIDENTS:
+            if inc["incident_id"] != incident_id:
+                continue
 
-        action_plan = inc.get("action_plan") or {}
-        all_hospitals = action_plan.get("all_hospitals") or []
+            action_plan = inc.get("action_plan") or {}
+            all_hospitals = action_plan.get("all_hospitals") or []
 
-        # Resolve the approved hospital by id or name.
-        target_hosp = None
-        for h in all_hospitals:
-            h_dict = h if isinstance(h, dict) else h.model_dump()
-            if payload.approved_hospital in (
-                h_dict.get("hospital_id"), h_dict.get("name")
-            ):
-                target_hosp = h_dict
-                break
+            # Resolve the approved hospital by id or name.
+            target_hosp = None
+            for h in all_hospitals:
+                h_dict = h if isinstance(h, dict) else h.model_dump()
+                if payload.approved_hospital in (
+                    h_dict.get("hospital_id"), h_dict.get("name")
+                ):
+                    target_hosp = h_dict
+                    break
 
         # BUG: the dispatcher UI sends sentinel ids ('HOSP-DEFAULT', 'HOSP-AUTO')
         # whenever the plan is still loading, and the old code then dereferenced
         # target_hosp=None -> HTTP 500. Fall back to the AI recommendation.
-        if target_hosp is None:
-            recommended = action_plan.get("recommended_hospital")
-            if isinstance(recommended, dict):
-                target_hosp = recommended
-                logger.warning(
-                    "Approve for %s: '%s' not in candidate list — falling back "
-                    "to the recommended hospital '%s'.",
-                    incident_id, payload.approved_hospital,
-                    target_hosp.get("name"),
-                )
-            else:
-                raise HTTPException(
-                    status_code=409,
-                    detail=(
-                        f"Cannot approve {incident_id}: no action plan is ready "
-                        f"yet and '{payload.approved_hospital}' matched no "
-                        f"candidate hospital."
-                    ),
-                )
+            if target_hosp is None:
+                recommended = action_plan.get("recommended_hospital")
+                if isinstance(recommended, dict):
+                    target_hosp = recommended
+                    logger.warning(
+                        "Approve for %s: '%s' not in candidate list — falling back "
+                        "to the recommended hospital '%s'.",
+                        incident_id, payload.approved_hospital,
+                        target_hosp.get("name"),
+                    )
+                else:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=(
+                            f"Cannot approve {incident_id}: no action plan is ready "
+                            f"yet and '{payload.approved_hospital}' matched no "
+                            f"candidate hospital."
+                        ),
+                    )
 
-        inc["status"] = "dispatched"
-        inc["assigned_driver"] = "drv-11"
-        inc["dispatcher_id"] = payload.dispatcher_id
+            inc["status"] = "dispatched"
+            inc["assigned_driver"] = "drv-11"
+            inc["dispatcher_id"] = payload.dispatcher_id
 
-        hosp_loc = target_hosp.get("location") or {}
-        hosp_lat = hosp_loc.get("lat") or 12.9716
-        hosp_lng = hosp_loc.get("lng") or 77.5946
+            hosp_loc = target_hosp.get("location") or {}
+            hosp_lat = hosp_loc.get("lat") or 12.9716
+            hosp_lng = hosp_loc.get("lng") or 77.5946
 
-        cit_loc = inc.get("location") or {}
-        cit_lat = cit_loc.get("lat") or 12.9756
-        cit_lng = cit_loc.get("lng") or 77.6068
+            cit_loc = inc.get("location") or {}
+            cit_lat = cit_loc.get("lat") or 12.9756
+            cit_lng = cit_loc.get("lng") or 77.6068
 
-        # Recompute Phase 2 (citizen -> approved hospital).
-        route_ok = True
-        try:
-            new_route = route_agent.compute_route(RouteRequest(
-                origin=Coordinate(lat=cit_lat, lng=cit_lng),
-                destination=Coordinate(lat=hosp_lat, lng=hosp_lng),
-            ))
-            route_ok = new_route.confidence > 0 and len(new_route.coordinates) >= 2
-            new_coords = [{"lat": c.lat, "lng": c.lng} for c in new_route.coordinates]
-            eta_mins = max(1, int(new_route.eta // 60))
-            dist_meters = new_route.distance
-        except Exception:
-            logger.exception("Re-route failed for %s", incident_id)
-            route_ok = False
-            new_coords = [
-                {"lat": cit_lat, "lng": cit_lng},
-                {"lat": hosp_lat, "lng": hosp_lng},
-            ]
-            eta_mins = 0
-            dist_meters = 0.0
+            # Recompute Phase 2 (citizen -> approved hospital).
+            route_ok = True
+            try:
+                new_route = route_agent.compute_route(RouteRequest(
+                    origin=Coordinate(lat=cit_lat, lng=cit_lng),
+                    destination=Coordinate(lat=hosp_lat, lng=hosp_lng),
+                ))
+                route_ok = new_route.confidence > 0 and len(new_route.coordinates) >= 2
+                new_coords = [{"lat": c.lat, "lng": c.lng} for c in new_route.coordinates]
+                eta_mins = max(1, int(new_route.eta // 60))
+                dist_meters = new_route.distance
+            except Exception:
+                logger.exception("Re-route failed for %s", incident_id)
+                route_ok = False
+                new_coords = [
+                    {"lat": cit_lat, "lng": cit_lng},
+                    {"lat": hosp_lat, "lng": hosp_lng},
+                ]
+                eta_mins = 0
+                dist_meters = 0.0
 
-        # MERGE into citizen_view rather than replacing it. The old code
-        # rebuilt the dict from scratch and silently dropped phase1_hub,
-        # phase1_route_coordinates, phase1_eta_minutes, vehicle_required and
-        # include_ambulance_backup — so approving wiped the 2-phase route off
-        # the citizen's map at the exact moment it mattered most.
-        hospital_phone = _hospital_phone(target_hosp.get("name"))
-        unit_phone = inc.get("unit_phone") or DEMO_UNIT_PHONE
-        citizen_view = dict(inc.get("citizen_view") or {})
-        citizen_view.update({
-            "message": f"Help is being dispatched. Approved Hospital: {target_hosp.get('name')}.",
-            "eta_minutes": eta_mins,
-            "hospital_name": target_hosp.get("name"),
-            "hospital_location": {"lat": hosp_lat, "lng": hosp_lng},
-            "hospital_phone": hospital_phone,
-            "unit_phone": unit_phone,
-            "origin": {"lat": cit_lat, "lng": cit_lng},
-            "route_coordinates": new_coords,
-            "distance_meters": dist_meters,
-            "emergency_type": inc.get("emergency_type", "General"),
-            "severity": inc.get("severity", 0.5),
-            "route_degraded": not route_ok,
-        })
-        inc["hospital_phone"] = hospital_phone
-        inc["unit_phone"] = unit_phone
-        inc["citizen_view"] = citizen_view
+            # MERGE into citizen_view rather than replacing it.
+            hospital_phone = _hospital_phone(target_hosp.get("name"))
+            unit_phone = inc.get("unit_phone") or DEMO_UNIT_PHONE
+            citizen_view = dict(inc.get("citizen_view") or {})
+            citizen_view.update({
+                "message": f"Help is being dispatched. Approved Hospital: {target_hosp.get('name')}.",
+                "eta_minutes": eta_mins,
+                "hospital_name": target_hosp.get("name"),
+                "hospital_location": {"lat": hosp_lat, "lng": hosp_lng},
+                "hospital_phone": hospital_phone,
+                "unit_phone": unit_phone,
+                "origin": {"lat": cit_lat, "lng": cit_lng},
+                "route_coordinates": new_coords,
+                "distance_meters": dist_meters,
+                "emergency_type": inc.get("emergency_type", "General"),
+                "severity": inc.get("severity", 0.5),
+                "route_degraded": not route_ok,
+            })
+            inc["hospital_phone"] = hospital_phone
+            inc["unit_phone"] = unit_phone
+            inc["citizen_view"] = citizen_view
 
-        # Persist AFTER the view is built, not before.
-        save_db()
+            # Persist AFTER the view is built, not before.
+            save_db()
 
-        logger.info(
-            "PLAN_APPROVED for %s by %s: hospital=%s, ETA=%dmin%s",
-            incident_id, payload.dispatcher_id, target_hosp.get("name"),
-            eta_mins, "" if route_ok else " (ROUTE DEGRADED)",
-        )
-        return inc
+            logger.info(
+                "PLAN_APPROVED for %s by %s: hospital=%s, ETA=%dmin%s",
+                incident_id, payload.dispatcher_id, target_hosp.get("name"),
+                eta_mins, "" if route_ok else " (ROUTE DEGRADED)",
+            )
+            return inc
 
     raise HTTPException(status_code=404, detail="Incident not found")
+
+
+@router.post("/{incident_id}/reject")
+async def reject_incident(incident_id: str, dispatcher_id: str = "DISPATCHER-01"):
+    """Dispatcher rejects an incident plan — sets status to 'rejected' so it leaves the approval queue."""
+    async with _INCIDENTS_LOCK:
+        for inc in ACTIVE_INCIDENTS:
+            if inc["incident_id"] == incident_id:
+                if inc.get("status") not in ("awaiting_dispatcher_approval", "processing"):
+                    raise HTTPException(
+                        status_code=409,
+                        detail=f"Cannot reject {incident_id}: status is '{inc.get('status')}'.",
+                    )
+                inc["status"] = "failed"
+                inc["error"] = "Rejected by dispatcher"
+                inc["dispatcher_id"] = dispatcher_id
+                if "citizen_view" in inc:
+                    inc["citizen_view"]["status"] = "failed"
+                    inc["citizen_view"]["message"] = "Your request could not be dispatched. Please call 112."
+                save_db()
+                logger.info("REJECTED %s by %s", incident_id, dispatcher_id)
+                return {"status": "rejected", "incident_id": incident_id}
+    raise HTTPException(status_code=404, detail="Incident not found")
+
 
 @router.post("/{incident_id}/arrived")
 async def incident_arrived(incident_id: str, unit_type: str = "primary"):
@@ -439,6 +460,9 @@ async def clear_incidents():
     async with _INCIDENTS_LOCK:
         ACTIVE_INCIDENTS.clear()
         save_db()
+    # Also clear chat history so old messages don't surface on new incidents with the same ID.
+    from routers.chat import manager
+    manager.chat_history.clear()
     return {"status": "cleared"}
 @router.post("/{incident_id}/request_ambulance")
 async def request_ambulance_backup(incident_id: str):

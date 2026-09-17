@@ -59,10 +59,19 @@ export default function DispatcherDashboard() {
         const list = data.incidents || [];
         setIncidents(list);
 
+        // Clear selectedId if the selected incident has completed or failed
+        // (prevents re-approving a completed incident).
+        setSelectedId((prev) => {
+          if (!prev) return prev;
+          const inc = list.find((i) => i.incident_id === prev);
+          if (!inc || inc.status === 'completed' || inc.status === 'failed') return null;
+          return prev;
+        });
+
         if (autoDispatch) {
           for (const inc of list) {
             if (inc.status === 'awaiting_dispatcher_approval' && inc.action_plan) {
-              await fetch(`/api/incidents/${inc.incident_id}/approve`, {
+              const res = await fetch(`/api/incidents/${inc.incident_id}/approve`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -71,7 +80,16 @@ export default function DispatcherDashboard() {
                     inc.action_plan?.recommended_hospital?.hospital_id ?? '',
                   approved_route: inc.action_plan?.recommended_route?.route_id ?? '',
                 }),
-              }).catch(() => {});
+              }).catch(() => null);
+              // Only update local state on success — do NOT retry 409/500 on next tick.
+              if (res?.ok) {
+                const updated = await res.json().catch(() => null);
+                if (updated) {
+                  setIncidents((prev) =>
+                    prev.map((i) => (i.incident_id === updated.incident_id ? updated : i)),
+                  );
+                }
+              }
             }
           }
         }
@@ -133,6 +151,29 @@ export default function DispatcherDashboard() {
           prev.map((i) => (i.incident_id === updated.incident_id ? updated : i)),
         );
         setShowOverride(false);
+      }
+    } catch {
+      setConn('retry');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const reject = async () => {
+    if (!selected?.incident_id) return;
+    setBusy(true);
+    try {
+      const res = await fetch(
+        `/api/incidents/${selected.incident_id}/reject?dispatcher_id=DISPATCHER-01`,
+        { method: 'POST' },
+      );
+      if (res.ok) {
+        setSelectedId(null);
+        setIncidents((prev) =>
+          prev.map((i) =>
+            i.incident_id === selected.incident_id ? { ...i, status: 'failed' } : i,
+          ),
+        );
       }
     } catch {
       setConn('retry');
@@ -368,6 +409,12 @@ export default function DispatcherDashboard() {
                   <Button onClick={() => approve()} disabled={busy || !plan} className="flex-1">
                     <Check size={15} />
                     {busy ? 'Dispatching…' : 'Approve and dispatch'}
+                  </Button>
+                )}
+                {!autoDispatch && selected.status === 'awaiting_dispatcher_approval' && (
+                  <Button variant="quiet" onClick={reject} disabled={busy} className="shrink-0 border-error text-error hover:bg-error hover:text-white">
+                    <X size={15} />
+                    Reject
                   </Button>
                 )}
                 <Button

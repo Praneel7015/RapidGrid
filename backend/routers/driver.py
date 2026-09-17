@@ -48,6 +48,10 @@ async def get_active_dispatches():
                 "citizen_phone": inc.get("citizen_phone"),
                 "unit_phone": inc.get("unit_phone") or cit_view.get("unit_phone"),
                 "hospital_phone": inc.get("hospital_phone") or cit_view.get("hospital_phone"),
+                # Include the full citizen_view and action_plan so DriverDashboard
+                # can access phase1_hub, route_coordinates, hospital_name, etc.
+                "citizen_view": cit_view,
+                "action_plan": inc.get("action_plan") or {},
             })
     active_list.reverse() # Newest incidents first
     return {"dispatches": active_list}

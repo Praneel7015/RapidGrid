@@ -184,6 +184,13 @@ class RouteOptimizationAgent:
         
         geojson = route_data.get("polyline", {}).get("geoJsonLinestring", {}).get("coordinates", [])
         coords = [Coordinate(lat=c[1], lng=c[0]) for c in geojson]
+
+        # Guard: Google sometimes returns a route with an empty or single-point
+        # polyline. RouteResponse requires min_length=2 — fall back rather than
+        # raising a ValidationError that would bypass _mark_failed.
+        if len(coords) < 2:
+            logger.warning("Google Routes returned empty polyline — falling back to local/straight-line route")
+            return self._fallback_route(request)
         
         reason = (
             f"Primary route via Google Maps Live Traffic. "

@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+@keyframes rg-crawl { to { stroke-dashoffset: -24; } }
+@keyframes rg-ping { 0%{transform:scale(1);opacity:.55} 70%{transform:scale(2.6);opacity:0} 100%{transform:scale(2.6);opacity:0} }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
+</style>
+</helmet>
+<div style="position:absolute;inset:0;overflow:hidden;background:oklch(0.925 0.004 100)">
+  <sc-if value="{{ isDark }}" hint-placeholder-val="{{ false }}">
+    <div style="position:absolute;inset:0;background:oklch(0.165 0.006 280)"></div>
+  </sc-if>
+
+  <svg viewBox="0 0 480 320" preserveAspectRatio="xMidYMid slice" style="position:absolute;inset:0;width:100%;height:100%;display:block">
+    <g stroke="{{ minorC }}" stroke-width="0.75" fill="none">
+      <path d="M0 44H480M0 92H480M0 140H480M0 188H480M0 236H480M0 284H480M40 0V320M96 0V320M152 0V320M208 0V320M264 0V320M320 0V320M376 0V320M432 0V320" />
+    </g>
+    <g stroke="{{ minorC }}" stroke-width="0.75" fill="none" opacity="0.8">
+      <path d="M0 320L160 0M80 320L320 0M240 320L480 80M0 200L200 320" />
+    </g>
+    <path d="M240 42C330 42 404 104 404 160C404 216 330 278 240 278C150 278 76 216 76 160C76 104 150 42 240 42Z" fill="none" stroke="{{ artC }}" stroke-width="3.5" />
+    <g stroke="{{ artC }}" stroke-width="3" fill="none">
+      <path d="M240 0V320" />
+      <path d="M0 160H480" />
+      <path d="M330 22L392 78" />
+    </g>
+
+    <sc-if value="{{ closure }}" hint-placeholder-val="{{ false }}">
+      <g>
+        <path d="M240 0V96" stroke="oklch(0.55 0.22 25)" stroke-width="7" stroke-linecap="butt" />
+        <path d="M240 0V96" stroke="{{ bgC }}" stroke-width="7" stroke-dasharray="3 5" />
+        <path d="M292 14V120" stroke="oklch(0.78 0.17 72)" stroke-width="6" opacity="0.85" stroke-dasharray="10 6">
+          <animate attributeName="stroke-dashoffset" from="0" to="-32" dur="1.6s" repeatCount="indefinite" />
+        </path>
+      </g>
+    </sc-if>
+
+    <sc-if value="{{ hasRoute }}" hint-placeholder-val="{{ true }}">
+      <g fill="none" stroke-linecap="round">
+        <path d="M96 252C130 246 152 228 176 210C196 195 206 186 214 178" stroke="{{ p1C }}" stroke-width="5" stroke-dasharray="9 7" style="animation:rg-crawl 1.9s linear infinite" />
+        <path d="M214 178C240 152 262 132 296 122C330 112 352 116 372 108" stroke="oklch(0.78 0.17 72)" stroke-width="6" />
+        <path d="M214 178C240 152 262 132 296 122C330 112 352 116 372 108" stroke="{{ bgC }}" stroke-width="1.5" stroke-dasharray="2 10" />
+      </g>
+    </sc-if>
+
+    <sc-if value="{{ showAlt }}" hint-placeholder-val="{{ false }}">
+      <path d="M214 178C226 196 236 208 252 216" fill="none" stroke="{{ altC }}" stroke-width="3" stroke-dasharray="4 6" />
+    </sc-if>
+  </svg>
+
+  <sc-if value="{{ hasRoute }}" hint-placeholder-val="{{ true }}">
+    <div style="position:absolute;inset:0">
+      <div style="position:absolute;left:20%;top:78.75%;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;gap:4px">
+        <div style="width:13px;height:13px;background:{{ fgC }};border:2px solid {{ bgC }}"></div>
+        <div style="font:600 9px/1 'Azeret Mono',monospace;letter-spacing:.1em;color:{{ fgC }};background:{{ chipBg }};padding:3px 4px;white-space:nowrap">HUB 04</div>
+      </div>
+      <div style="position:absolute;left:44.5%;top:55.6%;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;gap:4px">
+        <div style="position:relative;width:15px;height:15px;display:grid;place-items:center">
+          <div style="position:absolute;inset:0;background:oklch(0.78 0.17 72);animation:rg-ping 2.2s ease-out infinite"></div>
+          <div style="width:15px;height:15px;background:oklch(0.78 0.17 72);border:2px solid {{ bgC }};transform:rotate(45deg)"></div>
+        </div>
+        <div style="font:600 9px/1 'Azeret Mono',monospace;letter-spacing:.1em;color:{{ fgC }};background:{{ chipBg }};padding:3px 4px;white-space:nowrap">PATIENT</div>
+      </div>
+      <div style="position:absolute;left:77.5%;top:33.75%;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;gap:4px">
+        <div style="position:relative;width:16px;height:16px;background:{{ fgC }};display:grid;place-items:center;border:2px solid {{ bgC }}">
+          <div style="width:8px;height:2px;background:{{ bgC }};position:absolute"></div>
+          <div style="width:2px;height:8px;background:{{ bgC }};position:absolute"></div>
+        </div>
+        <div style="font:600 9px/1 'Azeret Mono',monospace;letter-spacing:.1em;color:{{ fgC }};background:{{ chipBg }};padding:3px 4px;white-space:nowrap">{{ destLabel }}</div>
+      </div>
+      <sc-if value="{{ showAlt }}" hint-placeholder-val="{{ false }}">
+        <div style="position:absolute;left:52.5%;top:67.5%;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;gap:4px">
+          <div style="width:14px;height:14px;border:2px dashed {{ altC }};background:{{ chipBg }}"></div>
+          <div style="font:600 9px/1 'Azeret Mono',monospace;letter-spacing:.1em;color:{{ altC }};background:{{ chipBg }};padding:3px 4px;white-space:nowrap">NOT CHOSEN</div>
+        </div>
+      </sc-if>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isLoading }}" hint-placeholder-val="{{ false }}">
+    <div style="position:absolute;inset:0;background:{{ veilBg }};display:grid;place-items:center">
+      <div style="display:flex;flex-direction:column;align-items:center;gap:10px">
+        <div style="display:flex;gap:4px">
+          <div style="width:5px;height:18px;background:oklch(0.78 0.17 72)"></div>
+          <div style="width:5px;height:18px;background:oklch(0.78 0.17 72);opacity:.55"></div>
+          <div style="width:5px;height:18px;background:oklch(0.78 0.17 72);opacity:.25"></div>
+        </div>
+        <div style="font:600 11px/1 'Azeret Mono',monospace;letter-spacing:.16em;color:{{ fgC }}">AGENTS COMPUTING ROUTE</div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isNoRoute }}" hint-placeholder-val="{{ false }}">
+    <div style="position:absolute;inset:0;background:{{ veilBg }};display:grid;place-items:center">
+      <div style="display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center">
+        <div style="width:26px;height:26px;border:2px solid oklch(0.55 0.22 25);background-image:repeating-linear-gradient(45deg,oklch(0.55 0.22 25 / 0.35) 0 1.5px,transparent 1.5px 6px)"></div>
+        <div style="font:600 13px/1 'Azeret Mono',monospace;letter-spacing:.16em;color:oklch(0.55 0.22 25)">NO ROUTE AVAILABLE</div>
+        <div style="font:400 11px/1.5 'Archivo',sans-serif;color:{{ fgC }};max-width:210px">Routing data is stale. RapidGrid will not return an ETA it cannot stand behind.</div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ legend }}" hint-placeholder-val="{{ false }}">
+    <div style="position:absolute;left:10px;top:10px;display:flex;flex-direction:column;gap:5px;background:{{ legendBg }};border:1px solid {{ legendRule }};padding:8px 9px">
+      <div style="font:600 9px/1 'Azeret Mono',monospace;letter-spacing:.16em;color:{{ mutedC }};margin-bottom:1px">LEGEND</div>
+      <div style="display:flex;align-items:center;gap:7px;font:500 9.5px/1 'Azeret Mono',monospace;letter-spacing:.06em;color:{{ fgC }}"><span style="width:18px;height:0;border-top:3px dashed {{ p1C }}"></span>PHASE 1 · HUB → PATIENT</div>
+      <div style="display:flex;align-items:center;gap:7px;font:500 9.5px/1 'Azeret Mono',monospace;letter-spacing:.06em;color:{{ fgC }}"><span style="width:18px;height:3px;background:oklch(0.78 0.17 72)"></span>PHASE 2 · PATIENT → ER</div>
+      <div style="display:flex;align-items:center;gap:7px;font:500 9.5px/1 'Azeret Mono',monospace;letter-spacing:.06em;color:{{ fgC }}"><span style="width:18px;height:4px;background-image:repeating-linear-gradient(45deg,oklch(0.55 0.22 25) 0 1.5px,transparent 1.5px 5px);border-top:1px solid oklch(0.55 0.22 25);border-bottom:1px solid oklch(0.55 0.22 25)"></span>ROAD CLOSED</div>
+      <div style="display:flex;align-items:center;gap:7px;font:500 9.5px/1 'Azeret Mono',monospace;letter-spacing:.06em;color:{{ fgC }}"><span style="width:18px;height:3px;background:oklch(0.78 0.17 72);opacity:.85"></span>DISPLACED CONGESTION</div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ showAttrib }}" hint-placeholder-val="{{ true }}">
+    <div style="position:absolute;right:8px;bottom:7px;font:400 8.5px/1 'Azeret Mono',monospace;letter-spacing:.05em;color:{{ mutedC }}">BASEMAP · OPENSTREETMAP</div>
+  </sc-if>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:520,&quot;height&quot;:340},&quot;mode&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;plan&quot;,&quot;loading&quot;,&quot;noroute&quot;,&quot;tracking&quot;],&quot;default&quot;:&quot;plan&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;dark&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;},&quot;showAlt&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;},&quot;closure&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;},&quot;legend&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;},&quot;attribution&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;},&quot;destLabel&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;FORTIS&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    const p = this.props;
+    const mode = p.mode ?? 'plan';
+    const dark = p.dark ?? false;
+    return {
+      isDark: dark,
+      isLoading: mode === 'loading',
+      isNoRoute: mode === 'noroute',
+      hasRoute: mode === 'plan' || mode === 'tracking' || mode === 'loading',
+      showAlt: p.showAlt ?? false,
+      closure: p.closure ?? false,
+      legend: p.legend ?? false,
+      showAttrib: p.attribution ?? true,
+      destLabel: p.destLabel ?? 'FORTIS',
+      bgC: dark ? 'oklch(0.165 0.006 280)' : 'oklch(0.925 0.004 100)',
+      fgC: dark ? 'oklch(0.93 0.003 100)' : 'oklch(0.19 0.004 280)',
+      mutedC: dark ? 'oklch(0.62 0.006 280)' : 'oklch(0.52 0.006 280)',
+      minorC: dark ? 'oklch(0.30 0.006 280)' : 'oklch(0.875 0.004 100)',
+      artC: dark ? 'oklch(0.44 0.008 280)' : 'oklch(0.78 0.005 100)',
+      p1C: dark ? 'oklch(0.72 0.01 280)' : 'oklch(0.40 0.006 280)',
+      altC: dark ? 'oklch(0.58 0.008 280)' : 'oklch(0.56 0.006 280)',
+      chipBg: dark ? 'oklch(0.165 0.006 280 / 0.86)' : 'oklch(0.99 0.003 100 / 0.9)',
+      veilBg: dark ? 'oklch(0.165 0.006 280 / 0.9)' : 'oklch(0.96 0.003 100 / 0.92)',
+      legendBg: dark ? 'oklch(0.21 0.006 280 / 0.95)' : 'oklch(0.99 0.003 100 / 0.95)',
+      legendRule: dark ? 'oklch(0.32 0.006 280)' : 'oklch(0.85 0.004 100)'
+    };
+  }
+}
+</script>
+</body>
+</html>
