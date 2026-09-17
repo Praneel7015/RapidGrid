@@ -71,6 +71,10 @@ export default function MapOverlay({
   const holder = useRef(null);
   const map = useRef(null);
   const layers = useRef(null);
+  // Track whether we have ever fit the bounds from real data. Once the user
+  // has interacted (zoom/pan), we stop auto-fitting so their view is preserved.
+  const hasFit = useRef(false);
+  const userInteracted = useRef(false);
 
   // Create the map exactly once. The previous version never called remove(),
   // which throws "Map container is already initialized" on React's dev
@@ -87,6 +91,11 @@ export default function MapOverlay({
     L.tileLayer(TILE_URL, { attribution: TILE_ATTR, maxZoom: 19 }).addTo(map.current);
     L.control.zoom({ position: 'bottomright' }).addTo(map.current);
     layers.current = L.layerGroup().addTo(map.current);
+
+    // Mark user interaction so we stop overriding their zoom/pan.
+    const onInteract = () => { userInteracted.current = true; };
+    map.current.on('zoomstart', onInteract);
+    map.current.on('dragstart', onInteract);
 
     // A map created inside a container that is hidden or still being sized
     // renders grey tiles until it is told to re-measure.
@@ -106,8 +115,23 @@ export default function MapOverlay({
     };
   }, []);
 
+  // When the incident itself changes (new route, hospital divert), reset the
+  // fit guard so the new route is automatically framed.
+  const routeKey = [
+    origin?.lat, origin?.lng,
+    hospital?.lat, hospital?.lng,
+    hub?.lat, hub?.lng,
+  ].join(',');
+  const prevRouteKey = useRef(routeKey);
   useEffect(() => {
-    if (!map.current || !layers.current) return;
+    if (prevRouteKey.current !== routeKey) {
+      hasFit.current = false;
+      userInteracted.current = false;
+      prevRouteKey.current = routeKey;
+    }
+  }, [routeKey]);
+
+  useEffect(() => {
     const group = layers.current;
     group.clearLayers();
 
@@ -206,7 +230,14 @@ export default function MapOverlay({
 
     if (bounds.length >= 2) {
       try {
-        map.current.fitBounds(L.latLngBounds(bounds), { padding: [44, 44], maxZoom: 15 });
+        // Only auto-fit on the first load with real data, or when the route
+        // changes to a completely different set of coordinates (e.g. hospital
+        // divert). Once the user has zoomed/panned, leave their view alone.
+        const shouldFit = !hasFit.current || !userInteracted.current;
+        if (shouldFit) {
+          map.current.fitBounds(L.latLngBounds(bounds), { padding: [44, 44], maxZoom: 15 });
+          hasFit.current = true;
+        }
       } catch {
         /* bounds can be degenerate while data is still arriving */
       }

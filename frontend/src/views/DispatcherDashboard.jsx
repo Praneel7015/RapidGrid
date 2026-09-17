@@ -148,7 +148,9 @@ export default function DispatcherDashboard() {
   const queue = incidents.filter(
     (i) => i.status === 'processing' || i.status === 'awaiting_dispatcher_approval',
   );
-  const active = incidents.filter((i) => i.status === 'dispatched');
+  // "dispatched" = unit en route to patient; "patient_picked_up" = unit transporting to ER
+  const LIVE_STATUSES = ['dispatched', 'patient_picked_up'];
+  const active = incidents.filter((i) => LIVE_STATUSES.includes(i.status));
   const queueVisible = incidents.filter(
     (i) => !['failed', 'completed'].includes(i.status),
   );
@@ -312,7 +314,7 @@ export default function DispatcherDashboard() {
                     hub={view.phase1_hub}
                     closures={overlay.closures}
                     congestion={overlay.congestion}
-                    activePhase={selected.status === 'dispatched' ? 1 : 2}
+                    activePhase={selected.status === 'patient_picked_up' ? 2 : 1}
                     className="!rounded-none !border-0"
                   />
                 ) : (

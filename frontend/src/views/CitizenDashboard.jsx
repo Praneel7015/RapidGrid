@@ -432,7 +432,7 @@ export default function CitizenDashboard() {
                 : null
             }
             hub={view.phase1_hub}
-            activePhase={dispatched ? 1 : 2}
+            activePhase={incident?.status === 'patient_picked_up' ? 2 : 1}
             className="!rounded-none !border-0"
           />
         </Panel>
