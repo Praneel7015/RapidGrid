@@ -128,4 +128,6 @@ jobs:
             range="${GITHUB_SHA}"   # first push or manual run: full history up to HEAD
           fi
           echo "Scanning $range"
-          gitleaks git --redact --verbose --exit-code 1 --log-opts="$range" .
+          # --diff-merges=first-parent gives merge commits a normal patch, so a
+          # secret added only while resolving a conflict is still scanned.
+          gitleaks git --redact --verbose --exit-code 1             --log-opts="--diff-merges=first-parent $range" .
