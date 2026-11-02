@@ -172,3 +172,13 @@ def test_safe_frontend_file_stays_inside_dist(tmp_path):
     assert _safe_frontend_file(str(tmp_path / "secret.txt"), dist) is None
     assert _safe_frontend_file("", dist) is None
     assert _safe_frontend_file("missing.js", dist) is None
+
+
+def test_startup_survives_missing_offline_graph(monkeypatch):
+    # prediction_agent used to be imported only on the offline-graph path,
+    # so startup raised UnboundLocalError when the graph was missing.
+    from agents.local_router import local_router
+
+    monkeypatch.setattr(local_router, "load", lambda *a, **k: False)
+    with TestClient(app) as c:
+        assert c.get("/health").status_code == 200

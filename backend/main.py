@@ -39,6 +39,7 @@ from agents.communication import communication_agent
 from agents.coordinator import coordinator_agent
 from agents.learning import learning_agent
 from agents.local_router import local_router
+from agents.prediction import prediction_agent
 from agents.route_optimization import route_agent
 from agents.traffic_intelligence import traffic_agent
 from routers import (
@@ -102,8 +103,6 @@ async def lifespan(app: FastAPI):
         if city_state.attach(local_router):
             try:
                 import httpx
-
-                from agents.prediction import prediction_agent
 
                 if prediction_agent.api_key:
                     async with httpx.AsyncClient(timeout=6.0) as client:
