@@ -152,3 +152,23 @@ def test_hospital_divert_round_trip(client):
 
 def test_unknown_hospital_is_404(client):
     assert client.get("/api/hospital/no-such-hospital-xyz").status_code == 404
+
+
+def test_safe_frontend_file_stays_inside_dist(tmp_path):
+    import os
+
+    from main import _safe_frontend_file
+
+    dist = tmp_path / "dist"
+    (dist / "assets").mkdir(parents=True)
+    (dist / "assets" / "app.js").write_text("ok", encoding="utf-8")
+    (tmp_path / "secret.txt").write_text("nope", encoding="utf-8")
+
+    assert _safe_frontend_file("assets/app.js", dist) == os.path.realpath(
+        dist / "assets" / "app.js"
+    )
+    assert _safe_frontend_file("../secret.txt", dist) is None
+    assert _safe_frontend_file("assets/../../secret.txt", dist) is None
+    assert _safe_frontend_file(str(tmp_path / "secret.txt"), dist) is None
+    assert _safe_frontend_file("", dist) is None
+    assert _safe_frontend_file("missing.js", dist) is None
