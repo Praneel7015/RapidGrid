@@ -1,0 +1,96 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: en-US
+
+reviews:
+  profile: chill
+  high_level_summary: true
+  poem: false
+  review_status: true
+  path_filters:
+    - "!**/package-lock.json"
+    - "!**/dist/**"
+    - "!temp/**"
+    - "!**/*.pdf"
+    - "!backend/data/*.gz"
+    - "!CHANGELOG.md"
+  path_instructions:
+    - path: "backend/agents/**/*.py"
+      instructions: |
+        Emergency-dispatch agents (triage, routing, hospital ranking, fusion).
+        Wrong output here sends an ambulance to the wrong place, so flag:
+        silent fallbacks that hide a failed live API call, coordinate
+        (lat, lng) order mix-ups, unit mistakes (m vs km, s vs min),
+        division by zero on empty candidate lists, and modelled/simulated
+        values being reported as real. Routing must keep working offline
+        when GOOGLE_ROUTES_API_KEY is unset. Network calls should use httpx
+        with explicit timeouts.
+    - path: "backend/routers/**/*.py"
+      instructions: |
+        FastAPI routers. Check route order (a wildcard like /{hospital_id}
+        must be registered after specific paths like /incoming/all),
+        request validation through Pydantic models, correct HTTP status
+        codes, and that every mutation of ACTIVE_INCIDENTS happens under
+        _INCIDENTS_LOCK. Flag API keys or stack traces leaking into
+        responses or logs.
+    - path: "backend/models/**/*.py"
+      instructions: |
+        Pydantic v2 schemas shared by agents, routers and the React app.
+        Flag renamed or removed fields that the frontend (frontend/src) or
+        other agents still read, and required fields added without defaults.
+    - path: "backend/main.py"
+      instructions: |
+        App wiring, CORS, static serving of the Vite build and the /health
+        endpoint used by Render's health check. /health must stay cheap and
+        must not call external APIs.
+    - path: "backend/tests/**/*.py"
+      instructions: |
+        pytest suite that must run with no network and no API keys. Prefer
+        focused tests on behaviour and error paths; tests must not write to
+        backend/data/incidents_db.json or leak in-memory state between tests.
+    - path: "backend/scripts/**/*.py"
+      instructions: |
+        One-off maintenance scripts (graph build, coordinate resolution,
+        API validation). Check they fail loudly, respect API rate limits and
+        never print API keys.
+    - path: "frontend/src/**/*.{js,jsx}"
+      instructions: |
+        React 18 + Vite + Leaflet/Google Maps dashboards for citizen,
+        dispatcher, driver and hospital roles. Flag hook dependency bugs,
+        polling intervals that are not cleared on unmount, fetch results
+        used without checking res.ok, list items keyed by index, and any
+        API key other than the browser-restricted Maps JS key reaching the
+        client bundle.
+    - path: ".github/workflows/**"
+      instructions: |
+        Actions must stay pinned to full commit SHAs with a version comment.
+        Keep permissions least-privilege and never echo secrets.
+    - path: "Dockerfile"
+      instructions: |
+        Single image: Vite build stage, then FastAPI serving the build and
+        the API on $PORT for Render. Flag secrets baked into layers and
+        cache-busting layer order.
+  pre_merge_checks:
+    # The 80% docstring target is CodeRabbit's default, not a repo rule.
+    docstrings:
+      mode: "off"
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches:
+      - "^main$"
+  tools:
+    ruff:
+      enabled: true
+    gitleaks:
+      enabled: true
+    actionlint:
+      enabled: true
+    yamllint:
+      enabled: true
+    markdownlint:
+      enabled: true
+    hadolint:
+      enabled: true
+
+chat:
+  auto_reply: true

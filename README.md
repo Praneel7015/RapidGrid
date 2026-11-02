@@ -1,5 +1,12 @@
 # RapidGrid — GeoAgentic emergency vehicle routing
 
+[![CI](https://github.com/Praneel7015/RapidGrid/actions/workflows/ci.yml/badge.svg)](https://github.com/Praneel7015/RapidGrid/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/Praneel7015/RapidGrid/actions/workflows/codeql.yml/badge.svg)](https://github.com/Praneel7015/RapidGrid/actions/workflows/codeql.yml)
+[![codecov](https://codecov.io/gh/Praneel7015/RapidGrid/branch/main/graph/badge.svg)](https://codecov.io/gh/Praneel7015/RapidGrid)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/Praneel7015/RapidGrid/badge)](https://scorecard.dev/viewer/?uri=github.com/Praneel7015/RapidGrid)
+[![pre-commit.ci status](https://results.pre-commit.ci/badge/github/Praneel7015/RapidGrid/main.svg)](https://results.pre-commit.ci/latest/github/Praneel7015/RapidGrid/main)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+
 A multi-agent system that routes emergency vehicles in Bengaluru on what a
 hospital can actually **treat**, not just how close it is — and shows the
 dispatcher exactly what each decision traded away.
@@ -323,7 +330,12 @@ Runs at `http://localhost:5173`. API calls go through the Vite proxy
 cd backend && pip install -r requirements-dev.txt && ./venv/Scripts/python.exe -m pytest tests/ -q
 ```
 
-30 tests covering triage, offline routing, causal displacement, outcome
+Lint and format with [ruff](https://docs.astral.sh/ruff/) (`ruff check . && ruff format --check .`
+from the repo root), or install the git hooks once with `pip install pre-commit && pre-commit install`.
+CI runs ruff, mypy (advisory), the test suite with coverage, a frontend build, CodeQL and a gitleaks
+secret scan on every pull request.
+
+Tests covering triage, offline routing, causal displacement, outcome
 estimation, the capability table and hospital coordinate integrity. None
 require network access.
 
