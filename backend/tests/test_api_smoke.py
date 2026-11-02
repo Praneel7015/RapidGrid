@@ -177,8 +177,18 @@ def test_safe_frontend_file_stays_inside_dist(tmp_path):
 def test_startup_survives_missing_offline_graph(monkeypatch):
     # prediction_agent used to be imported only on the offline-graph path,
     # so startup raised UnboundLocalError when the graph was missing.
+    from collections import defaultdict
+
     from agents.local_router import local_router
+    from bus.event_bus import bus
 
     monkeypatch.setattr(local_router, "load", lambda *a, **k: False)
+    # Lifespan subscribes handlers and publishes onto the module-level bus;
+    # give it copies so monkeypatch restores the originals afterwards.
+    monkeypatch.setattr(
+        bus, "_subscribers", defaultdict(list, {k: list(v) for k, v in bus._subscribers.items()})
+    )
+    monkeypatch.setattr(bus, "_latest", dict(bus._latest))
+    monkeypatch.setattr(bus, "_history", list(bus._history))
     with TestClient(app) as c:
         assert c.get("/health").status_code == 200
