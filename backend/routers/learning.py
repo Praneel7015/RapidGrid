@@ -32,6 +32,7 @@ async def close_case(payload: dict) -> dict:
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
+
 @router.post(
     "/dispatch_decision",
     summary="Handle dispatcher approve/reject decisions for an action plan",
@@ -39,7 +40,7 @@ async def close_case(payload: dict) -> dict:
 async def dispatch_decision(payload: dict) -> dict:
     """
     Called by the Frontend Dashboard when the dispatcher clicks Approve or Reject.
-    We immediately simulate closing the case (triggering the Learning Agent STUB) 
+    We immediately simulate closing the case (triggering the Learning Agent STUB)
     with the dispatcher_override logic.
     """
     try:

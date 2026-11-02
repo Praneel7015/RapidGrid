@@ -4,7 +4,6 @@ API smoke tests for incident report, chat, and honest /health.
 
 from __future__ import annotations
 
-import json
 import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
@@ -15,8 +14,8 @@ from fastapi.testclient import TestClient
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from main import app  # noqa: E402
-from routers import incident as incident_router  # noqa: E402
 from routers import chat as chat_router  # noqa: E402
+from routers import incident as incident_router  # noqa: E402
 
 
 @pytest.fixture(autouse=True)

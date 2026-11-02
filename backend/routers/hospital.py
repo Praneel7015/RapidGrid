@@ -12,19 +12,20 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, HTTPException
-
-from agents.hospital_intelligence import hospital_agent
 from pydantic import BaseModel
 
+from agents.hospital_intelligence import hospital_agent
 from models.schemas import HospitalRankingResponse, HospitalRequest
+from routers.incident import ACTIVE_INCIDENTS
 
 
 class HospitalResourceUpdate(BaseModel):
     """ER terminal toggling live resource availability."""
+
     icu_available: bool
     beds_available: int | None = None
     note: str | None = None
-from routers.incident import ACTIVE_INCIDENTS
+
 
 logger = logging.getLogger("geoagentic.router.hospital")
 
@@ -60,16 +61,18 @@ async def list_hospitals():
     """Return the full list of hospitals in the system (unranked)."""
     hospitals = []
     for h in hospital_agent._hospitals:
-        hospitals.append({
-            "hospital_id": h["id"],
-            "name": h["name"],
-            "location": {"lat": h["lat"], "lng": h["lng"]},
-            "icu_available": h["icu_available"],
-            "beds_total": h["beds_total"],
-            "beds_available": h["beds_available"],
-            "specialists": h["specialists"],
-            "capabilities": h["capabilities"],
-        })
+        hospitals.append(
+            {
+                "hospital_id": h["id"],
+                "name": h["name"],
+                "location": {"lat": h["lat"], "lng": h["lng"]},
+                "icu_available": h["icu_available"],
+                "beds_total": h["beds_total"],
+                "beds_available": h["beds_available"],
+                "specialists": h["specialists"],
+                "capabilities": h["capabilities"],
+            }
+        )
     return {"hospitals": hospitals, "count": len(hospitals)}
 
 
@@ -81,25 +84,36 @@ async def get_all_incoming_cases():
     """Return all active incoming emergency cases for the Hospital ER Desk."""
     incoming = []
     for inc in ACTIVE_INCIDENTS:
-        if inc.get("status") in ("dispatched", "awaiting_dispatcher_approval", "processing", "patient_picked_up"):
+        if inc.get("status") in (
+            "dispatched",
+            "awaiting_dispatcher_approval",
+            "processing",
+            "patient_picked_up",
+        ):
             cit_view = inc.get("citizen_view") or {}
             action_plan = inc.get("action_plan") or {}
             rec_hosp = action_plan.get("recommended_hospital") or {}
             hosp_name = cit_view.get("hospital_name") or rec_hosp.get("name") or "Nearest Hospital"
 
-            incoming.append({
-                "incident_id": inc["incident_id"],
-                "status": inc.get("status"),
-                "emergency_type": inc.get("emergency_type") or cit_view.get("emergency_type") or "General Emergency",
-                "severity": inc.get("severity") or cit_view.get("severity") or 0.7,
-                "hospital_name": hosp_name,
-                "eta_minutes": cit_view.get("eta_minutes") or 7,
-                "patient_summary": inc.get("details") or inc.get("citizen_text") or "Emergency reported by citizen.",
-                "assigned_driver": inc.get("assigned_driver", "AMB-IND-04"),
-                # Phone numbers needed by HospitalDashboard LiveEmergencyChat contacts prop
-                "citizen_phone": inc.get("citizen_phone"),
-                "unit_phone": inc.get("unit_phone") or cit_view.get("unit_phone"),
-            })
+            incoming.append(
+                {
+                    "incident_id": inc["incident_id"],
+                    "status": inc.get("status"),
+                    "emergency_type": inc.get("emergency_type")
+                    or cit_view.get("emergency_type")
+                    or "General Emergency",
+                    "severity": inc.get("severity") or cit_view.get("severity") or 0.7,
+                    "hospital_name": hosp_name,
+                    "eta_minutes": cit_view.get("eta_minutes") or 7,
+                    "patient_summary": inc.get("details")
+                    or inc.get("citizen_text")
+                    or "Emergency reported by citizen.",
+                    "assigned_driver": inc.get("assigned_driver", "AMB-IND-04"),
+                    # Phone numbers needed by HospitalDashboard LiveEmergencyChat contacts prop
+                    "citizen_phone": inc.get("citizen_phone"),
+                    "unit_phone": inc.get("unit_phone") or cit_view.get("unit_phone"),
+                }
+            )
     return {"incoming": incoming}
 
 
@@ -109,7 +123,13 @@ async def get_incoming_cases(hospital_id: str, name: str = None):
     incoming = []
     for inc in ACTIVE_INCIDENTS:
         # Include patient_picked_up — that's when the hospital most needs to prepare
-        if inc.get("status") in ("dispatched", "awaiting_dispatcher_approval", "processing", "patient_picked_up", "completed"):
+        if inc.get("status") in (
+            "dispatched",
+            "awaiting_dispatcher_approval",
+            "processing",
+            "patient_picked_up",
+            "completed",
+        ):
             cit_view = inc.get("citizen_view") or {}
             action_plan = inc.get("action_plan") or {}
             rec_hosp = action_plan.get("recommended_hospital") or {}
@@ -133,28 +153,39 @@ async def get_incoming_cases(hospital_id: str, name: str = None):
 
             # Match by all, hospital_id, hospital_name, or name tokens
             matches = (
-                hospital_id == 'all' or
-                rec_id.lower() == hospital_id.lower() or
-                any(term in hosp_name.lower() for term in target_terms if term) or
-                any(token in hosp_name.lower() for term in target_terms for token in term.split() if len(token) > 3)
+                hospital_id == "all"
+                or rec_id.lower() == hospital_id.lower()
+                or any(term in hosp_name.lower() for term in target_terms if term)
+                or any(
+                    token in hosp_name.lower()
+                    for term in target_terms
+                    for token in term.split()
+                    if len(token) > 3
+                )
             )
 
             # Fire and Police incidents without hospital transport do not clutter Hospital ER Desk
             veh_req = inc.get("vehicle_required") or "Ambulance"
             if matches and veh_req in ("Ambulance", "Medical"):
-                incoming.append({
-                    "incident_id": inc["incident_id"],
-                    "status": inc.get("status"),
-                    "emergency_type": inc.get("emergency_type") or cit_view.get("emergency_type") or "General Emergency",
-                    "severity": inc.get("severity") or cit_view.get("severity") or 0.7,
-                    "hospital_name": hosp_name,
-                    "eta_minutes": cit_view.get("eta_minutes") or 7,
-                    "patient_summary": inc.get("details") or inc.get("citizen_text") or "Emergency reported by citizen.",
-                    "assigned_driver": inc.get("assigned_driver", "AMB-UNIT-04"),
-                    # Phone numbers needed by HospitalDashboard LiveEmergencyChat contacts prop
-                    "citizen_phone": inc.get("citizen_phone"),
-                    "unit_phone": inc.get("unit_phone") or cit_view.get("unit_phone"),
-                })
+                incoming.append(
+                    {
+                        "incident_id": inc["incident_id"],
+                        "status": inc.get("status"),
+                        "emergency_type": inc.get("emergency_type")
+                        or cit_view.get("emergency_type")
+                        or "General Emergency",
+                        "severity": inc.get("severity") or cit_view.get("severity") or 0.7,
+                        "hospital_name": hosp_name,
+                        "eta_minutes": cit_view.get("eta_minutes") or 7,
+                        "patient_summary": inc.get("details")
+                        or inc.get("citizen_text")
+                        or "Emergency reported by citizen.",
+                        "assigned_driver": inc.get("assigned_driver", "AMB-UNIT-04"),
+                        # Phone numbers needed by HospitalDashboard LiveEmergencyChat contacts prop
+                        "citizen_phone": inc.get("citizen_phone"),
+                        "unit_phone": inc.get("unit_phone") or cit_view.get("unit_phone"),
+                    }
+                )
     return {"incoming": incoming}
 
 
@@ -181,7 +212,8 @@ async def update_resources(hospital_id: str, update: HospitalResourceUpdate):
     profile = hospital_agent._load_capabilities()[key]
     logger.info(
         "ER capacity update: %s -> %s",
-        profile["name"], "accepting" if update.icu_available else "on divert",
+        profile["name"],
+        "accepting" if update.icu_available else "on divert",
     )
     return {
         "status": "updated",

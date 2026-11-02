@@ -32,8 +32,9 @@ import json
 import logging
 import math
 import time
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 logger = logging.getLogger("geoagentic.agent.local_router")
 
@@ -104,7 +105,8 @@ class LocalGraphRouter:
         if not path.exists():
             logger.warning(
                 "Road graph not found at %s - run scripts/build_road_graph.py "
-                "to enable offline routing.", path.name,
+                "to enable offline routing.",
+                path.name,
             )
             return False
 
@@ -130,7 +132,9 @@ class LocalGraphRouter:
         self._loaded = True
         logger.info(
             "Local road graph loaded: %d nodes, %d edges in %.2fs (source: %s)",
-            len(self.lat), len(self.edge_to), time.time() - started,
+            len(self.lat),
+            len(self.edge_to),
+            time.time() - started,
             self.meta.get("source", "unknown"),
         )
         return True
@@ -253,9 +257,7 @@ class LocalGraphRouter:
         goal_lat, goal_lng = self.lat[goal], self.lng[goal]
 
         def heuristic(node: int) -> float:
-            return haversine(
-                self.lat[node], self.lng[node], goal_lat, goal_lng
-            ) / _MAX_SPEED_MS
+            return haversine(self.lat[node], self.lng[node], goal_lat, goal_lng) / _MAX_SPEED_MS
 
         g_score: dict[int, float] = {start: 0.0}
         came_from: dict[int, tuple[int, int]] = {}  # node -> (prev_node, edge_id)

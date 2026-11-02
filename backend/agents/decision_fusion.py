@@ -35,9 +35,7 @@ from agents.route_optimization import route_agent
 from agents.traffic_intelligence import traffic_agent
 from bus.event_bus import FUSION_COMPLETE, bus
 from models.schemas import (
-    Coordinate,
     DataFreshness,
-    EmergencyType,
     FactorWeight,
     FusionRequest,
     FusionResponse,
@@ -60,30 +58,30 @@ AGENT_NAME = "decision_fusion_engine"
 FUSION_WEIGHTS: dict[str, dict[str, float]] = {
     "general": {
         "response_time": 0.30,
-        "traffic":       0.20,
-        "hospital":      0.25,
-        "severity":      0.15,
+        "traffic": 0.20,
+        "hospital": 0.25,
+        "severity": 0.15,
         "accessibility": 0.10,
     },
     "cardiac": {
         "response_time": 0.25,
-        "traffic":       0.15,
-        "hospital":      0.35,  # hospital capability critical for cardiac
-        "severity":      0.15,
+        "traffic": 0.15,
+        "hospital": 0.35,  # hospital capability critical for cardiac
+        "severity": 0.15,
         "accessibility": 0.10,
     },
     "trauma": {
         "response_time": 0.35,  # time-critical
-        "traffic":       0.20,
-        "hospital":      0.25,
-        "severity":      0.10,
+        "traffic": 0.20,
+        "hospital": 0.25,
+        "severity": 0.10,
         "accessibility": 0.10,
     },
     "stroke": {
         "response_time": 0.30,  # very time-sensitive
-        "traffic":       0.15,
-        "hospital":      0.30,  # neurology/imaging availability
-        "severity":      0.15,
+        "traffic": 0.15,
+        "hospital": 0.30,  # neurology/imaging availability
+        "severity": 0.15,
         "accessibility": 0.10,
     },
 }
@@ -92,6 +90,7 @@ FUSION_WEIGHTS: dict[str, dict[str, float]] = {
 # ---------------------------------------------------------------------------
 # DecisionFusionEngine
 # ---------------------------------------------------------------------------
+
 
 class DecisionFusionEngine:
     """
@@ -122,7 +121,9 @@ class DecisionFusionEngine:
 
         logger.info(
             "Fusion started for %s — %s emergency, severity=%.2f",
-            incident_id, etype, request.severity,
+            incident_id,
+            etype,
+            request.severity,
         )
 
         # -- 1. Traffic Intelligence ------------------------------------------
@@ -133,13 +134,15 @@ class DecisionFusionEngine:
         # 0 = all clear, 1 = all gridlocked
         avg_congestion = (
             sum(s.congestion_score for s in traffic_segments) / len(traffic_segments)
-            if traffic_segments else 0.0
+            if traffic_segments
+            else 0.0
         )
         # Invert: high congestion → low traffic score (bad conditions)
         traffic_score = round(1.0 - avg_congestion, 3)
         traffic_confidence = (
             sum(s.confidence for s in traffic_segments) / len(traffic_segments)
-            if traffic_segments else 0.5
+            if traffic_segments
+            else 0.5
         )
 
         # Count active incidents and closures for the explanation
@@ -148,7 +151,10 @@ class DecisionFusionEngine:
 
         logger.info(
             "Traffic: avg_congestion=%.3f, score=%.3f, incidents=%d, closures=%d",
-            avg_congestion, traffic_score, total_incidents, total_closures,
+            avg_congestion,
+            traffic_score,
+            total_incidents,
+            total_closures,
         )
 
         # -- 2. Hospital Intelligence ----------------------------------------
@@ -166,7 +172,8 @@ class DecisionFusionEngine:
 
         logger.info(
             "Hospital: top=%s (score=%.3f), %d candidates ranked",
-            top_hospital.hospital_id, hospital_score,
+            top_hospital.hospital_id,
+            hospital_score,
             len(hospital_result.ranked_hospitals),
         )
 
@@ -184,12 +191,13 @@ class DecisionFusionEngine:
 
         # Track this route in the Prediction Agent to receive live ETA updates
         prediction_agent.track_route(route_result)
-        
+
         # Pull live weather impact on the ETA
         from models.schemas import PredictionRequest
+
         pred_req = PredictionRequest(route_id=route_result.route_id, route_details=route_result)
         pred_res = await prediction_agent.predict_on_demand(pred_req)
-        
+
         # Override ETA with the weather-adjusted ETA
         route_result.eta = pred_res.eta_estimate
 
@@ -211,18 +219,20 @@ class DecisionFusionEngine:
             logger.warning(
                 "Route computation DEGRADED for %s — scoring response_time=0.0 "
                 "(eta=%.1f, confidence=%.2f, points=%d)",
-                incident_id, route_result.eta, route_result.confidence,
+                incident_id,
+                route_result.eta,
+                route_result.confidence,
                 len(route_result.coordinates),
             )
         else:
-            response_time_score = round(
-                max(0.0, min(1.0, 1.0 - (route_result.eta / max_eta))), 3
-            )
+            response_time_score = round(max(0.0, min(1.0, 1.0 - (route_result.eta / max_eta))), 3)
         route_confidence = route_result.confidence
 
         logger.info(
             "Route: %s, ETA=%.0fs, response_time_score=%.3f",
-            route_result.route_id, route_result.eta, response_time_score,
+            route_result.route_id,
+            route_result.eta,
+            response_time_score,
         )
 
         # -- 5. Severity score ------------------------------------------------
@@ -295,14 +305,16 @@ class DecisionFusionEngine:
             weighted_total += weighted
             confidence_weighted_sum += fd["weight"] * fd["confidence"]
 
-            factor_breakdown.append(FactorWeight(
-                factor=fd["label"],
-                weight=fd["weight"],
-                score=fd["score"],
-                weighted_score=weighted,
-                contributing_agent=fd["agent"],
-                agent_confidence=fd["confidence"],
-            ))
+            factor_breakdown.append(
+                FactorWeight(
+                    factor=fd["label"],
+                    weight=fd["weight"],
+                    score=fd["score"],
+                    weighted_score=weighted,
+                    contributing_agent=fd["agent"],
+                    agent_confidence=fd["confidence"],
+                )
+            )
 
         overall_confidence = round(confidence_weighted_sum, 3)
 
@@ -362,9 +374,7 @@ class DecisionFusionEngine:
             overall_confidence=min(overall_confidence, 1.0),
             emergency_type=request.emergency_type,
             severity=request.severity,
-            data_freshness=(
-                DataFreshness.CACHED if route_failed else DataFreshness.LIVE
-            ),
+            data_freshness=(DataFreshness.CACHED if route_failed else DataFreshness.LIVE),
             all_hospitals=hospital_result.ranked_hospitals,
             alternate_routes=route_result.alternate_routes,
             clinical_outcome=outcome,
@@ -380,15 +390,17 @@ class DecisionFusionEngine:
         logger.info(
             "Fusion complete for %s — overall_confidence=%.3f, "
             "route=%s (ETA %.0fs), hospital=%s (%s)",
-            incident_id, overall_confidence,
-            route_result.route_id, route_result.eta,
-            top_hospital.hospital_id, top_hospital.name,
+            incident_id,
+            overall_confidence,
+            route_result.route_id,
+            route_result.eta,
+            top_hospital.hospital_id,
+            top_hospital.name,
         )
 
         return response
 
     # -- helpers --------------------------------------------------------------
-
 
     def _build_explanation(
         self,
@@ -412,15 +424,20 @@ class DecisionFusionEngine:
         hospital was chosen, not just WHAT was chosen."
         """
         severity_label = (
-            "critical" if severity >= 0.8
-            else "high" if severity >= 0.6
-            else "moderate" if severity >= 0.4
+            "critical"
+            if severity >= 0.8
+            else "high"
+            if severity >= 0.6
+            else "moderate"
+            if severity >= 0.4
             else "low"
         )
 
         # Sort factors by weighted contribution
         sorted_factors = sorted(
-            factor_breakdown, key=lambda f: f.weighted_score, reverse=True,
+            factor_breakdown,
+            key=lambda f: f.weighted_score,
+            reverse=True,
         )
         top_two = sorted_factors[:2]
 
@@ -464,9 +481,7 @@ class DecisionFusionEngine:
             parts.append(counterfactual)
 
         # Fusion rationale
-        factor_desc = " and ".join(
-            f"{f.factor} ({f.weighted_score:.3f})" for f in top_two
-        )
+        factor_desc = " and ".join(f"{f.factor} ({f.weighted_score:.3f})" for f in top_two)
         parts.append(
             f"FUSION: Decision driven primarily by {factor_desc}. "
             f"Combined weighted score: {weighted_total:.3f}."
@@ -509,9 +524,7 @@ class DecisionFusionEngine:
             key=lambda f: win_factors[f].weighted_score - run_factors[f].weighted_score,
         )
 
-        concede_gap = (
-            run_factors[conceded].weighted_score - win_factors[conceded].weighted_score
-        )
+        concede_gap = run_factors[conceded].weighted_score - win_factors[conceded].weighted_score
         margin = winner.score - runner_up.score
 
         detail = ""

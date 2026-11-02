@@ -54,8 +54,8 @@ ORIGIN = (13.0297, 77.5645)
 # wrong, not coordinates that are imprecise.
 SNAP_WARN_M = 250
 SNAP_FAIL_M = 600
-DISAGREE_WARN = 0.40      # 40% divergence between the two networks
-MIN_COMPARE_M = 1500      # short routes diverge for boring reasons; skip them
+DISAGREE_WARN = 0.40  # 40% divergence between the two networks
+MIN_COMPARE_M = 1500  # short routes diverge for boring reasons; skip them
 
 
 def google_route(origin, dest, key):
@@ -70,7 +70,9 @@ def google_route(origin, dest, key):
             },
             json={
                 "origin": {"location": {"latLng": {"latitude": origin[0], "longitude": origin[1]}}},
-                "destination": {"location": {"latLng": {"latitude": dest[0], "longitude": dest[1]}}},
+                "destination": {
+                    "location": {"latLng": {"latitude": dest[0], "longitude": dest[1]}}
+                },
                 "travelMode": "DRIVE",
                 "routingPreference": "TRAFFIC_AWARE",
             },
@@ -101,14 +103,16 @@ def main() -> int:
     profiles = json.loads(CAPS.read_text(encoding="utf-8"))["hospitals"]
 
     from agents.route_optimization import EMERGENCY_HUBS
-    hubs = [(f"{k}: {h['name']}", h["lat"], h["lng"])
-            for k, v in EMERGENCY_HUBS.items() for h in v]
+
+    hubs = [(f"{k}: {h['name']}", h["lat"], h["lng"]) for k, v in EMERGENCY_HUBS.items() for h in v]
 
     targets = [(p["name"], p["lat"], p["lng"], hid) for hid, p in profiles.items()]
 
     print("=" * 104)
-    print("  Cross-validation against OpenStreetMap graph" +
-          (" and Google Routes" if use_google else " (Google skipped)"))
+    print(
+        "  Cross-validation against OpenStreetMap graph"
+        + (" and Google Routes" if use_google else " (Google skipped)")
+    )
     print("=" * 104)
     if not use_google:
         print("  Google checks skipped - no key, or --quick.\n")
@@ -122,7 +126,11 @@ def main() -> int:
         notes = []
 
         node = local_router.nearest_node(lat, lng)
-        snap = haversine(lat, lng, local_router.lat[node], local_router.lng[node]) if node is not None else None
+        snap = (
+            haversine(lat, lng, local_router.lat[node], local_router.lng[node])
+            if node is not None
+            else None
+        )
 
         if snap is None:
             problems.append((hid, name, "does not snap to the road graph at all"))
@@ -158,20 +166,26 @@ def main() -> int:
             diff = f"{ratio * 100:>6.0f}%"
             if ratio > DISAGREE_WARN:
                 notes.append("networks disagree")
-                warnings.append((hid, name, f"{ratio*100:.0f}% distance divergence"))
+                warnings.append((hid, name, f"{ratio * 100:.0f}% distance divergence"))
 
-        print(f"{name[:42]:<44}"
-              f"{snap:>6.0f} m"
-              f"{(our_m / 1000 if our_m else 0):>9.1f}k"
-              f"{(goog_m / 1000 if goog_m else 0):>9.1f}k"
-              f"{diff:>8}  {', '.join(notes)}")
+        print(
+            f"{name[:42]:<44}"
+            f"{snap:>6.0f} m"
+            f"{(our_m / 1000 if our_m else 0):>9.1f}k"
+            f"{(goog_m / 1000 if goog_m else 0):>9.1f}k"
+            f"{diff:>8}  {', '.join(notes)}"
+        )
 
     # --- Emergency hubs ------------------------------------------------------
     print(f"\n{'EMERGENCY HUB':<44}{'SNAP':>8}  NOTES")
     print("-" * 104)
     for label, lat, lng in hubs:
         node = local_router.nearest_node(lat, lng)
-        snap = haversine(lat, lng, local_router.lat[node], local_router.lng[node]) if node is not None else None
+        snap = (
+            haversine(lat, lng, local_router.lat[node], local_router.lng[node])
+            if node is not None
+            else None
+        )
         note = ""
         if snap is None:
             note = "no graph node"
@@ -197,22 +211,24 @@ def main() -> int:
             if not ours or not res:
                 print(f"{label:<44}{'--':>10}{'--':>10}  {err or 'no A* path'}")
                 continue
-            om, (gm, gs) = ours["distance_m"], res
+            om, (gm, _gs) = ours["distance_m"], res
             ratio = abs(om - gm) / max(om, gm)
             # A percentage on a 700 m route is noise - one extra turn swings it
             # 30%. Only compare corridors long enough for the number to mean
             # something, the same floor the per-hospital check uses.
             comparable = max(om, gm) > MIN_COMPARE_M
             flag = "  <-- diverges" if (comparable and ratio > DISAGREE_WARN) else ""
-            shown = f"{ratio*100:>7.0f}%" if comparable else f"{'short':>8}"
-            print(f"{label:<44}{om/1000:>9.1f}k{gm/1000:>9.1f}k{shown}{flag}")
+            shown = f"{ratio * 100:>7.0f}%" if comparable else f"{'short':>8}"
+            print(f"{label:<44}{om / 1000:>9.1f}k{gm / 1000:>9.1f}k{shown}{flag}")
             if comparable and ratio > DISAGREE_WARN:
-                warnings.append(("corridor", label, f"{ratio*100:.0f}% divergence"))
+                warnings.append(("corridor", label, f"{ratio * 100:.0f}% divergence"))
 
     # --- Verdict -------------------------------------------------------------
     print("\n" + "=" * 104)
-    print(f"  {len(targets)} hospitals, {len(hubs)} hubs checked"
-          + (f", {checked} Google calls" if use_google else ""))
+    print(
+        f"  {len(targets)} hospitals, {len(hubs)} hubs checked"
+        + (f", {checked} Google calls" if use_google else "")
+    )
     print(f"  {len(problems)} problems, {len(warnings)} warnings")
     if problems:
         print("\n  PROBLEMS")

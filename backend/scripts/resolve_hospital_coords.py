@@ -54,11 +54,40 @@ BBOX = (12.80, 77.45, 13.10, 77.78)
 
 # Words that appear in half the hospital names in the city and identify nothing.
 GENERIC = {
-    "hospital", "hospitals", "the", "and", "of", "for", "institute", "medical",
-    "centre", "center", "clinic", "clinics", "multispeciality", "multi",
-    "speciality", "specialty", "care", "health", "healthcare", "sciences",
-    "science", "college", "research", "memorial", "road", "bengaluru",
-    "bangalore", "new", "old", "sri", "shri", "dr", "st", "saint",
+    "hospital",
+    "hospitals",
+    "the",
+    "and",
+    "of",
+    "for",
+    "institute",
+    "medical",
+    "centre",
+    "center",
+    "clinic",
+    "clinics",
+    "multispeciality",
+    "multi",
+    "speciality",
+    "specialty",
+    "care",
+    "health",
+    "healthcare",
+    "sciences",
+    "science",
+    "college",
+    "research",
+    "memorial",
+    "road",
+    "bengaluru",
+    "bangalore",
+    "new",
+    "old",
+    "sri",
+    "shri",
+    "dr",
+    "st",
+    "saint",
 }
 
 # A match must clear this share of the curated name's distinctive tokens.
@@ -113,8 +142,7 @@ def tokens(name: str) -> set[str]:
 def fetch_osm(refresh: bool = False) -> list[tuple[str, float, float]]:
     if CACHE.exists() and not refresh:
         cached = json.loads(CACHE.read_text(encoding="utf-8"))
-        print(f"  using cached OSM extract ({len(cached)} features)"
-              " - pass --refresh to re-fetch\n")
+        print(f"  using cached OSM extract ({len(cached)} features) - pass --refresh to re-fetch\n")
         return [(n, la, lo) for n, la, lo in cached]
 
     south, west, north, east = BBOX
@@ -131,9 +159,12 @@ def fetch_osm(refresh: bool = False) -> list[tuple[str, float, float]]:
         host = mirror.split("/")[2]
         try:
             print(f"  querying {host} ...")
-            resp = httpx.get(mirror, params={"data": query},
-                             headers={"User-Agent": "RapidGrid/1.0 (routing-research)"},
-                             timeout=220)
+            resp = httpx.get(
+                mirror,
+                params={"data": query},
+                headers={"User-Agent": "RapidGrid/1.0 (routing-research)"},
+                timeout=220,
+            )
             resp.raise_for_status()
             out = []
             for el in resp.json().get("elements", []):
@@ -219,6 +250,7 @@ def main() -> int:
 
     sys.path.insert(0, str(ROOT))
     from agents.hospital_intelligence import HospitalIntelligenceAgent
+
     hints = {h["id"]: h for h in HospitalIntelligenceAgent.BANGALORE_HOSPITALS_SEED}
 
     osm = fetch_osm(refresh="--refresh" in sys.argv)

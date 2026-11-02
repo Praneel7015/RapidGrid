@@ -25,25 +25,36 @@ from __future__ import annotations
 import json
 import logging
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
-
+from datetime import UTC, datetime
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from agents.accessibility import accessibility_agent
+from agents.city_state import city_state
 from agents.communication import communication_agent
 from agents.coordinator import coordinator_agent
 from agents.learning import learning_agent
-from agents.city_state import city_state
 from agents.local_router import local_router
-from agents.prediction import prediction_agent
 from agents.route_optimization import route_agent
 from agents.traffic_intelligence import traffic_agent
-from routers import chat, accessibility, city, communication, coordinator, fusion, hospital, learning, prediction, routing, traffic, incident, driver
+from routers import (
+    accessibility,
+    chat,
+    city,
+    communication,
+    coordinator,
+    driver,
+    fusion,
+    hospital,
+    incident,
+    learning,
+    prediction,
+    routing,
+    traffic,
+)
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -60,6 +71,7 @@ logger = logging.getLogger("geoagentic")
 # ---------------------------------------------------------------------------
 # Lifespan (startup / shutdown)
 # ---------------------------------------------------------------------------
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -88,15 +100,19 @@ async def lifespan(app: FastAPI):
         # neighbouring roads rather than making it disappear.
         if city_state.attach(local_router):
             try:
-                from agents.prediction import prediction_agent
                 import httpx
+
+                from agents.prediction import prediction_agent
 
                 if prediction_agent.api_key:
                     async with httpx.AsyncClient(timeout=6.0) as client:
                         resp = await client.get(
                             "https://api.openweathermap.org/data/2.5/weather",
-                            params={"lat": 12.9716, "lon": 77.5946,
-                                    "appid": prediction_agent.api_key},
+                            params={
+                                "lat": 12.9716,
+                                "lon": 77.5946,
+                                "appid": prediction_agent.api_key,
+                            },
                         )
                     if resp.status_code == 200:
                         condition = (resp.json().get("weather") or [{}])[0].get("main")
@@ -106,9 +122,7 @@ async def lifespan(app: FastAPI):
             except Exception:
                 logger.warning("Could not seed live weather; city model starts clear")
     else:
-        logger.warning(
-            "Offline routing tier UNAVAILABLE - run scripts/build_road_graph.py"
-        )
+        logger.warning("Offline routing tier UNAVAILABLE - run scripts/build_road_graph.py")
 
     # 2. Share the loaded data with Route Optimization (single source of truth)
     route_agent.load_network(
@@ -175,6 +189,7 @@ app.include_router(city.router)
 # Health endpoint — required by technology-stack.md
 # ---------------------------------------------------------------------------
 
+
 @app.get("/health", tags=["Platform"])
 async def health():
     """
@@ -195,10 +210,8 @@ async def health():
     return {
         "status": status_value,
         "service": "geoagentic-backend",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "city_model": (
-            city_state.snapshot() if city_state.ready else {"status": "unattached"}
-        ),
+        "timestamp": datetime.now(UTC).isoformat(),
+        "city_model": (city_state.snapshot() if city_state.ready else {"status": "unattached"}),
         "routing": {
             "live_api_key_configured": live,
             "offline_graph_available": offline,
@@ -218,7 +231,6 @@ async def health():
     }
 
 
-from fastapi import WebSocket, WebSocketDisconnect
 @app.websocket("/ws/chat/{incident_id}")
 async def websocket_chat_endpoint(websocket: WebSocket, incident_id: str):
     await chat.manager.connect(websocket, incident_id)

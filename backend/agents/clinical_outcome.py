@@ -21,7 +21,7 @@ systems, and it is labelled `simulated` wherever it surfaces.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
 logger = logging.getLogger("geoagentic.outcome")
@@ -30,6 +30,7 @@ logger = logging.getLogger("geoagentic.outcome")
 @dataclass(frozen=True)
 class Pathway:
     """A time-critical treatment pathway."""
+
     key: str
     label: str
     intervention: str
@@ -176,12 +177,7 @@ def estimate(
     transfer = pathway.transfer_penalty_minutes if requires_transfer else 0.0
 
     total = (
-        ACTIVATION_MINUTES
-        + to_patient
-        + ON_SCENE_MINUTES
-        + to_hospital
-        + in_hospital
-        + transfer
+        ACTIVATION_MINUTES + to_patient + ON_SCENE_MINUTES + to_hospital + in_hospital + transfer
     )
 
     notes: list[str] = []
@@ -239,9 +235,7 @@ def compare(
     45 minutes sooner" - the sentence that makes the specialty bypass land.
     """
     a = estimate(emergency_type, chosen, to_patient_seconds, chosen_to_hospital_seconds)
-    b = estimate(
-        emergency_type, alternative, to_patient_seconds, alternative_to_hospital_seconds
-    )
+    b = estimate(emergency_type, alternative, to_patient_seconds, alternative_to_hospital_seconds)
     if not a or not b:
         return None
 
@@ -257,8 +251,7 @@ def compare(
         verdict = f"Reaches {a.intervention} {outcome_delta:.0f} min sooner."
     elif outcome_delta < -1:
         verdict = (
-            f"Slower to {a.intervention} by {abs(outcome_delta):.0f} min — "
-            f"chosen on other factors."
+            f"Slower to {a.intervention} by {abs(outcome_delta):.0f} min — chosen on other factors."
         )
     else:
         verdict = f"Comparable time to {a.intervention}."
