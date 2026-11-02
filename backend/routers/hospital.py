@@ -158,11 +158,8 @@ async def get_incoming_cases(hospital_id: str, name: str = None):
     return {"incoming": incoming}
 
 
-@router.get(
-    "/{hospital_id}",
-    summary="Get details for a specific hospital",
-)
-async def get_hospital(hospital_id: str):
+@router.patch("/{hospital_id}/resources")
+async def update_resources(hospital_id: str, update: HospitalResourceUpdate):
     """
     An ER desk setting its own capacity.
 
@@ -198,4 +195,38 @@ async def get_hospital(hospital_id: str):
             else "Available for routing."
         ),
         "diverted_facilities": sorted(hospital_agent.diverted),
+    }
+
+
+# Registered last so the wildcard does not shadow /incoming/all.
+@router.get(
+    "/{hospital_id}",
+    summary="Get details for a specific hospital",
+)
+async def get_hospital(hospital_id: str):
+    """
+    Return one curated hospital and whether it is accepting.
+
+    The ER desk polls this to restore its divert toggle after a refresh, so
+    icu_available reflects the divert state set via PATCH /resources.
+    """
+    key = hospital_agent.resolve_key(hospital_id)
+    if key is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Hospital '{hospital_id}' not found.",
+        )
+    profile = hospital_agent._load_capabilities()[key]
+    on_divert = key in hospital_agent.diverted
+    return {
+        "hospital_id": key,
+        "name": profile["name"],
+        "location": {"lat": profile.get("lat"), "lng": profile.get("lng")},
+        "emergency_receiving": profile.get("emergency_receiving"),
+        "beds_total": profile.get("beds_total"),
+        "icu_total": profile.get("icu_total"),
+        "specialties": profile.get("specialties", []),
+        "capabilities": profile.get("capabilities", {}),
+        "icu_available": not on_divert,
+        "on_divert": on_divert,
     }

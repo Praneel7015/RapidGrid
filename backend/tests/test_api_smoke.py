@@ -134,3 +134,22 @@ def test_pipeline_failure_marks_incident_failed(client):  # noqa: ARG001
     assert inc["status"] == "failed"
     assert "fusion exploded" in inc["error"]
     # Teardown is handled by the client fixture's yield + ACTIVE_INCIDENTS.clear().
+
+
+def test_hospital_divert_round_trip(client):
+    # GET /{id} used to raise NameError and PATCH /{id}/resources was missing.
+    res = client.get("/api/hospital/blr-019")
+    assert res.status_code == 200
+    assert res.json()["icu_available"] is True
+
+    res = client.patch("/api/hospital/blr-019/resources", json={"icu_available": False})
+    assert res.status_code == 200
+    assert res.json()["on_divert"] is True
+    try:
+        assert client.get("/api/hospital/blr-019").json()["icu_available"] is False
+    finally:
+        client.patch("/api/hospital/blr-019/resources", json={"icu_available": True})
+
+
+def test_unknown_hospital_is_404(client):
+    assert client.get("/api/hospital/no-such-hospital-xyz").status_code == 404
