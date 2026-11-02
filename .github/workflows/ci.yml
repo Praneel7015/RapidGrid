@@ -29,8 +29,6 @@ jobs:
   typecheck:
     name: Type check (mypy, advisory)
     runs-on: ubuntu-latest
-    # Advisory until the existing ~35 mypy errors are worked down.
-    continue-on-error: true
     defaults:
       run:
         working-directory: backend
@@ -42,7 +40,10 @@ jobs:
           cache: pip
           cache-dependency-path: backend/requirements*.txt
       - run: pip install -r requirements.txt mypy
+      # Advisory until the existing ~35 mypy errors are worked down: errors
+      # show in the log and annotations but do not turn the check red.
       - run: mypy . --ignore-missing-imports --explicit-package-bases --exclude venv
+        continue-on-error: true
 
   test:
     name: Tests (Python ${{ matrix.python-version }})
