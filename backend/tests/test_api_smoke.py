@@ -186,10 +186,20 @@ def test_startup_survives_missing_offline_graph():
     from bus.event_bus import bus
 
     # Lifespan loads networks into these singletons and registers handlers on
-    # the bus. Snapshot their state (one level deep, so subscriber lists are
-    # copied too) and put it back so later tests start from the same place.
+    # the bus. Snapshot their state and put it back so later tests start from
+    # the same place. Dicts of lists (the bus's per-topic subscriber lists) get
+    # their lists copied too, since startup appends handlers to them in place.
+    def snapshot(value):
+        if isinstance(value, dict):
+            value = copy.copy(value)
+            for key, item in value.items():
+                if isinstance(item, list):
+                    value[key] = list(item)
+            return value
+        return copy.copy(value)
+
     singletons = (bus, city_state, local_router, route_agent, traffic_agent)
-    saved = [(o, {k: copy.copy(v) for k, v in vars(o).items()}) for o in singletons]
+    saved = [(o, {k: snapshot(v) for k, v in vars(o).items()}) for o in singletons]
     try:
         local_router.load = lambda *a, **k: False
         with TestClient(app) as c:
