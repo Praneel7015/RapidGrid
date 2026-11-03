@@ -153,6 +153,15 @@ async def run_pipeline(incident_id: str, payload: IncidentReportPayload):
             found = False
             for inc in ACTIVE_INCIDENTS:
                 if inc["incident_id"] == incident_id:
+                    # A dispatcher may have rejected the incident while the
+                    # accessibility step was running; keep that decision.
+                    if inc.get("status") != "processing":
+                        logger.info(
+                            "Pipeline: incident %s is %s after accessibility step — stopping",
+                            incident_id,
+                            inc.get("status"),
+                        )
+                        return
                     inc["emergency_type"] = access_res.incident_report.incident_type.value
                     inc["severity"] = access_res.incident_report.severity_estimate
                     inc["details"] = access_res.incident_report.extracted_details
@@ -233,6 +242,13 @@ async def run_pipeline(incident_id: str, payload: IncidentReportPayload):
             found = False
             for inc in ACTIVE_INCIDENTS:
                 if inc["incident_id"] == incident_id:
+                    if inc.get("status") != "processing":
+                        logger.info(
+                            "Pipeline: incident %s is %s after fusion step — stopping",
+                            incident_id,
+                            inc.get("status"),
+                        )
+                        return
                     # Write action_plan, citizen_view, and status atomically
                     # inside the lock so no reader ever sees action_plan without
                     # citizen_view, or a "awaiting_dispatcher_approval" status

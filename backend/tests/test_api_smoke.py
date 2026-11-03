@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -133,6 +133,51 @@ def test_pipeline_failure_marks_incident_failed(client):  # noqa: ARG001
     assert inc["status"] == "failed"
     assert "fusion exploded" in inc["error"]
     # Teardown is handled by the client fixture's yield + ACTIVE_INCIDENTS.clear().
+
+
+def _reject_during():
+    # Stand-in for an agent call that is still awaiting when the dispatcher
+    # rejects the incident.
+    async def side_effect(*_args, **_kwargs):
+        with patch.object(incident_router, "save_db"):
+            await incident_router.reject_incident("INC-race")
+        result = MagicMock()
+        result.recommended_hospital.name = "Test Hospital"
+        return result
+
+    return AsyncMock(side_effect=side_effect)
+
+
+@pytest.mark.parametrize("step", ["accessibility", "fusion"])
+def test_pipeline_keeps_rejection_made_while_running(client, step):  # noqa: ARG001
+    import asyncio
+
+    incident_router.ACTIVE_INCIDENTS.append(
+        {"incident_id": "INC-race", "status": "processing", "citizen_phone": "+91 98765 43210"}
+    )
+    payload = incident_router.IncidentReportPayload(
+        citizen_text="Chest pain", location={"lat": 12.9279, "lng": 77.5937}
+    )
+    accessibility = (
+        _reject_during() if step == "accessibility" else AsyncMock(return_value=MagicMock())
+    )
+    fusion = _reject_during() if step == "fusion" else AsyncMock()
+    with (
+        patch.object(incident_router.accessibility_agent, "process_input", new=accessibility),
+        patch.object(incident_router.fusion_engine, "fuse", new=fusion),
+        patch.object(incident_router, "FusionRequest", MagicMock()),
+        patch.object(incident_router.route_agent, "compute_route", side_effect=RuntimeError),
+        patch.object(incident_router, "save_db"),
+    ):
+        asyncio.run(incident_router.run_pipeline("INC-race", payload))
+
+    inc = incident_router.ACTIVE_INCIDENTS[0]
+    assert inc["status"] == "failed"
+    assert inc["error"] == "Rejected by dispatcher"
+    assert "action_plan" not in inc
+    assert "citizen_view" not in inc
+    if step == "accessibility":
+        fusion.assert_not_awaited()
 
 
 def test_hospital_divert_round_trip(client):
