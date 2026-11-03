@@ -174,21 +174,27 @@ def test_safe_frontend_file_stays_inside_dist(tmp_path):
     assert _safe_frontend_file("missing.js", dist) is None
 
 
-def test_startup_survives_missing_offline_graph(monkeypatch):
+def test_startup_survives_missing_offline_graph():
     # prediction_agent used to be imported only on the offline-graph path,
     # so startup raised UnboundLocalError when the graph was missing.
-    from collections import defaultdict
+    import copy
 
+    from agents.city_state import city_state
     from agents.local_router import local_router
+    from agents.route_optimization import route_agent
+    from agents.traffic_intelligence import traffic_agent
     from bus.event_bus import bus
 
-    monkeypatch.setattr(local_router, "load", lambda *a, **k: False)
-    # Lifespan subscribes handlers and publishes onto the module-level bus;
-    # give it copies so monkeypatch restores the originals afterwards.
-    monkeypatch.setattr(
-        bus, "_subscribers", defaultdict(list, {k: list(v) for k, v in bus._subscribers.items()})
-    )
-    monkeypatch.setattr(bus, "_latest", dict(bus._latest))
-    monkeypatch.setattr(bus, "_history", list(bus._history))
-    with TestClient(app) as c:
-        assert c.get("/health").status_code == 200
+    # Lifespan loads networks into these singletons and registers handlers on
+    # the bus. Snapshot their state (one level deep, so subscriber lists are
+    # copied too) and put it back so later tests start from the same place.
+    singletons = (bus, city_state, local_router, route_agent, traffic_agent)
+    saved = [(o, {k: copy.copy(v) for k, v in vars(o).items()}) for o in singletons]
+    try:
+        local_router.load = lambda *a, **k: False
+        with TestClient(app) as c:
+            assert c.get("/health").status_code == 200
+    finally:
+        for obj, state in saved:
+            vars(obj).clear()
+            vars(obj).update(state)
