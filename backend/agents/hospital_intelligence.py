@@ -851,7 +851,7 @@ class HospitalIntelligenceAgent:
         # HospitalRankingResponse requires at least one entry. Fail loudly so
         # the incident pipeline marks the incident failed with a clear reason.
         if not entries:
-            logger.warning("Hospital ranking produced zero entries for %s", etype)
+            logger.warning("Hospital ranking produced zero candidate hospitals")
             raise NoHospitalCandidatesError(f"No candidate hospitals to rank for {etype} emergency")
 
         # ------------------------------------------------------------------
