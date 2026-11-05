@@ -52,6 +52,8 @@ export default function LiveEmergencyChat({
   useEffect(() => {
     if (!incidentId) return;
     let cancelled = false;
+    // A new incident is a new channel; never carry the previous one's messages.
+    setMessages([]);
     const load = async () => {
       try {
         const res = await fetch(`/api/chat/${incidentId}/messages`);

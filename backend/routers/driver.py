@@ -134,12 +134,23 @@ BANGALORE_HOSPITAL_COORDS = {
 }
 
 
+def _require_en_route(inc: dict) -> None:
+    # Pickup and diversion only make sense for an approved, live dispatch; an
+    # unapproved or rejected incident shown in a stale tab must stay as it is.
+    if inc.get("status") not in ("dispatched", "patient_picked_up"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot update {inc['incident_id']}: status is '{inc.get('status')}'.",
+        )
+
+
 @router.post("/arrived_pickup")
 async def arrived_pickup(payload: ClaimPayload):
     from routers.incident import Coordinate, RouteRequest, route_agent
 
     for inc in ACTIVE_INCIDENTS:
         if inc["incident_id"] == payload.incident_id:
+            _require_en_route(inc)
             inc["driver_stage"] = "hospital"
             inc["status"] = "patient_picked_up"
 
@@ -214,6 +225,7 @@ async def change_hospital(payload: HospitalChangePayload):
 
     for inc in ACTIVE_INCIDENTS:
         if inc["incident_id"] == payload.incident_id:
+            _require_en_route(inc)
             # The route, location and phone must all describe the same ER, so
             # an unknown name is an error rather than a default destination.
             h_coords = _hospital_coords(payload.hospital_name)

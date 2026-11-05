@@ -85,6 +85,8 @@ export default function DriverDashboard() {
           driver_id: driverInfo?.unitId ?? 'drv-11',
         }),
       });
+      // A refused update must leave the stage and active call as they were.
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       patch(await res.json());
       setStage('transport');
     } catch {
@@ -97,10 +99,11 @@ export default function DriverDashboard() {
   const completeHandover = async () => {
     setBusy(true);
     try {
-      await fetch(`/api/incidents/${active.incident_id}/arrived`, {
+      const res = await fetch(`/api/incidents/${active.incident_id}/arrived`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setActiveId(null);
       setStage('pickup');
     } catch {
@@ -121,6 +124,7 @@ export default function DriverDashboard() {
           hospital_name: hospitalName,
         }),
       });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       patch(await res.json());
     } catch {
       setConn('down');

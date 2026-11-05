@@ -345,12 +345,14 @@ class TestHospitalCoordinates:
 
 
 class TestRoutingRegression:
-    def test_cardiac_at_msrit_picks_the_hospital_next_door(self):
+    def test_cardiac_at_msrit_picks_the_hospital_next_door(self, monkeypatch):
         """
         End to end: the nearest capable hospital should win when it is 600 m
         away and every alternative is kilometres off.
         """
         import asyncio
+
+        import httpx
 
         from agents.hospital_intelligence import hospital_agent
         from agents.local_router import local_router
@@ -358,6 +360,14 @@ class TestRoutingRegression:
 
         if not local_router.load():
             pytest.skip("road graph not built")
+
+        # No network: rank against the seed list, with a private catalogue cache.
+        async def _no_network(*_args, **_kwargs):
+            raise httpx.ConnectError("network disabled in tests")
+
+        monkeypatch.setattr(httpx.AsyncClient, "get", _no_network)
+        monkeypatch.setattr(hospital_agent, "_fetch_cache", {})
+        monkeypatch.setattr(hospital_agent, "_hospitals", [])
 
         res = asyncio.run(
             hospital_agent.rank_hospitals(

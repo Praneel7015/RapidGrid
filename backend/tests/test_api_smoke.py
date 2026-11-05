@@ -289,6 +289,18 @@ def test_diversion_updates_the_er_phone(client):
     assert incident_router.ACTIVE_INCIDENTS[0]["hospital_phone"] == "+91 80 2670 1150"
 
 
+@pytest.mark.parametrize("endpoint", ["arrived_pickup", "change_hospital"])
+@pytest.mark.parametrize("status", ["processing", "awaiting_dispatcher_approval", "failed"])
+def test_pickup_and_diversion_need_a_live_dispatch(client, endpoint, status):
+    incident_router.ACTIVE_INCIDENTS.append({"incident_id": "INC-p", "status": status})
+    res = client.post(
+        f"/api/driver/{endpoint}",
+        json={"incident_id": "INC-p", "hospital_name": "Victoria Hospital (BMCRI)"},
+    )
+    assert res.status_code == 409
+    assert incident_router.ACTIVE_INCIDENTS[0]["status"] == status
+
+
 def test_diversion_to_unknown_hospital_is_404(client):
     incident_router.ACTIVE_INCIDENTS.append({"incident_id": "INC-div", "status": "dispatched"})
     res = client.post(
