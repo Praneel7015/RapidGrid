@@ -99,7 +99,8 @@ export default function CitizenDashboard() {
         );
         const latest = mine[mine.length - 1];
         // Only rejoin in-flight work. Failed/completed reports must not trap the home screen.
-        const active = latest && !['failed', 'completed'].includes(latest.status);
+        const active =
+          latest && !['failed', 'completed'].includes(latest.status) ? latest : null;
         if (!cancelled && active?.citizen_view) {
           setIncident(latest);
           setPollUrl(`/api/incidents/${latest.incident_id}`);
@@ -421,6 +422,7 @@ export default function CitizenDashboard() {
               label="Unit reaches you in"
               value={view.phase1_eta_minutes ?? '--'}
               unit="min"
+              modelled
               tone="signal"
               sub={view.phase1_hub?.name}
             />
@@ -428,6 +430,7 @@ export default function CitizenDashboard() {
               label="Then to hospital"
               value={view.eta_minutes ?? '--'}
               unit="min"
+              modelled
               sub={`${fmt.km(view.distance_meters)} km`}
             />
           </div>

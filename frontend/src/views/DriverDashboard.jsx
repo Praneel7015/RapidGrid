@@ -59,7 +59,17 @@ export default function DriverDashboard() {
     if (!data?.citizen_view) return;
     setDispatches((prev) =>
       prev.map((d) =>
-        d.incident_id === active.incident_id ? { ...d, citizen_view: data.citizen_view } : d,
+        d.incident_id === active.incident_id
+          ? {
+              ...d,
+              citizen_view: data.citizen_view,
+              // A diversion changes the destination ER, so its number goes too.
+              hospital_phone:
+                'hospital_phone' in data.citizen_view
+                  ? data.citizen_view.hospital_phone
+                  : d.hospital_phone,
+            }
+          : d,
       ),
     );
   };
@@ -218,10 +228,11 @@ export default function DriverDashboard() {
               label="Time to destination"
               value={stage === 'pickup' ? (view.phase1_eta_minutes ?? '--') : (view.eta_minutes ?? '--')}
               unit="min"
+              modelled
               tone="signal"
             />
             {stage === 'transport' && (
-              <Stat ink label="Distance" value={fmt.km(view.distance_meters)} unit="km" />
+              <Stat ink label="Distance" value={fmt.km(view.distance_meters)} unit="km" modelled />
             )}
             <Stat ink label="Call" value={active.incident_id} tone="muted" />
           </div>
@@ -316,7 +327,7 @@ export default function DriverDashboard() {
         height="min(32vh, 260px)"
         contacts={{
           citizen: active.citizen_phone,
-          hospital: active.hospital_phone ?? view?.hospital_phone,
+          hospital: 'hospital_phone' in view ? view.hospital_phone : active.hospital_phone,
           unit: driverInfo?.phone ?? active.unit_phone ?? view?.unit_phone,
         }}
       />

@@ -208,9 +208,9 @@ export default function DispatcherDashboard() {
         {hot && <div className="sweep absolute inset-x-0 top-0 h-[2px] overflow-hidden" />}
         <div className="flex flex-wrap items-center justify-between gap-x-8 gap-y-4 px-4 py-4 sm:px-5">
           <div className="flex flex-wrap items-center gap-x-6 gap-y-4 sm:gap-x-9">
-            <Stat ink label="Awaiting approval" value={needsAction} tone={needsAction ? 'signal' : 'default'} />
-            <Stat ink label="In queue" value={queue.length} />
-            <Stat ink label="Units dispatched" value={active.length} />
+            <Stat ink label="Awaiting approval" value={needsAction} tone={needsAction ? 'signal' : 'default'} modelled={false} />
+            <Stat ink label="In queue" value={queue.length} modelled={false} />
+            <Stat ink label="Units dispatched" value={active.length} modelled={false} />
             <Stat
               ink
               label="Peak severity"
@@ -375,12 +375,14 @@ export default function DispatcherDashboard() {
                     label="Hub to patient"
                     value={view.phase1_eta_minutes ?? '--'}
                     unit="min"
+                    modelled
                     sub={view.phase1_hub?.name}
                   />
                   <Stat
                     label="Patient to ER"
                     value={view.eta_minutes ?? '--'}
                     unit="min"
+                    modelled
                     tone="signal"
                     sub={view.hospital_name}
                   />
@@ -388,6 +390,7 @@ export default function DispatcherDashboard() {
                     label="Transport distance"
                     value={fmt.km(view.distance_meters)}
                     unit="km"
+                    modelled
                   />
                 </div>
               )}
@@ -412,7 +415,7 @@ export default function DispatcherDashboard() {
                   </Button>
                 )}
                 {!autoDispatch && selected.status === 'awaiting_dispatcher_approval' && (
-                  <Button variant="quiet" onClick={reject} disabled={busy} className="shrink-0 border-error text-error hover:bg-error hover:text-white">
+                  <Button variant="critical" onClick={reject} disabled={busy} className="shrink-0">
                     <X size={15} />
                     Reject
                   </Button>

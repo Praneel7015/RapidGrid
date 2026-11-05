@@ -263,6 +263,26 @@ def test_terminal_incident_cannot_be_approved(client, status):
     assert "assigned_driver" not in inc
 
 
+def test_diversion_updates_the_er_phone(client):
+    incident_router.ACTIVE_INCIDENTS.append(
+        {
+            "incident_id": "INC-div",
+            "status": "dispatched",
+            "location": {"lat": 12.97, "lng": 77.59},
+            "hospital_phone": "+91 80 2699 5000",
+            "citizen_view": {"hospital_phone": "+91 80 2699 5000"},
+        }
+    )
+    with patch.object(incident_router.route_agent, "compute_route", side_effect=RuntimeError):
+        res = client.post(
+            "/api/driver/change_hospital",
+            json={"incident_id": "INC-div", "hospital_name": "Victoria Hospital (BMCRI)"},
+        )
+    assert res.status_code == 200
+    assert res.json()["citizen_view"]["hospital_phone"] == "+91 80 2670 1150"
+    assert incident_router.ACTIVE_INCIDENTS[0]["hospital_phone"] == "+91 80 2670 1150"
+
+
 def test_hospital_ranking_with_no_candidates_is_503(client):
     from agents.hospital_intelligence import hospital_agent
 

@@ -89,13 +89,19 @@ export default function MapOverlay({
     }).setView([12.9716, 77.5946], 12);
 
     L.tileLayer(TILE_URL, { attribution: TILE_ATTR, maxZoom: 19 }).addTo(map.current);
-    L.control.zoom({ position: 'bottomright' }).addTo(map.current);
+    const zoomControl = L.control.zoom({ position: 'bottomright' }).addTo(map.current);
     layers.current = L.layerGroup().addTo(map.current);
 
-    // Mark user interaction so we stop overriding their zoom/pan.
+    // Mark user interaction so we stop overriding their zoom/pan. zoomstart
+    // also fires for our own fitBounds, so watch the gestures instead.
     const onInteract = () => { userInteracted.current = true; };
-    map.current.on('zoomstart', onInteract);
+    const el = holder.current;
+    const zoomButtons = zoomControl.getContainer();
     map.current.on('dragstart', onInteract);
+    el.addEventListener('wheel', onInteract, { passive: true });
+    el.addEventListener('touchstart', onInteract, { passive: true });
+    el.addEventListener('dblclick', onInteract);
+    zoomButtons.addEventListener('click', onInteract);
 
     // A map created inside a container that is hidden or still being sized
     // renders grey tiles until it is told to re-measure.
@@ -107,6 +113,10 @@ export default function MapOverlay({
     return () => {
       cancelAnimationFrame(raf);
       observer.disconnect();
+      el.removeEventListener('wheel', onInteract);
+      el.removeEventListener('touchstart', onInteract);
+      el.removeEventListener('dblclick', onInteract);
+      zoomButtons.removeEventListener('click', onInteract);
       if (map.current) {
         map.current.remove();
         map.current = null;

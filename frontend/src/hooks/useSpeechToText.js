@@ -32,6 +32,18 @@ function failureMessage(err, phase) {
   return 'Could not transcribe that clip. You can still type.';
 }
 
+// Web Speech reports bare codes; show the caller a sentence instead.
+const WEBSPEECH_ERRORS = {
+  'not-allowed': 'Microphone permission was blocked.',
+  'service-not-allowed': 'Microphone permission was blocked.',
+  'audio-capture': 'No microphone was found.',
+  network: 'Voice input needs a network connection. You can still type.',
+};
+
+function webSpeechMessage(code) {
+  return WEBSPEECH_ERRORS[code] || 'Voice input stopped. You can still type.';
+}
+
 export default function useSpeechToText({ lang = 'en-IN', continuous = false } = {}) {
   const Ctor = getRecognitionCtor();
   const engine = Ctor ? 'webspeech' : canRecord() ? 'whisper' : null;
@@ -91,7 +103,7 @@ export default function useSpeechToText({ lang = 'en-IN', continuous = false } =
         setListening(false);
         setInterim('');
         if (ev.error !== 'aborted' && ev.error !== 'no-speech') {
-          setError(ev.error || 'speech_error');
+          setError(webSpeechMessage(ev.error));
         }
       };
       rec.onresult = (ev) => {
@@ -109,7 +121,7 @@ export default function useSpeechToText({ lang = 'en-IN', continuous = false } =
       rec.start();
     } catch (err) {
       startingRef.current = false;
-      setError(err?.message || 'speech_start_failed');
+      setError(webSpeechMessage(err?.name === 'NotAllowedError' ? 'not-allowed' : null));
       setListening(false);
     }
   }, [Ctor, continuous, lang]);

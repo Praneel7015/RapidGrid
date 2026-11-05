@@ -62,7 +62,9 @@ export function Provenance({ kind, children, title, className = '' }) {
 /* -------------------------------------------------------------------------
    Stat - a labelled telemetry readout. Mono, tabular, sized for glancing.
    ------------------------------------------------------------------------- */
-export function Stat({ label, value, unit, tone = 'default', sub, ink = false, modelled = false }) {
+// modelled: true for estimates (route ETAs, distances), false for observed
+// values; left unset, the value gets no provenance styling at all.
+export function Stat({ label, value, unit, tone = 'default', sub, ink = false, modelled }) {
   const tones = {
     default: ink ? 'text-on-ink' : 'text-text',
     signal: 'text-signal',
@@ -73,7 +75,15 @@ export function Stat({ label, value, unit, tone = 'default', sub, ink = false, m
     <div className="min-w-0">
       <div className={ink ? 'eyebrow eyebrow-ink' : 'eyebrow'}>{label}</div>
       <div className={`mt-1 font-mono leading-none ${tones[tone]} ${modelled ? 'font-normal' : 'font-semibold'}`}>
-        <span className={`text-[26px] tracking-tight ${modelled ? 'val-modelled' : 'val-verified'}`}>
+        <span
+          className={`text-[26px] tracking-tight ${
+            modelled === true
+              ? `val-modelled${ink ? ' val-modelled-ink' : ''}`
+              : modelled === false
+                ? 'val-verified'
+                : ''
+          }`}
+        >
           {value}
         </span>
         {unit && <span className="ml-1 text-[13px] font-medium opacity-60">{unit}</span>}

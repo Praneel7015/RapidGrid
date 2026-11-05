@@ -190,7 +190,7 @@ async def arrived_pickup(payload: ClaimPayload):
 
 @router.post("/change_hospital")
 async def change_hospital(payload: HospitalChangePayload):
-    from routers.incident import Coordinate, RouteRequest, route_agent
+    from routers.incident import Coordinate, RouteRequest, _hospital_phone, route_agent
 
     for inc in ACTIVE_INCIDENTS:
         if inc["incident_id"] == payload.incident_id:
@@ -240,8 +240,12 @@ async def change_hospital(payload: HospitalChangePayload):
             cit_view["eta_minutes"] = eta_mins
             cit_view["distance_meters"] = dist_meters
             cit_view["message"] = f"Rerouted by driver to {payload.hospital_name}."
+            # The ER contact follows the destination; None hides the call button.
+            hospital_phone = _hospital_phone(payload.hospital_name)
+            cit_view["hospital_phone"] = hospital_phone
 
             inc["hospital_name"] = payload.hospital_name
+            inc["hospital_phone"] = hospital_phone
             inc["citizen_view"] = cit_view
             save_db()
             return {"status": "rerouted", "citizen_view": cit_view}
