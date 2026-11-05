@@ -113,7 +113,8 @@ def _resolve_modality(raw: str) -> AccessibilityInputModality:
 
 
 def _phone_key(name: str) -> str:
-    return re.sub(r"[^a-z0-9]+", " ", name.lower()).strip()
+    name = re.sub(r"['\u2019]", "", name.lower())
+    return re.sub(r"[^a-z0-9]+", " ", name).strip()
 
 
 _DEMO_PHONES_BY_KEY = {_phone_key(k): v for k, v in DEMO_HOSPITAL_PHONES.items()}
