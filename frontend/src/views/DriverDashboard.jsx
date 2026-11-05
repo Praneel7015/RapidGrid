@@ -177,7 +177,7 @@ export default function DriverDashboard() {
                 </p>
                 <div className="mt-2.5 flex items-center justify-between gap-2">
                   <SeverityTag severity={d.severity ?? 0} />
-                  <span className="t-tag text-signal">
+                  <span className="t-tag text-signal-hover">
                     {d.citizen_view?.phase1_eta_minutes ?? '--'} min out
                   </span>
                 </div>

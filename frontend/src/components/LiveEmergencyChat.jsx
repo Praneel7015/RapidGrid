@@ -114,8 +114,9 @@ export default function LiveEmergencyChat({
 
   const send = async (e) => {
     e?.preventDefault();
-    speech.stop();
-    const body = text.trim();
+    // Words still in flight from the recognizer arrive after stop; wait for them.
+    const spoken = await speech.finish();
+    const body = `${text} ${spoken}`.trim();
     if (!body || !incidentId) return;
     setText('');
 
@@ -208,9 +209,12 @@ export default function LiveEmergencyChat({
         )}
       </div>
 
-      {speech.error && (
-        <p className="border-t border-rule px-3 pt-2 text-[12px] leading-relaxed text-critical">{speech.error}</p>
-      )}
+      {/* Always mounted, so a screen reader announces the first error too. */}
+      <div role="status">
+        {speech.error && (
+          <p className="border-t border-rule px-3 pt-2 text-[12px] leading-relaxed text-critical">{speech.error}</p>
+        )}
+      </div>
       <form onSubmit={send} className="flex items-center gap-2 border-t border-rule p-2.5">
         <input
           value={speech.listening && speech.interim ? `${text} ${speech.interim}`.trim() : text}

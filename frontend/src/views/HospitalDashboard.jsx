@@ -74,6 +74,7 @@ export default function HospitalDashboard() {
   }, [hospitalInfo]);
 
   const setCapacity = async (open) => {
+    if (!hospitalInfo?.id || hospitalInfo.id === 'all') return;
     capacityGen.current += 1;
     capacityPending.current += 1;
     setIcuOpen(open);
@@ -92,6 +93,10 @@ export default function HospitalDashboard() {
       capacityGen.current += 1;
     }
   };
+
+  // The aggregate "all" desk is not a facility; its capacity switch would
+  // resolve to some real hospital by substring and divert it.
+  const isFacility = Boolean(hospitalInfo?.id) && hospitalInfo.id !== 'all';
 
   const critical = incoming.filter((c) => (c.severity ?? 0) >= 0.8).length;
   const soonest = incoming.reduce(
@@ -130,7 +135,8 @@ export default function HospitalDashboard() {
               <div className="flex overflow-hidden rounded-xs border border-rule-ink">
                 <button
                   onClick={() => setCapacity(true)}
-                  className={`tap px-3 py-2.5 t-tag transition-colors lg:px-2.5 lg:py-1 ${
+                  disabled={!isFacility}
+                  className={`tap px-3 py-2.5 t-tag transition-colors disabled:cursor-not-allowed disabled:opacity-45 lg:px-2.5 lg:py-1 ${
                     icuOpen ? 'bg-signal text-ink' : 'bg-transparent text-on-ink-muted'
                   }`}
                 >
@@ -138,7 +144,8 @@ export default function HospitalDashboard() {
                 </button>
                 <button
                   onClick={() => setCapacity(false)}
-                  className={`tap px-3 py-2.5 t-tag transition-colors lg:px-2.5 lg:py-1 ${
+                  disabled={!isFacility}
+                  className={`tap px-3 py-2.5 t-tag transition-colors disabled:cursor-not-allowed disabled:opacity-45 lg:px-2.5 lg:py-1 ${
                     !icuOpen ? 'bg-critical text-white' : 'bg-transparent text-on-ink-muted'
                   }`}
                 >
@@ -209,7 +216,7 @@ export default function HospitalDashboard() {
                       <div className="flex w-full shrink-0 items-center justify-between gap-4 border-t border-rule pt-3 sm:w-auto sm:justify-end sm:border-0 sm:pt-0">
                         <div className="text-right">
                           <div className="eyebrow">Arrives in</div>
-                          <div className="font-mono text-[26px] font-bold leading-none text-signal">
+                          <div className="font-mono text-[26px] font-bold leading-none text-signal-hover">
                             {c.eta_minutes ?? '--'}
                             <span className="ml-1 text-[13px] font-medium opacity-60">min</span>
                           </div>

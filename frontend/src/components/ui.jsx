@@ -67,7 +67,8 @@ export function Provenance({ kind, children, title, className = '' }) {
 export function Stat({ label, value, unit, tone = 'default', sub, ink = false, modelled }) {
   const tones = {
     default: ink ? 'text-on-ink' : 'text-text',
-    signal: 'text-signal',
+    // Bright amber reads on ink; on paper it needs the dark variant.
+    signal: ink ? 'text-signal' : 'text-signal-hover',
     critical: 'text-critical',
     muted: ink ? 'text-on-ink-muted' : 'text-text-muted',
   };
