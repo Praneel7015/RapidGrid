@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime
 
 from bus.event_bus import COMMUNICATION_DISPATCHED, FUSION_COMPLETE, bus
 from models.schemas import (
@@ -50,7 +49,7 @@ class CommunicationAgent:
 
     async def dispatch_plan(self, request: CommunicationRequest) -> CommunicationResponse:
         """
-        Dispatches notifications concurrently. 
+        Dispatches notifications concurrently.
         Mocked to force one channel to fail to prove non-blocking behaviour.
         """
         plan = request.action_plan
@@ -58,18 +57,18 @@ class CommunicationAgent:
         ranked_hospitals = plan.get("ranked_hospitals", [])
         if ranked_hospitals and isinstance(ranked_hospitals, list) and len(ranked_hospitals) > 0:
             hospital_id = ranked_hospitals[0].get("hospital_id", "Unknown Hospital")
-            
+
         # Define the channels we need to notify
         tasks = [
             self._notify_hospital(hospital_id),
             self._notify_driver(),
             self._notify_traffic_control(),
-            self._notify_family()  # This one is set up to fail
+            self._notify_family(),  # This one is set up to fail
         ]
 
         # Use return_exceptions=True so a single failure doesn't crash the gather
         results = await asyncio.gather(*tasks, return_exceptions=True)
-        
+
         receipts = []
         has_errors = False
 
@@ -80,22 +79,24 @@ class CommunicationAgent:
                 # In a real system, we'd queue this for retry or DLQ
                 logger.error(f"Notification task failed with exception: {result}")
                 # We can't easily extract the intended receipt from the generic Exception here,
-                # but our mock functions return explicit DeliveryReceipts even on failure 
+                # but our mock functions return explicit DeliveryReceipts even on failure
                 # (via try/except inside the mock), so this branch shouldn't actually hit in our setup.
             elif isinstance(result, DeliveryReceipt):
                 receipts.append(result)
                 if result.status == "failed":
                     has_errors = True
-                    logger.error(f"Dispatch failed for {result.recipient} via {result.channel.value}: {result.error_message}")
+                    logger.error(
+                        f"Dispatch failed for {result.recipient} via {result.channel.value}: {result.error_message}"
+                    )
                 else:
-                    logger.info(f"Dispatch successful for {result.recipient} via {result.channel.value}")
+                    logger.info(
+                        f"Dispatch successful for {result.recipient} via {result.channel.value}"
+                    )
 
         overall_status = "completed_with_errors" if has_errors else "success"
-        
+
         response = CommunicationResponse(
-            receipts=receipts,
-            overall_status=overall_status,
-            data_freshness=DataFreshness.LIVE
+            receipts=receipts, overall_status=overall_status, data_freshness=DataFreshness.LIVE
         )
 
         # Publish the delivery receipts back to the bus
@@ -113,16 +114,14 @@ class CommunicationAgent:
         return DeliveryReceipt(
             recipient=f"{hospital_id} ER Desk",
             channel=CommunicationChannel.HOSPITAL_API,
-            status="delivered"
+            status="delivered",
         )
 
     async def _notify_driver(self) -> DeliveryReceipt:
         """Mock sending the route to the ambulance driver app."""
         await asyncio.sleep(0.05)
         return DeliveryReceipt(
-            recipient="Ambulance Driver",
-            channel=CommunicationChannel.APP_PUSH,
-            status="delivered"
+            recipient="Ambulance Driver", channel=CommunicationChannel.APP_PUSH, status="delivered"
         )
 
     async def _notify_traffic_control(self) -> DeliveryReceipt:
@@ -131,7 +130,7 @@ class CommunicationAgent:
         return DeliveryReceipt(
             recipient="City Traffic Control",
             channel=CommunicationChannel.TRAFFIC_CONTROL,
-            status="delivered"
+            status="delivered",
         )
 
     async def _notify_family(self) -> DeliveryReceipt:
@@ -142,7 +141,7 @@ class CommunicationAgent:
             recipient="Patient's Emergency Contact",
             channel=CommunicationChannel.SMS,
             status="failed",
-            error_message="SMS Gateway Timeout (504 Gateway Time-out)"
+            error_message="SMS Gateway Timeout (504 Gateway Time-out)",
         )
 
 

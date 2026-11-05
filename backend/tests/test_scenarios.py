@@ -37,6 +37,7 @@ JAYADEVA = (12.9290, 77.5878)
 # Triage
 # ---------------------------------------------------------------------------
 
+
 class TestTriage:
     def test_bleeding_trauma_is_not_general(self):
         """The bug that sent a haemorrhaging patient to a general hospital."""
@@ -72,6 +73,7 @@ class TestTriage:
 # Offline routing
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture(scope="module")
 def router():
     if not local_router.load():
@@ -90,6 +92,7 @@ class TestOfflineRouter:
     def test_route_is_geographically_sane(self, router):
         """Road distance must exceed straight-line but not absurdly."""
         from agents.local_router import haversine
+
         p = router.find_path(HEBBAL, JAYADEVA)
         straight = haversine(*HEBBAL, *JAYADEVA)
         assert straight < p["distance_m"] < straight * 2.5
@@ -97,8 +100,7 @@ class TestOfflineRouter:
     def test_blocking_a_road_changes_the_route(self, router):
         base = router.find_path(HEBBAL, JAYADEVA)
         victims = [
-            e for e in base["edge_ids"]
-            if "Bellary" in router.road_names[router.edge_name[e]]
+            e for e in base["edge_ids"] if "Bellary" in router.road_names[router.edge_name[e]]
         ]
         assert victims, "fixture route no longer uses Bellary Road"
         router.block_edges(victims)
@@ -118,6 +120,7 @@ class TestOfflineRouter:
 # ---------------------------------------------------------------------------
 # Causal city model
 # ---------------------------------------------------------------------------
+
 
 class TestCityState:
     @pytest.fixture
@@ -154,8 +157,7 @@ class TestCityState:
 
         primary = router.find_path(HEBBAL, JAYADEVA)
         victims = [
-            e for e in primary["edge_ids"]
-            if "Bellary" in router.road_names[router.edge_name[e]]
+            e for e in primary["edge_ids"] if "Bellary" in router.road_names[router.edge_name[e]]
         ]
         result = city.close_road(victims, "Bellary Road")
         assert result["displaced"] > 0
@@ -171,8 +173,7 @@ class TestCityState:
 
         primary = router.find_path(HEBBAL, JAYADEVA)
         victims = [
-            e for e in primary["edge_ids"]
-            if "Bellary" in router.road_names[router.edge_name[e]]
+            e for e in primary["edge_ids"] if "Bellary" in router.road_names[router.edge_name[e]]
         ]
         city.close_road(victims, "Bellary Road")
         after = router.find_path(*far)["travel_time_s"]
@@ -203,6 +204,7 @@ class TestCityState:
 # Clinical outcome
 # ---------------------------------------------------------------------------
 
+
 class TestClinicalOutcome:
     def test_transfer_penalty_dominates_a_short_drive(self):
         """Driving further can still reach treatment sooner."""
@@ -229,8 +231,12 @@ class TestClinicalOutcome:
         h = {"name": "x", "capabilities": {"neurology": 0.9}}
         e = estimate("stroke", h, 5 * 60, 10 * 60)
         parts = (
-            e.activation_minutes + e.to_patient_minutes + e.on_scene_minutes
-            + e.to_hospital_minutes + e.in_hospital_minutes + e.transfer_minutes
+            e.activation_minutes
+            + e.to_patient_minutes
+            + e.on_scene_minutes
+            + e.to_hospital_minutes
+            + e.in_hospital_minutes
+            + e.transfer_minutes
         )
         assert e.total_minutes == pytest.approx(parts, abs=0.2)
 
@@ -239,11 +245,13 @@ class TestClinicalOutcome:
 # Hospital capability data
 # ---------------------------------------------------------------------------
 
+
 class TestHospitalData:
     @pytest.fixture(scope="class")
     @classmethod
     def profiles(cls):
         import json
+
         p = Path(__file__).resolve().parent.parent / "data" / "hospital_capabilities.json"
         if not p.exists():
             pytest.skip("capability table missing")
@@ -251,8 +259,13 @@ class TestHospitalData:
 
     def test_every_profile_is_complete(self, profiles):
         required = {
-            "name", "type", "emergency_receiving", "beds_total", "icu_total",
-            "specialties", "capabilities",
+            "name",
+            "type",
+            "emergency_receiving",
+            "beds_total",
+            "icu_total",
+            "specialties",
+            "capabilities",
         }
         for key, entry in profiles.items():
             assert required <= set(entry), f"{key} is missing fields"
@@ -269,13 +282,14 @@ class TestHospitalData:
 
     def test_specialty_centres_score_highest_in_their_specialty(self, profiles):
         assert profiles["blr-019"]["capabilities"]["cardiology"] >= 0.95  # Jayadeva
-        assert profiles["blr-010"]["capabilities"]["neurology"] >= 0.95   # NIMHANS
+        assert profiles["blr-010"]["capabilities"]["neurology"] >= 0.95  # NIMHANS
         assert profiles["blr-024"]["capabilities"]["trauma_centre"] >= 0.9  # Sanjay Gandhi
 
 
 # ---------------------------------------------------------------------------
 # Hospital coordinates
 # ---------------------------------------------------------------------------
+
 
 class TestHospitalCoordinates:
     """
@@ -289,6 +303,7 @@ class TestHospitalCoordinates:
     @classmethod
     def profiles(cls):
         import json
+
         p = Path(__file__).resolve().parent.parent / "data" / "hospital_capabilities.json"
         if not p.exists():
             pytest.skip("capability table missing")
@@ -312,6 +327,7 @@ class TestHospitalCoordinates:
     def test_ramaiah_is_next_to_msrit(self, profiles):
         """The reported bug, as an assertion."""
         from agents.local_router import haversine
+
         msrit = (13.0297, 77.5645)
         r = profiles["blr-009"]
         d = haversine(msrit[0], msrit[1], r["lat"], r["lng"])
@@ -320,20 +336,24 @@ class TestHospitalCoordinates:
     def test_no_two_hospitals_share_a_location(self, profiles):
         """Duplicate coordinates mean one of them is wrong."""
         from agents.local_router import haversine
+
         items = list(profiles.items())
         for i, (k1, a) in enumerate(items):
-            for k2, b in items[i + 1:]:
+            for k2, b in items[i + 1 :]:
                 d = haversine(a["lat"], a["lng"], b["lat"], b["lng"])
                 assert d > 50, f"{k1} and {k2} are {d:.0f} m apart"
 
 
 class TestRoutingRegression:
-    def test_cardiac_at_msrit_picks_the_hospital_next_door(self):
+    def test_cardiac_at_msrit_picks_the_hospital_next_door(self, monkeypatch):
         """
         End to end: the nearest capable hospital should win when it is 600 m
         away and every alternative is kilometres off.
         """
         import asyncio
+
+        import httpx
+
         from agents.hospital_intelligence import hospital_agent
         from agents.local_router import local_router
         from models.schemas import Coordinate, EmergencyType, HospitalRequest
@@ -341,10 +361,22 @@ class TestRoutingRegression:
         if not local_router.load():
             pytest.skip("road graph not built")
 
-        res = asyncio.run(hospital_agent.rank_hospitals(HospitalRequest(
-            incident_location=Coordinate(lat=13.0297, lng=77.5645),
-            emergency_type=EmergencyType.CARDIAC,
-        )))
+        # No network: rank against the seed list, with a private catalogue cache.
+        async def _no_network(*_args, **_kwargs):
+            raise httpx.ConnectError("network disabled in tests")
+
+        monkeypatch.setattr(httpx.AsyncClient, "get", _no_network)
+        monkeypatch.setattr(hospital_agent, "_fetch_cache", {})
+        monkeypatch.setattr(hospital_agent, "_hospitals", [])
+
+        res = asyncio.run(
+            hospital_agent.rank_hospitals(
+                HospitalRequest(
+                    incident_location=Coordinate(lat=13.0297, lng=77.5645),
+                    emergency_type=EmergencyType.CARDIAC,
+                )
+            )
+        )
         top = res.ranked_hospitals[0]
         assert "Ramaiah" in top.name, f"expected Ramaiah, got {top.name}"
         if top.road_eta_seconds:

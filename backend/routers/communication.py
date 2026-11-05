@@ -23,7 +23,7 @@ router = APIRouter(prefix="/api/communication", tags=["Communication Agent"])
 async def dispatch_plan(request: CommunicationRequest) -> CommunicationResponse:
     """
     Manually dispatch notifications for a given action plan.
-    (Note: This normally happens automatically via the event bus when 
+    (Note: This normally happens automatically via the event bus when
     Decision Fusion completes).
     """
     try:

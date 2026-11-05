@@ -21,7 +21,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from bus.event_bus import TRAFFIC_UPDATE, bus
+from bus.event_bus import bus
 from models.schemas import (
     DataFreshness,
     TrafficIncident,
@@ -53,6 +53,7 @@ AGENT_NAME = "traffic_intelligence"
 # TrafficIntelligenceAgent
 # ---------------------------------------------------------------------------
 
+
 class TrafficIntelligenceAgent:
     """Analyses road segments and publishes traffic snapshots to the bus."""
 
@@ -74,7 +75,9 @@ class TrafficIntelligenceAgent:
         self._loaded = True
         logger.info(
             "Loaded road network: %d nodes, %d edges from %s",
-            len(self._nodes), len(self._edges), path.name,
+            len(self._nodes),
+            len(self._edges),
+            path.name,
         )
 
     def toggle_api_failure(self, force_fail: bool) -> None:
@@ -101,8 +104,7 @@ class TrafficIntelligenceAgent:
                 TrafficIncident(
                     incident_id=f"INC-{edge['id']}",
                     description=(
-                        f"Active incident on segment {edge['id']} "
-                        f"(multiplier {incident_mult}x)"
+                        f"Active incident on segment {edge['id']} (multiplier {incident_mult}x)"
                     ),
                     severity=min((incident_mult - 1.0) / 3.0, 1.0),
                 )
@@ -187,7 +189,7 @@ class TrafficIntelligenceAgent:
 
     async def get_live_data(self, bounding_box: dict | None = None) -> TrafficSnapshot:
         """Simulate fetching live data from an external API."""
-        if getattr(self, '_simulate_api_failure', False):
+        if getattr(self, "_simulate_api_failure", False):
             raise ConnectionError("External Traffic API unavailable (503 Service Unavailable)")
         return self.get_snapshot(bounding_box)
 
@@ -203,12 +205,12 @@ class TrafficIntelligenceAgent:
             logger.warning(f"Traffic API failure: {e}. Falling back to cached historical data.")
             # Scenario 3: Fall back to cached data, mark degraded, lower confidence
             snapshot = self.get_snapshot(bounding_box)
-            
+
             # Degrade confidence by 30% and mark as simulated
             for segment in snapshot.segments:
                 segment.confidence = max(0.1, segment.confidence - 0.30)
                 segment.data_freshness = DataFreshness.CACHED
-                
+
         await bus.publish(
             topic="traffic.update",
             payload=snapshot.model_dump(mode="json"),

@@ -32,6 +32,18 @@ function failureMessage(err, phase) {
   return 'Could not transcribe that clip. You can still type.';
 }
 
+// Web Speech reports bare codes; show the caller a sentence instead.
+const WEBSPEECH_ERRORS = {
+  'not-allowed': 'Microphone permission was blocked.',
+  'service-not-allowed': 'Microphone permission was blocked.',
+  'audio-capture': 'No microphone was found.',
+  network: 'Voice input needs a network connection. You can still type.',
+};
+
+function webSpeechMessage(code) {
+  return WEBSPEECH_ERRORS[code] || 'Voice input stopped. You can still type.';
+}
+
 export default function useSpeechToText({ lang = 'en-IN', continuous = false } = {}) {
   const Ctor = getRecognitionCtor();
   const engine = Ctor ? 'webspeech' : canRecord() ? 'whisper' : null;
@@ -45,6 +57,24 @@ export default function useSpeechToText({ lang = 'en-IN', continuous = false } =
   const onFinalRef = useRef(null);
   const startingRef = useRef(false);
   const aliveRef = useRef(true);
+  // activeRef: a recognizer or recording is running, or a clip is still being
+  // transcribed. finishRef: a pending finish() and the final text it collects.
+  const activeRef = useRef(false);
+  const finishRef = useRef(null);
+
+  const settle = useCallback(() => {
+    activeRef.current = false;
+    const pending = finishRef.current;
+    if (!pending) return;
+    finishRef.current = null;
+    clearTimeout(pending.timer);
+    pending.resolve(pending.text.trim());
+  }, []);
+
+  const deliverFinal = useCallback((text) => {
+    if (finishRef.current) finishRef.current.text += ` ${text}`;
+    if (onFinalRef.current) onFinalRef.current(text);
+  }, []);
 
   const setOnFinal = useCallback((fn) => {
     onFinalRef.current = fn;
@@ -60,7 +90,8 @@ export default function useSpeechToText({ lang = 'en-IN', continuous = false } =
     try { recRef.current?.stop(); } catch { /* ignore */ }
     releaseMic();
     onFinalRef.current = null;
-  }, [releaseMic]);
+    settle();
+  }, [releaseMic, settle]);
 
   const stop = useCallback(() => {
     startingRef.current = false;
@@ -85,14 +116,16 @@ export default function useSpeechToText({ lang = 'en-IN', continuous = false } =
         startingRef.current = false;
         setListening(false);
         setInterim('');
+        settle();
       };
       rec.onerror = (ev) => {
         startingRef.current = false;
         setListening(false);
         setInterim('');
         if (ev.error !== 'aborted' && ev.error !== 'no-speech') {
-          setError(ev.error || 'speech_error');
+          setError(webSpeechMessage(ev.error));
         }
+        settle();
       };
       rec.onresult = (ev) => {
         let interimText = '';
@@ -103,16 +136,18 @@ export default function useSpeechToText({ lang = 'en-IN', continuous = false } =
           else interimText += piece;
         }
         setInterim(interimText);
-        if (finalText && onFinalRef.current) onFinalRef.current(finalText.trim());
+        if (finalText) deliverFinal(finalText.trim());
       };
       recRef.current = rec;
+      activeRef.current = true;
       rec.start();
     } catch (err) {
       startingRef.current = false;
-      setError(err?.message || 'speech_start_failed');
+      setError(webSpeechMessage(err?.name === 'NotAllowedError' ? 'not-allowed' : null));
       setListening(false);
+      settle();
     }
-  }, [Ctor, continuous, lang]);
+  }, [Ctor, continuous, lang, deliverFinal, settle]);
 
   const startWhisper = useCallback(async () => {
     if (startingRef.current || phase === 'loading' || phase === 'transcribing') return;
@@ -136,7 +171,10 @@ export default function useSpeechToText({ lang = 'en-IN', continuous = false } =
       };
       rec.onstop = async () => {
         releaseMic();
-        if (!aliveRef.current) return;
+        if (!aliveRef.current) {
+          settle();
+          return;
+        }
         setListening(false);
         const blob = new Blob(chunks, { type: rec.mimeType || 'audio/ogg' });
         let stage = 'loading';
@@ -148,17 +186,19 @@ export default function useSpeechToText({ lang = 'en-IN', continuous = false } =
           setPhase('transcribing');
           const text = await transcribeRecording(blob);
           if (!aliveRef.current) return;
-          if (text && onFinalRef.current) onFinalRef.current(text);
+          if (text) deliverFinal(text);
           else setError('No speech detected. Try again.');
         } catch (err) {
           if (!aliveRef.current) return;
           setError(failureMessage(err, stage));
         } finally {
           if (aliveRef.current) setPhase('idle');
+          settle();
         }
       };
       mediaRef.current = stream;
       recRef.current = rec;
+      activeRef.current = true;
       rec.start();
       startingRef.current = false;
       setListening(true);
@@ -168,8 +208,24 @@ export default function useSpeechToText({ lang = 'en-IN', continuous = false } =
       setListening(false);
       setPhase('idle');
       setError(failureMessage(err, 'idle'));
+      settle();
     }
-  }, [phase, releaseMic]);
+  }, [phase, releaseMic, deliverFinal, settle]);
+
+  // Stop listening and resolve with the final text that arrives after the call
+  // (the recognizer delivers its last words after stop). Resolves '' at once
+  // when nothing is running. Callers append it to the text they already hold.
+  const finish = useCallback(() => {
+    if (!activeRef.current) return Promise.resolve('');
+    if (finishRef.current) return finishRef.current.promise;
+    let resolve;
+    const promise = new Promise((r) => { resolve = r; });
+    // Never hold a send forever: Whisper may still be downloading its model.
+    const timer = setTimeout(settle, engine === 'whisper' ? 60000 : 4000);
+    finishRef.current = { resolve, text: '', promise, timer };
+    stop();
+    return promise;
+  }, [engine, settle, stop]);
 
   const start = useCallback(() => {
     if (engine === 'webspeech') startWebSpeech();
@@ -182,5 +238,7 @@ export default function useSpeechToText({ lang = 'en-IN', continuous = false } =
     else start();
   }, [listening, phase, start, stop]);
 
-  return { supported, engine, phase, listening, interim, error, start, stop, toggle, setOnFinal };
+  return {
+    supported, engine, phase, listening, interim, error, start, stop, finish, toggle, setOnFinal,
+  };
 }

@@ -23,7 +23,7 @@ router = APIRouter(prefix="/api/prediction", tags=["Prediction Agent"])
 async def track_route(request: PredictionRequest) -> PredictionResponse:
     """
     Registers a route with the Prediction Agent.
-    
+
     The Prediction Agent will listen for Traffic Updates and continuously
     recalculate the ETA and delay probability for this route, publishing
     updates to the PREDICTION_UPDATE bus topic.

@@ -4,9 +4,9 @@ Emergency Coordinator for GeoAgentic.
 Contract (from agent-contracts.md):
   Input:  incident report (raw, from any citizen channel), timestamp.
   Output: {incident_id, severity, activated_agents[], status}
-  
-Responsibility: 
-  Classify severity, decide which agents to activate (not every incident 
+
+Responsibility:
+  Classify severity, decide which agents to activate (not every incident
   needs every agent — e.g. a minor incident may skip Hospital Intelligence),
   and compile the final action plan once fusion completes.
 """
@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime
 
 from bus.event_bus import INCIDENT_COORDINATED, INCIDENT_REPORTED, bus
 from models.schemas import (
@@ -54,7 +53,7 @@ class EmergencyCoordinator:
         """
         report = request.incident_report
         severity = report.severity_estimate
-        
+
         # Base agents that are always active for an incident
         activated = [
             AgentName.TRAFFIC,
@@ -77,10 +76,7 @@ class EmergencyCoordinator:
         incident_id = f"INC-{uuid.uuid4().hex[:8]}"
 
         response = CoordinatorResponse(
-            incident_id=incident_id,
-            severity=severity,
-            activated_agents=activated,
-            status="active"
+            incident_id=incident_id, severity=severity, activated_agents=activated, status="active"
         )
 
         # Publish the coordinated incident to the bus

@@ -15,19 +15,19 @@ Implementation:
 from __future__ import annotations
 
 import logging
+import math
 import os
 import time
 import uuid
-import httpx
 from collections import OrderedDict
 from typing import Any
 
+import httpx
+
 from agents.local_router import local_router
-from bus.event_bus import ROUTE_COMPUTED, ROUTE_REQUEST, bus
 from models.schemas import (
     Coordinate,
     DataFreshness,
-    Event,
     RouteRequest,
     RouteResponse,
 )
@@ -52,6 +52,7 @@ class RouteOptimizationAgent:
     def __init__(self) -> None:
         self._loaded = True
         from dotenv import load_dotenv
+
         load_dotenv()
         self.api_key = os.getenv("GOOGLE_ROUTES_API_KEY")
         self._cache: OrderedDict[tuple, tuple[float, RouteResponse]] = OrderedDict()
@@ -115,46 +116,39 @@ class RouteOptimizationAgent:
         Compute the optimal route using Google Routes API.
         """
         if not self.api_key:
-            logger.warning(
-                "GOOGLE_ROUTES_API_KEY not set - using the offline graph router"
-            )
+            logger.warning("GOOGLE_ROUTES_API_KEY not set - using the offline graph router")
             return self._local_route(request, reason="no API key configured")
 
         cache_key = self._cache_key(request)
         cached = self._cache_get(cache_key)
         if cached is not None:
-            logger.info(
-                "Route cache HIT (%d billable calls saved so far)", self.cache_hits
-            )
+            logger.info("Route cache HIT (%d billable calls saved so far)", self.cache_hits)
             return cached
 
         url = "https://routes.googleapis.com/directions/v2:computeRoutes"
         headers = {
             "Content-Type": "application/json",
             "X-Goog-Api-Key": self.api_key,
-            "X-Goog-FieldMask": "routes.duration,routes.distanceMeters,routes.polyline.geoJsonLinestring"
+            "X-Goog-FieldMask": "routes.duration,routes.distanceMeters,routes.polyline.geoJsonLinestring",
         }
-        
+
         payload = {
             "origin": {
                 "location": {
-                    "latLng": {
-                        "latitude": request.origin.lat,
-                        "longitude": request.origin.lng
-                    }
+                    "latLng": {"latitude": request.origin.lat, "longitude": request.origin.lng}
                 }
             },
             "destination": {
                 "location": {
                     "latLng": {
                         "latitude": request.destination.lat,
-                        "longitude": request.destination.lng
+                        "longitude": request.destination.lng,
                     }
                 }
             },
             "travelMode": "DRIVE",
             "routingPreference": "TRAFFIC_AWARE_OPTIMAL",
-            "polylineEncoding": "GEO_JSON_LINESTRING"
+            "polylineEncoding": "GEO_JSON_LINESTRING",
         }
 
         try:
@@ -169,29 +163,34 @@ class RouteOptimizationAgent:
             return self._local_route(request, reason=f"Google Routes HTTP {status}")
         except Exception as e:
             logger.error("Google Routes unreachable (%s) - falling back", type(e).__name__)
-            return self._local_route(request, reason=f"Google Routes unreachable ({type(e).__name__})")
+            return self._local_route(
+                request, reason=f"Google Routes unreachable ({type(e).__name__})"
+            )
 
         routes = data.get("routes", [])
         if not routes:
             return self._local_route(request, reason="Google Routes returned no path")
-            
+
         route_data = routes[0]
-        
+
         duration_str = route_data.get("duration", "0s").replace("s", "")
         eta = float(duration_str)
-        
+
         distance = float(route_data.get("distanceMeters", 0))
-        
+
         geojson = route_data.get("polyline", {}).get("geoJsonLinestring", {}).get("coordinates", [])
         coords = [Coordinate(lat=c[1], lng=c[0]) for c in geojson]
 
         # Guard: Google sometimes returns a route with an empty or single-point
-        # polyline. RouteResponse requires min_length=2 — fall back rather than
-        # raising a ValidationError that would bypass _mark_failed.
+        # polyline. RouteResponse requires min_length=2, so take the same
+        # offline A* tier as every other Google failure; _local_route drops to
+        # the straight-line placeholder itself when the graph has no path.
         if len(coords) < 2:
-            logger.warning("Google Routes returned empty polyline — falling back to local/straight-line route")
-            return self._fallback_route(request)
-        
+            logger.warning(
+                "Google Routes returned an empty polyline - falling back to offline router"
+            )
+            return self._local_route(request, reason="Google Routes returned an empty polyline")
+
         reason = (
             f"Primary route via Google Maps Live Traffic. "
             f"Estimated travel time: {eta:.0f}s, distance: {distance:.0f}m."
@@ -247,9 +246,7 @@ class RouteOptimizationAgent:
 
         return RouteResponse(
             route_id=f"R-{uuid.uuid4().hex[:8]}",
-            coordinates=[
-                Coordinate(lat=c["lat"], lng=c["lng"]) for c in path["coordinates"]
-            ],
+            coordinates=[Coordinate(lat=c["lat"], lng=c["lng"]) for c in path["coordinates"]],
             distance=path["distance_m"],
             eta=path["travel_time_s"],
             delay_probability=0.25,
@@ -279,42 +276,99 @@ class RouteOptimizationAgent:
             data_freshness=DataFreshness.STALE,
             confidence=0.0,
             node_ids=[],
-            edge_ids=[]
+            edge_ids=[],
         )
+
 
 route_agent = RouteOptimizationAgent()
 
-import math
 
 EMERGENCY_HUBS = {
     "Ambulance": [
-        {"id": "AMB-HUB-01", "name": "Aster CMI Emergency Ambulance Hub", "lat": 13.0473, "lng": 77.5908},
-        {"id": "AMB-HUB-02", "name": "Manipal Ambulance Base Depot", "lat": 12.9585, "lng": 77.6483},
-        {"id": "AMB-HUB-03", "name": "Victoria Hospital Paramedic Base", "lat": 12.9634, "lng": 77.5746},
+        {
+            "id": "AMB-HUB-01",
+            "name": "Aster CMI Emergency Ambulance Hub",
+            "lat": 13.0473,
+            "lng": 77.5908,
+        },
+        {
+            "id": "AMB-HUB-02",
+            "name": "Manipal Ambulance Base Depot",
+            "lat": 12.9585,
+            "lng": 77.6483,
+        },
+        {
+            "id": "AMB-HUB-03",
+            "name": "Victoria Hospital Paramedic Base",
+            "lat": 12.9634,
+            "lng": 77.5746,
+        },
     ],
     "Fire Engine": [
-        {"id": "FIRE-HUB-01", "name": "Hebbal Fire & Rescue Station #4", "lat": 13.0336, "lng": 77.5891},
-        {"id": "FIRE-HUB-02", "name": "High Grounds Central Fire Station", "lat": 12.9866, "lng": 77.5878},
-        {"id": "FIRE-HUB-03", "name": "Jayanagar Emergency Fire Station", "lat": 12.9298, "lng": 77.5831},
+        {
+            "id": "FIRE-HUB-01",
+            "name": "Hebbal Fire & Rescue Station #4",
+            "lat": 13.0336,
+            "lng": 77.5891,
+        },
+        {
+            "id": "FIRE-HUB-02",
+            "name": "High Grounds Central Fire Station",
+            "lat": 12.9866,
+            "lng": 77.5878,
+        },
+        {
+            "id": "FIRE-HUB-03",
+            "name": "Jayanagar Emergency Fire Station",
+            "lat": 12.9298,
+            "lng": 77.5831,
+        },
     ],
     "Police Cruiser": [
-        {"id": "POLICE-HUB-01", "name": "Hebbal Police Patrol Base", "lat": 13.0350, "lng": 77.5880},
-        {"id": "POLICE-HUB-02", "name": "Central MG Road Police Precinct", "lat": 12.9754, "lng": 77.6071},
-        {"id": "POLICE-HUB-03", "name": "Cubbon Park Traffic Police Hub", "lat": 12.9740, "lng": 77.5930},
+        {
+            "id": "POLICE-HUB-01",
+            "name": "Hebbal Police Patrol Base",
+            "lat": 13.0350,
+            "lng": 77.5880,
+        },
+        {
+            "id": "POLICE-HUB-02",
+            "name": "Central MG Road Police Precinct",
+            "lat": 12.9754,
+            "lng": 77.6071,
+        },
+        {
+            "id": "POLICE-HUB-03",
+            "name": "Cubbon Park Traffic Police Hub",
+            "lat": 12.9740,
+            "lng": 77.5930,
+        },
     ],
     "Disaster Rescue": [
-        {"id": "DISASTER-HUB-01", "name": "NDRF Disaster Rescue Hub North", "lat": 13.0550, "lng": 77.6120},
-        {"id": "DISASTER-HUB-02", "name": "Civil Defence Emergency Depot", "lat": 12.9600, "lng": 77.6000},
-    ]
+        {
+            "id": "DISASTER-HUB-01",
+            "name": "NDRF Disaster Rescue Hub North",
+            "lat": 13.0550,
+            "lng": 77.6120,
+        },
+        {
+            "id": "DISASTER-HUB-02",
+            "name": "Civil Defence Emergency Depot",
+            "lat": 12.9600,
+            "lng": 77.6000,
+        },
+    ],
 }
+
 
 def haversine_dist(lat1, lon1, lat2, lon2):
     R = 6371000
     phi1, phi2 = math.radians(lat1), math.radians(lat2)
     dphi = math.radians(lat2 - lat1)
     dlambda = math.radians(lon2 - lon1)
-    a = math.sin(dphi/2)**2 + math.cos(phi1)*math.cos(phi2)*math.sin(dlambda/2)**2
+    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
     return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
 
 def find_nearest_hub(vehicle_type, citizen_lat, citizen_lng):
     hubs = EMERGENCY_HUBS.get(vehicle_type) or EMERGENCY_HUBS["Ambulance"]

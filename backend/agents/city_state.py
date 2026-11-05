@@ -43,9 +43,10 @@ from __future__ import annotations
 import logging
 import math
 from collections import deque
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Iterable
+from typing import Any
 
 logger = logging.getLogger("geoagentic.city")
 
@@ -56,16 +57,21 @@ _PEAK_MORNING = (8, 11)
 _PEAK_EVENING = (17, 21)
 
 _CLASS_PEAK_SENSITIVITY: dict[str, float] = {
-    "motorway": 0.55, "motorway_link": 0.55,
-    "trunk": 0.85, "trunk_link": 0.85,
-    "primary": 1.00, "primary_link": 1.00,
-    "secondary": 0.80, "secondary_link": 0.80,
-    "tertiary": 0.55, "tertiary_link": 0.55,
+    "motorway": 0.55,
+    "motorway_link": 0.55,
+    "trunk": 0.85,
+    "trunk_link": 0.85,
+    "primary": 1.00,
+    "primary_link": 1.00,
+    "secondary": 0.80,
+    "secondary_link": 0.80,
+    "tertiary": 0.55,
+    "tertiary_link": 0.55,
 }
 
-_PEAK_AMPLITUDE = 0.95     # +95% travel time on a primary road at full peak
+_PEAK_AMPLITUDE = 0.95  # +95% travel time on a primary road at full peak
 _OFFPEAK_FLOOR = 1.02
-_NIGHT_RELIEF = 0.88       # 23:00-05:00 runs faster than free-flow assumption
+_NIGHT_RELIEF = 0.88  # 23:00-05:00 runs faster than free-flow assumption
 
 # --- Weather ----------------------------------------------------------------
 _WEATHER_MULTIPLIER: dict[str, float] = {
@@ -85,9 +91,9 @@ _WEATHER_MULTIPLIER: dict[str, float] = {
 # --- Displacement -----------------------------------------------------------
 # Traffic from a closed segment reappears nearby, decaying with graph distance.
 _DISPLACEMENT_HOPS = 4
-_DISPLACEMENT_STRENGTH = 0.85     # peak added congestion on immediate neighbours
-_DISPLACEMENT_DECAY = 0.55        # per hop
-_DISPLACEMENT_CAP = 2.6           # no edge exceeds this total multiplier
+_DISPLACEMENT_STRENGTH = 0.85  # peak added congestion on immediate neighbours
+_DISPLACEMENT_DECAY = 0.55  # per hop
+_DISPLACEMENT_CAP = 2.6  # no edge exceeds this total multiplier
 
 # An incident (not a closure) partially obstructs its own segment.
 _INCIDENT_SELF = 1.9
@@ -98,7 +104,8 @@ _INCIDENT_STRENGTH = 0.35
 @dataclass
 class Intervention:
     """One `do()` applied to the city."""
-    kind: str                      # close_road | incident | weather | time
+
+    kind: str  # close_road | incident | weather | time
     target: str
     detail: dict[str, Any] = field(default_factory=dict)
     at: str = field(default_factory=lambda: datetime.now().strftime("%H:%M:%S"))
@@ -167,9 +174,7 @@ class CityState:
         """TimeOfDay -> Congestion. Recomputes the diurnal layer."""
         self.hour = int(hour) % 24
         self._recompute_diurnal()
-        self.interventions.append(
-            Intervention(kind="time", target=f"{self.hour:02d}:00")
-        )
+        self.interventions.append(Intervention(kind="time", target=f"{self.hour:02d}:00"))
         self._push()
 
     def set_weather(self, condition: str) -> None:
@@ -230,7 +235,10 @@ class CityState:
             return {"closed": 0, "displaced": 0}
         self.closed_edges.update(ids)
         affected = self._spread(
-            ids, _DISPLACEMENT_HOPS, _DISPLACEMENT_STRENGTH, _DISPLACEMENT_DECAY,
+            ids,
+            _DISPLACEMENT_HOPS,
+            _DISPLACEMENT_STRENGTH,
+            _DISPLACEMENT_DECAY,
             self._displacement,
         )
         self.interventions.append(
@@ -242,7 +250,8 @@ class CityState:
         )
         logger.info(
             "do(close_road): %d segments closed, congestion displaced onto %d neighbours",
-            len(ids), len(affected),
+            len(ids),
+            len(affected),
         )
         self._push()
         return {"closed": len(ids), "displaced": len(affected)}
@@ -256,12 +265,18 @@ class CityState:
         for e in ids:
             self._incident[e] = max(self._incident.get(e, 1.0), _INCIDENT_SELF)
         affected = self._spread(
-            ids, _INCIDENT_SPILL_HOPS, _INCIDENT_STRENGTH, _DISPLACEMENT_DECAY,
+            ids,
+            _INCIDENT_SPILL_HOPS,
+            _INCIDENT_STRENGTH,
+            _DISPLACEMENT_DECAY,
             self._incident,
         )
         self.interventions.append(
-            Intervention(kind="incident", target=label,
-                         detail={"segments": len(ids), "affected": len(affected)})
+            Intervention(
+                kind="incident",
+                target=label,
+                detail={"segments": len(ids), "affected": len(affected)},
+            )
         )
         self._push()
         return {"segments": len(ids), "affected": len(affected)}
@@ -314,7 +329,7 @@ class CityState:
                     if neighbour in seen:
                         continue
                     seen.add(neighbour)
-                    added = strength * (decay ** depth)
+                    added = strength * (decay**depth)
                     if added < 0.02:
                         continue
                     current = sink.get(neighbour, 1.0)
@@ -345,32 +360,40 @@ class CityState:
         chain = []
         diurnal = self._diurnal.get(edge_id, 1.0)
         if abs(diurnal - 1.0) > 0.01:
-            chain.append({
-                "cause": "time_of_day",
-                "detail": f"{self.hour:02d}:00 traffic profile",
-                "multiplier": round(diurnal, 2),
-            })
+            chain.append(
+                {
+                    "cause": "time_of_day",
+                    "detail": f"{self.hour:02d}:00 traffic profile",
+                    "multiplier": round(diurnal, 2),
+                }
+            )
         weather = _WEATHER_MULTIPLIER.get(self.weather, 1.0)
         if weather > 1.0:
-            chain.append({
-                "cause": "weather",
-                "detail": self.weather,
-                "multiplier": round(weather, 2),
-            })
+            chain.append(
+                {
+                    "cause": "weather",
+                    "detail": self.weather,
+                    "multiplier": round(weather, 2),
+                }
+            )
         displaced = self._displacement.get(edge_id, 1.0)
         if displaced > 1.0:
-            chain.append({
-                "cause": "displacement",
-                "detail": "traffic displaced from a nearby closure",
-                "multiplier": round(displaced, 2),
-            })
+            chain.append(
+                {
+                    "cause": "displacement",
+                    "detail": "traffic displaced from a nearby closure",
+                    "multiplier": round(displaced, 2),
+                }
+            )
         incident = self._incident.get(edge_id, 1.0)
         if incident > 1.0:
-            chain.append({
-                "cause": "incident",
-                "detail": "active incident on or beside this segment",
-                "multiplier": round(incident, 2),
-            })
+            chain.append(
+                {
+                    "cause": "incident",
+                    "detail": "active incident on or beside this segment",
+                    "multiplier": round(incident, 2),
+                }
+            )
         total = diurnal * weather * displaced * incident
         return {
             "edge_id": edge_id,
@@ -402,15 +425,17 @@ class CityState:
             from_node = self._edge_origin(edge_id)
             if from_node is None:
                 continue
-            out.append({
-                "edge_id": edge_id,
-                "multiplier": round(value, 2),
-                "road": r.road_names[r.edge_name[edge_id]],
-                "coordinates": [
-                    {"lat": r.lat[from_node], "lng": r.lng[from_node]},
-                    {"lat": r.lat[to_node], "lng": r.lng[to_node]},
-                ],
-            })
+            out.append(
+                {
+                    "edge_id": edge_id,
+                    "multiplier": round(value, 2),
+                    "road": r.road_names[r.edge_name[edge_id]],
+                    "coordinates": [
+                        {"lat": r.lat[from_node], "lng": r.lng[from_node]},
+                        {"lat": r.lat[to_node], "lng": r.lng[to_node]},
+                    ],
+                }
+            )
         return out
 
     def closure_overlay(self) -> list[dict[str, Any]]:
@@ -423,14 +448,16 @@ class CityState:
             from_node = self._edge_origin(edge_id)
             if from_node is None:
                 continue
-            out.append({
-                "edge_id": edge_id,
-                "road": r.road_names[r.edge_name[edge_id]],
-                "coordinates": [
-                    {"lat": r.lat[from_node], "lng": r.lng[from_node]},
-                    {"lat": r.lat[r.edge_to[edge_id]], "lng": r.lng[r.edge_to[edge_id]]},
-                ],
-            })
+            out.append(
+                {
+                    "edge_id": edge_id,
+                    "road": r.road_names[r.edge_name[edge_id]],
+                    "coordinates": [
+                        {"lat": r.lat[from_node], "lng": r.lng[from_node]},
+                        {"lat": r.lat[r.edge_to[edge_id]], "lng": r.lng[r.edge_to[edge_id]]},
+                    ],
+                }
+            )
         return out
 
     def _edge_origin(self, edge_id: int) -> int | None:
@@ -452,8 +479,7 @@ class CityState:
         r = self._router
         needle = name_fragment.lower().strip()
         matches = [
-            i for i, name_idx in enumerate(r.edge_name)
-            if needle in r.road_names[name_idx].lower()
+            i for i, name_idx in enumerate(r.edge_name) if needle in r.road_names[name_idx].lower()
         ]
         return matches[:limit]
 

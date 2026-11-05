@@ -75,9 +75,7 @@ def haversine(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
 
 def fetch_ways() -> list[dict]:
     """Pull drivable ways with full geometry from Overpass."""
-    classes = "|".join(
-        c for c in ROAD_SPEEDS_KMH if not c.endswith("_link")
-    )
+    classes = "|".join(c for c in ROAD_SPEEDS_KMH if not c.endswith("_link"))
     south, west, north, east = BBOX
     query = f"""
     [out:json][timeout:180];
@@ -198,8 +196,9 @@ def build_graph(ways: list[dict]) -> dict:
                 degree[from_id] += 1
                 degree[to_id] += 1
 
-    print(f"  -> {len(nodes)} nodes, {len(edges)} directed edges "
-          f"({skipped} degenerate ways skipped)")
+    print(
+        f"  -> {len(nodes)} nodes, {len(edges)} directed edges ({skipped} degenerate ways skipped)"
+    )
 
     # --- Compact, index-based serialisation ---------------------------------
     # Columnar arrays instead of per-edge dicts: node ids become integer
@@ -232,8 +231,7 @@ def build_graph(ways: list[dict]) -> dict:
     return {
         "meta": {
             "source": "OpenStreetMap via Overpass API",
-            "bbox": {"south": BBOX[0], "west": BBOX[1],
-                     "north": BBOX[2], "east": BBOX[3]},
+            "bbox": {"south": BBOX[0], "west": BBOX[1], "north": BBOX[2], "east": BBOX[3]},
             "built_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "road_classes": sorted(ROAD_SPEEDS_KMH),
             "emergency_speed_factor": EMERGENCY_SPEED_FACTOR,

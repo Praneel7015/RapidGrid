@@ -36,10 +36,10 @@ class LearningAgent:
         """Log the outcome of a closed case for future model training."""
         payload = event.payload
         incident_id = payload.get("incident_id", "Unknown")
-        
-        logger.info(f"--- LEARNING AGENT STUB ---")
+
+        logger.info("--- LEARNING AGENT STUB ---")
         logger.info(f"Case {incident_id} closed. Logging outcomes for future training:")
-        
+
         # Log the discrepancies/outcomes
         if "predicted_eta" in payload and "actual_eta" in payload:
             logger.info(
@@ -47,13 +47,13 @@ class LearningAgent:
                 f"Actual {payload['actual_eta']}s "
                 f"(Diff: {payload['actual_eta'] - payload['predicted_eta']}s)"
             )
-        
+
         if "dispatcher_override" in payload:
             override = payload["dispatcher_override"]
             logger.info(f"  Dispatcher Override: {override}")
-            
-        logger.info(f"Data stored in telemetry warehouse for next offline training run.")
-        logger.info(f"---------------------------")
+
+        logger.info("Data stored in telemetry warehouse for next offline training run.")
+        logger.info("---------------------------")
 
 
 # ---------------------------------------------------------------------------

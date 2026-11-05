@@ -16,8 +16,8 @@ from __future__ import annotations
 
 import logging
 
-from bus.event_bus import INCIDENT_REPORTED, bus
 from agents.triage import classify
+from bus.event_bus import INCIDENT_REPORTED, bus
 from models.schemas import (
     AccessibilityInputModality,
     AccessibilityProfile,
@@ -85,7 +85,10 @@ class AccessibilityAgent:
         )
 
         # Confidence drops slightly for non-text parsing in the mock
-        if request.modality in [AccessibilityInputModality.VOICE, AccessibilityInputModality.SIGN_LANGUAGE]:
+        if request.modality in [
+            AccessibilityInputModality.VOICE,
+            AccessibilityInputModality.SIGN_LANGUAGE,
+        ]:
             confidence = 0.85
 
         response = AccessibilityResponse(

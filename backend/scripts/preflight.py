@@ -44,14 +44,14 @@ def section(title: str) -> None:
 # 1. Environment
 # ---------------------------------------------------------------------------
 
+
 def check_env() -> dict[str, str | None]:
     section("Environment")
     env_path = Path(__file__).resolve().parent.parent / ".env"
     if env_path.exists():
         record(OK, ".env present", f"{env_path}")
     else:
-        record(WARN, ".env missing",
-               "Copy .env.example to .env and add your keys.")
+        record(WARN, ".env missing", "Copy .env.example to .env and add your keys.")
     load_dotenv(env_path if env_path.exists() else None)
 
     keys = {}
@@ -76,11 +76,11 @@ def check_env() -> dict[str, str | None]:
 # 2. External APIs
 # ---------------------------------------------------------------------------
 
+
 def check_google_routes(key: str | None) -> None:
     section("Google Routes API")
     if not key:
-        record(WARN, "Skipped - no key",
-               "The offline router will serve all requests.")
+        record(WARN, "Skipped - no key", "The offline router will serve all requests.")
         return
 
     try:
@@ -93,7 +93,9 @@ def check_google_routes(key: str | None) -> None:
             },
             json={
                 "origin": {"location": {"latLng": {"latitude": 13.0350, "longitude": 77.5970}}},
-                "destination": {"location": {"latLng": {"latitude": 12.9290, "longitude": 77.5878}}},
+                "destination": {
+                    "location": {"latLng": {"latitude": 12.9290, "longitude": 77.5878}}
+                },
                 "travelMode": "DRIVE",
                 "routingPreference": "TRAFFIC_AWARE_OPTIMAL",
             },
@@ -107,26 +109,36 @@ def check_google_routes(key: str | None) -> None:
         route = (resp.json().get("routes") or [{}])[0]
         secs = float(str(route.get("duration", "0s")).rstrip("s") or 0)
         km = float(route.get("distanceMeters", 0)) / 1000
-        record(OK, "Live traffic routing active",
-               f"Hebbal -> Jayadeva: {km:.1f} km, {secs / 60:.1f} min")
+        record(
+            OK,
+            "Live traffic routing active",
+            f"Hebbal -> Jayadeva: {km:.1f} km, {secs / 60:.1f} min",
+        )
         return
 
     body = resp.text[:200]
     if resp.status_code in (401, 403):
-        record(WARN, f"HTTP {resp.status_code} - key rejected", (
-            "FIX (Google Cloud Console, same project as the key):\n"
-            "  1. APIs & Services > Library > search 'Routes API' > ENABLE\n"
-            "  2. Billing > link a billing account (required even on free tier)\n"
-            "  3. APIs & Services > Credentials > your key > API restrictions:\n"
-            "     either 'Don't restrict key' or tick 'Routes API'\n"
-            "  4. Application restrictions: set to 'None' for a server-side key\n"
-            "     (an HTTP-referrer restriction will always reject backend calls)\n"
-            "  5. Changes can take 1-2 minutes to propagate; re-run this script\n"
-            f"  Server said: {body}"
-        ))
+        record(
+            WARN,
+            f"HTTP {resp.status_code} - key rejected",
+            (
+                "FIX (Google Cloud Console, same project as the key):\n"
+                "  1. APIs & Services > Library > search 'Routes API' > ENABLE\n"
+                "  2. Billing > link a billing account (required even on free tier)\n"
+                "  3. APIs & Services > Credentials > your key > API restrictions:\n"
+                "     either 'Don't restrict key' or tick 'Routes API'\n"
+                "  4. Application restrictions: set to 'None' for a server-side key\n"
+                "     (an HTTP-referrer restriction will always reject backend calls)\n"
+                "  5. Changes can take 1-2 minutes to propagate; re-run this script\n"
+                f"  Server said: {body}"
+            ),
+        )
     elif resp.status_code == 429:
-        record(WARN, "HTTP 429 - quota exceeded",
-               "The 90s route cache reduces this. Offline tier will cover the demo.")
+        record(
+            WARN,
+            "HTTP 429 - quota exceeded",
+            "The 90s route cache reduces this. Offline tier will cover the demo.",
+        )
     else:
         record(WARN, f"HTTP {resp.status_code}", body)
 
@@ -147,8 +159,11 @@ def check_openweather(key: str | None) -> None:
             cond = (data.get("weather") or [{}])[0].get("description", "?")
             record(OK, "Weather feed active", f"Bengaluru now: {cond}")
         elif resp.status_code == 401:
-            record(WARN, "HTTP 401 - key rejected",
-                   "New OpenWeather keys take up to 2 hours to activate.")
+            record(
+                WARN,
+                "HTTP 401 - key rejected",
+                "New OpenWeather keys take up to 2 hours to activate.",
+            )
         else:
             record(WARN, f"HTTP {resp.status_code}", resp.text[:160])
     except Exception as exc:
@@ -159,21 +174,29 @@ def check_openweather(key: str | None) -> None:
 # 3. Offline routing tier
 # ---------------------------------------------------------------------------
 
+
 def check_road_graph() -> bool:
     section("Offline routing tier (the demo safety net)")
     from agents.local_router import local_router
 
     if not local_router.load():
-        record(FAIL, "Road graph missing", (
-            "FIX: python scripts/build_road_graph.py\n"
-            "Without this, a Google outage leaves you with no routes at all."
-        ))
+        record(
+            FAIL,
+            "Road graph missing",
+            (
+                "FIX: python scripts/build_road_graph.py\n"
+                "Without this, a Google outage leaves you with no routes at all."
+            ),
+        )
         return False
 
     meta = local_router.meta
-    record(OK, "Road graph loaded",
-           f"{meta.get('node_count'):,} nodes / {meta.get('edge_count'):,} edges, "
-           f"built {meta.get('built_at', '?')}")
+    record(
+        OK,
+        "Road graph loaded",
+        f"{meta.get('node_count'):,} nodes / {meta.get('edge_count'):,} edges, "
+        f"built {meta.get('built_at', '?')}",
+    )
 
     started = time.time()
     path = local_router.find_path((13.0350, 77.5970), (12.9290, 77.5878))
@@ -181,14 +204,18 @@ def check_road_graph() -> bool:
         record(FAIL, "Pathfinding failed on a known-good route")
         return False
 
-    record(OK, "A* pathfinding works",
-           f"Hebbal -> Jayadeva: {path['distance_m'] / 1000:.1f} km, "
-           f"{path['travel_time_s'] / 60:.1f} min, "
-           f"{(time.time() - started) * 1000:.0f} ms")
+    record(
+        OK,
+        "A* pathfinding works",
+        f"Hebbal -> Jayadeva: {path['distance_m'] / 1000:.1f} km, "
+        f"{path['travel_time_s'] / 60:.1f} min, "
+        f"{(time.time() - started) * 1000:.0f} ms",
+    )
 
     # Prove that closures actually change the chosen path.
     victims = [
-        e for e in path["edge_ids"]
+        e
+        for e in path["edge_ids"]
         if "Bellary" in local_router.road_names[local_router.edge_name[e]]
     ]
     if victims:
@@ -197,9 +224,12 @@ def check_road_graph() -> bool:
         local_router.unblock_all()
         if rerouted and set(rerouted["edge_ids"]) != set(path["edge_ids"]):
             delta = (rerouted["travel_time_s"] - path["travel_time_s"]) / 60
-            record(OK, "Disruption rerouting works",
-                   f"Blocking {len(victims)} Bellary Road segments diverts the "
-                   f"route ({delta:+.1f} min)")
+            record(
+                OK,
+                "Disruption rerouting works",
+                f"Blocking {len(victims)} Bellary Road segments diverts the "
+                f"route ({delta:+.1f} min)",
+            )
         else:
             record(WARN, "Closure did not change the route")
     return True
@@ -208,26 +238,35 @@ def check_road_graph() -> bool:
 def check_hospitals() -> None:
     section("Hospital intelligence")
     import json
+
     path = Path(__file__).resolve().parent.parent / "data" / "hospital_capabilities.json"
     if not path.exists():
-        record(FAIL, "hospital_capabilities.json missing",
-               "Cardiac/trauma/stroke routing falls back to modelled estimates.")
+        record(
+            FAIL,
+            "hospital_capabilities.json missing",
+            "Cardiac/trauma/stroke routing falls back to modelled estimates.",
+        )
         return
     profiles = json.loads(path.read_text(encoding="utf-8")).get("hospitals", {})
     receiving = sum(1 for p in profiles.values() if p.get("emergency_receiving"))
-    record(OK, "Curated capability profiles loaded",
-           f"{len(profiles)} hospitals, {receiving} emergency-receiving, "
-           f"{len(profiles) - receiving} excluded (oncology / maternity / day-surgery)")
+    record(
+        OK,
+        "Curated capability profiles loaded",
+        f"{len(profiles)} hospitals, {receiving} emergency-receiving, "
+        f"{len(profiles) - receiving} excluded (oncology / maternity / day-surgery)",
+    )
 
 
 # ---------------------------------------------------------------------------
 # 4. Application wiring
 # ---------------------------------------------------------------------------
 
+
 def check_app() -> None:
     section("Application")
     try:
         import main  # noqa: F401
+
         record(OK, "FastAPI app imports cleanly")
     except Exception as exc:
         record(FAIL, "App failed to import", f"{type(exc).__name__}: {exc}")
@@ -235,11 +274,11 @@ def check_app() -> None:
 
     try:
         from fastapi.openapi.utils import get_openapi
+
         get_openapi(title="t", version="1", routes=main.app.routes)
         record(OK, "OpenAPI schema builds", "/docs will render for judges")
     except Exception as exc:
-        record(FAIL, "OpenAPI generation broken",
-               f"/docs will 500. {type(exc).__name__}: {exc}")
+        record(FAIL, "OpenAPI generation broken", f"/docs will 500. {type(exc).__name__}: {exc}")
 
     frontend = Path(__file__).resolve().parent.parent.parent / "frontend"
     if (frontend / "node_modules").exists():

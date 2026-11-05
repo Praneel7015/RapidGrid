@@ -43,7 +43,7 @@
 
   /* --- Signal: the single accent. Urgency, action, live state. ----------- */
   --color-signal:         oklch(0.78 0.17 72);
-  --color-signal-hover:   oklch(0.72 0.16 68);
+  --color-signal-hover:   oklch(0.52 0.13 62); /* text on paper/wash: >= 5:1 */
   --color-signal-wash:    oklch(0.96 0.04 85);
   --color-signal-edge:    oklch(0.88 0.10 78);
 
@@ -173,6 +173,17 @@
   );
   border-bottom: 1px dashed var(--color-text-faint);
   padding: 0 4px 2px;
+}
+
+/* The same treatment on ink surfaces, where the paper colours vanish. */
+.val-modelled-ink {
+  color: var(--color-on-ink-muted);
+  background-image: repeating-linear-gradient(
+    45deg,
+    oklch(0.93 0.003 100 / 0.13) 0 1px,
+    transparent 1px 5px
+  );
+  border-bottom-color: var(--color-on-ink-muted);
 }
 
 .hz-refuse {

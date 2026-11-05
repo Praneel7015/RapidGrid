@@ -59,7 +59,17 @@ export default function DriverDashboard() {
     if (!data?.citizen_view) return;
     setDispatches((prev) =>
       prev.map((d) =>
-        d.incident_id === active.incident_id ? { ...d, citizen_view: data.citizen_view } : d,
+        d.incident_id === active.incident_id
+          ? {
+              ...d,
+              citizen_view: data.citizen_view,
+              // A diversion changes the destination ER, so its number goes too.
+              hospital_phone:
+                'hospital_phone' in data.citizen_view
+                  ? data.citizen_view.hospital_phone
+                  : d.hospital_phone,
+            }
+          : d,
       ),
     );
   };
@@ -75,6 +85,8 @@ export default function DriverDashboard() {
           driver_id: driverInfo?.unitId ?? 'drv-11',
         }),
       });
+      // A refused update must leave the stage and active call as they were.
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       patch(await res.json());
       setStage('transport');
     } catch {
@@ -87,10 +99,11 @@ export default function DriverDashboard() {
   const completeHandover = async () => {
     setBusy(true);
     try {
-      await fetch(`/api/incidents/${active.incident_id}/arrived`, {
+      const res = await fetch(`/api/incidents/${active.incident_id}/arrived`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setActiveId(null);
       setStage('pickup');
     } catch {
@@ -111,6 +124,7 @@ export default function DriverDashboard() {
           hospital_name: hospitalName,
         }),
       });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       patch(await res.json());
     } catch {
       setConn('down');
@@ -167,7 +181,7 @@ export default function DriverDashboard() {
                 </p>
                 <div className="mt-2.5 flex items-center justify-between gap-2">
                   <SeverityTag severity={d.severity ?? 0} />
-                  <span className="t-tag text-signal">
+                  <span className="t-tag text-signal-hover">
                     {d.citizen_view?.phase1_eta_minutes ?? '--'} min out
                   </span>
                 </div>
@@ -218,10 +232,11 @@ export default function DriverDashboard() {
               label="Time to destination"
               value={stage === 'pickup' ? (view.phase1_eta_minutes ?? '--') : (view.eta_minutes ?? '--')}
               unit="min"
+              modelled
               tone="signal"
             />
             {stage === 'transport' && (
-              <Stat ink label="Distance" value={fmt.km(view.distance_meters)} unit="km" />
+              <Stat ink label="Distance" value={fmt.km(view.distance_meters)} unit="km" modelled />
             )}
             <Stat ink label="Call" value={active.incident_id} tone="muted" />
           </div>
@@ -316,7 +331,7 @@ export default function DriverDashboard() {
         height="min(32vh, 260px)"
         contacts={{
           citizen: active.citizen_phone,
-          hospital: active.hospital_phone ?? view?.hospital_phone,
+          hospital: 'hospital_phone' in view ? view.hospital_phone : active.hospital_phone,
           unit: driverInfo?.phone ?? active.unit_phone ?? view?.unit_phone,
         }}
       />

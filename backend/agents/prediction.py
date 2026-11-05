@@ -10,10 +10,10 @@ from __future__ import annotations
 
 import logging
 import os
-import httpx
-from typing import Optional
 
-from bus.event_bus import PREDICTION_UPDATE, TRAFFIC_UPDATE, bus
+import httpx
+
+from bus.event_bus import TRAFFIC_UPDATE, bus
 from models.schemas import (
     DataFreshness,
     Event,
@@ -28,11 +28,13 @@ logger = logging.getLogger("geoagentic.agent.prediction")
 AGENT_NAME = "prediction_agent"
 MODEL_VERSION = "v2.0.live-weather"
 
+
 class PredictionAgent:
     def __init__(self) -> None:
         self._tracked_routes: dict[str, RouteResponse] = {}
-        self._latest_traffic: Optional[TrafficSnapshot] = None
+        self._latest_traffic: TrafficSnapshot | None = None
         from dotenv import load_dotenv
+
         load_dotenv()
         self.api_key = os.getenv("OPENWEATHER_API_KEY")
 
@@ -59,10 +61,10 @@ class PredictionAgent:
 
         # Get the destination coordinate to check weather
         dest = route.coordinates[-1]
-        
+
         weather_delay_s = 0.0
         weather_condition = "Clear"
-        
+
         if self.api_key:
             url = f"https://api.openweathermap.org/data/2.5/weather?lat={dest.lat}&lon={dest.lng}&appid={self.api_key}"
             try:
@@ -73,11 +75,13 @@ class PredictionAgent:
                         weather_array = data.get("weather", [])
                         if weather_array:
                             weather_condition = weather_array[0].get("main", "Clear")
-                            
+
                             # Apply delay multiplier if it's raining (common in Bengaluru)
                             if weather_condition in ["Rain", "Thunderstorm", "Drizzle"]:
-                                weather_delay_s = route.eta * 0.25 # 25% delay
-                                logger.info(f"Detected Rain in Bengaluru! Adding {weather_delay_s:.0f}s to ETA.")
+                                weather_delay_s = route.eta * 0.25  # 25% delay
+                                logger.info(
+                                    f"Detected Rain in Bengaluru! Adding {weather_delay_s:.0f}s to ETA."
+                                )
             except Exception as e:
                 logger.error(f"Weather API failed: {e}")
 
@@ -93,5 +97,6 @@ class PredictionAgent:
             model_version=MODEL_VERSION,
             data_freshness=DataFreshness.LIVE,
         )
+
 
 prediction_agent = PredictionAgent()

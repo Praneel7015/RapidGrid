@@ -4,11 +4,10 @@ Hospital Intelligence Agent for GeoAgentic (Live Overpass API).
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import math
-import hashlib
-import urllib.parse
 from pathlib import Path
 from typing import Any
 
@@ -18,7 +17,6 @@ from bus.event_bus import HOSPITAL_RANKED, bus
 from models.schemas import (
     Coordinate,
     DataFreshness,
-    EmergencyType,
     HospitalEntry,
     HospitalRankingResponse,
     HospitalRequest,
@@ -26,6 +24,11 @@ from models.schemas import (
 )
 
 logger = logging.getLogger("geoagentic.agent.hospital")
+
+
+class NoHospitalCandidatesError(RuntimeError):
+    """Raised when no hospital is available to rank for an incident."""
+
 
 AGENT_NAME = "hospital_intelligence"
 
@@ -42,13 +45,50 @@ _RECEIVING_REQUIRED = {"cardiac", "trauma", "stroke", "general"}
 # and dialysis centres. None of them can receive an emergency ambulance.
 # Matched against the facility name when no curated profile exists.
 _NON_EMERGENCY_KEYWORDS = (
-    "dental", "dentist", "orthodont", "eye ", "eye_", "ophthal", "vision",
-    "ayurved", "homeo", "homoeo", "unani", "siddha", "naturopath",
-    "diagnostic", "laborator", " lab", "scan centre", "scan center", "imaging",
-    "physiothe", "fertility", "ivf", "test tube", "dialysis", "skin ", "derma",
-    "cosmetic", "aesthetic", "hair ", "veterinar", "pet ", "animal",
-    "psychiatr", "de-addiction", "deaddiction", "rehab", "wellness", "spa",
-    "polyclinic", "pharmacy", "chemist", "optical", "hearing", "speech",
+    "dental",
+    "dentist",
+    "orthodont",
+    "eye ",
+    "eye_",
+    "ophthal",
+    "vision",
+    "ayurved",
+    "homeo",
+    "homoeo",
+    "unani",
+    "siddha",
+    "naturopath",
+    "diagnostic",
+    "laborator",
+    " lab",
+    "scan centre",
+    "scan center",
+    "imaging",
+    "physiothe",
+    "fertility",
+    "ivf",
+    "test tube",
+    "dialysis",
+    "skin ",
+    "derma",
+    "cosmetic",
+    "aesthetic",
+    "hair ",
+    "veterinar",
+    "pet ",
+    "animal",
+    "psychiatr",
+    "de-addiction",
+    "deaddiction",
+    "rehab",
+    "wellness",
+    "spa",
+    "polyclinic",
+    "pharmacy",
+    "chemist",
+    "optical",
+    "hearing",
+    "speech",
 )
 
 
@@ -61,10 +101,28 @@ def _looks_non_emergency(name: str) -> bool:
 def _normalise_name(name: str) -> str:
     """Canonical form for duplicate detection."""
     cleaned = "".join(c if c.isalnum() or c.isspace() else " " for c in name.lower())
-    drop = {"hospital", "hospitals", "the", "and", "of", "a", "an",
-            "multispeciality", "multi", "speciality", "specialty", "centre",
-            "center", "clinic", "care", "health", "institute", "medical"}
+    drop = {
+        "hospital",
+        "hospitals",
+        "the",
+        "and",
+        "of",
+        "a",
+        "an",
+        "multispeciality",
+        "multi",
+        "speciality",
+        "specialty",
+        "centre",
+        "center",
+        "clinic",
+        "care",
+        "health",
+        "institute",
+        "medical",
+    }
     return " ".join(t for t in cleaned.split() if t not in drop)
+
 
 _EARTH_R = 6_371_000
 _MAX_TRAVEL_TIME_S = 1800.0
@@ -79,8 +137,8 @@ _AVG_SPEED_MPS = 8.33
 # a general hospital for a cardiac arrest simply because it is 3km closer.
 _CAPABILITY_GATE: dict[str, tuple[str, float]] = {
     "cardiac": ("cardiology", 0.70),
-    "trauma":  ("trauma_centre", 0.70),
-    "stroke":  ("neurology", 0.70),
+    "trauma": ("trauma_centre", 0.70),
+    "stroke": ("neurology", 0.70),
 }
 # Only apply the gate while enough qualifying centres remain to choose from.
 _MIN_GATED_CANDIDATES = 3
@@ -96,47 +154,48 @@ _HOSPITAL_CACHE_PRECISION = 2
 
 WEIGHT_TABLES: dict[str, list[tuple[str, float]]] = {
     "general": [
-        ("travel_time",          0.30),
-        ("emergency_resource",   0.25),
-        ("specialist",           0.20),
-        ("bed_availability",     0.15),
-        ("blood_availability",   0.10),
+        ("travel_time", 0.30),
+        ("emergency_resource", 0.25),
+        ("specialist", 0.20),
+        ("bed_availability", 0.15),
+        ("blood_availability", 0.10),
     ],
     "cardiac": [
-        ("cardiology",           0.35),
-        ("travel_time",          0.25),
-        ("emergency_resource",   0.15),
-        ("bed_availability",     0.15),
-        ("blood_availability",   0.10),
+        ("cardiology", 0.35),
+        ("travel_time", 0.25),
+        ("emergency_resource", 0.15),
+        ("bed_availability", 0.15),
+        ("blood_availability", 0.10),
     ],
     "trauma": [
-        ("trauma_centre",        0.30),
-        ("blood_availability",   0.20),
-        ("surgical_capacity",    0.20),
-        ("travel_time",          0.20),
-        ("bed_availability",     0.10),
+        ("trauma_centre", 0.30),
+        ("blood_availability", 0.20),
+        ("surgical_capacity", 0.20),
+        ("travel_time", 0.20),
+        ("bed_availability", 0.10),
     ],
     "stroke": [
-        ("neurology",            0.30),
-        ("ct_imaging",           0.25),
-        ("travel_time",          0.25),
-        ("bed_availability",     0.10),
-        ("emergency_resource",   0.10),
+        ("neurology", 0.30),
+        ("ct_imaging", 0.25),
+        ("travel_time", 0.25),
+        ("bed_availability", 0.10),
+        ("emergency_resource", 0.10),
     ],
 }
 
 _FACTOR_LABELS: dict[str, str] = {
-    "travel_time":        "Travel time",
+    "travel_time": "Travel time",
     "emergency_resource": "ER capacity",
-    "specialist":         "Specialist availability",
-    "bed_availability":   "Bed availability",
+    "specialist": "Specialist availability",
+    "bed_availability": "Bed availability",
     "blood_availability": "Blood supply",
-    "cardiology":         "Cardiology/cath-lab",
-    "trauma_centre":      "Trauma centre capability",
-    "surgical_capacity":  "Surgical capacity",
-    "neurology":          "Neurology availability",
-    "ct_imaging":         "CT/imaging availability",
+    "cardiology": "Cardiology/cath-lab",
+    "trauma_centre": "Trauma centre capability",
+    "surgical_capacity": "Surgical capacity",
+    "neurology": "Neurology availability",
+    "ct_imaging": "CT/imaging availability",
 }
+
 
 def _haversine(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
     phi1, phi2 = math.radians(lat1), math.radians(lat2)
@@ -145,9 +204,11 @@ def _haversine(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
     a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlam / 2) ** 2
     return 2 * _EARTH_R * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
+
 def _travel_time_score(distance_m: float) -> float:
     travel_time_s = distance_m / _AVG_SPEED_MPS
     return max(0.0, min(1.0, 1.0 - (travel_time_s / _MAX_TRAVEL_TIME_S)))
+
 
 def _rebalance_after_gate(
     weights: list[tuple[str, float]], gated_factor: str
@@ -170,10 +231,7 @@ def _rebalance_after_gate(
             rebalanced.append((factor, weight))
     if not freed:
         return weights
-    return [
-        (f, round(w + freed, 4) if f == "travel_time" else w)
-        for f, w in rebalanced
-    ]
+    return [(f, round(w + freed, 4) if f == "travel_time" else w) for f, w in rebalanced]
 
 
 class HospitalIntelligenceAgent:
@@ -185,7 +243,7 @@ class HospitalIntelligenceAgent:
         # Facilities an ER desk has put on divert. Keyed by curated id, and
         # applied during enrichment so it survives catalogue cache rebuilds.
         self._on_divert: set[str] = set()
-    
+
     def _deterministic_float(self, string_id: str, seed: str) -> float:
         """
         Stable pseudo-random float in [0, 1] derived from a hospital id.
@@ -208,8 +266,7 @@ class HospitalIntelligenceAgent:
                 # Secondary index so Overpass results, which carry OSM ids
                 # rather than our blr-* ids, can still match on name.
                 self._capabilities_by_name = {
-                    entry["name"].lower(): entry
-                    for entry in self._capabilities.values()
+                    entry["name"].lower(): entry for entry in self._capabilities.values()
                 }
                 logger.info(
                     "Loaded curated capability profiles for %d hospitals",
@@ -235,56 +292,169 @@ class HospitalIntelligenceAgent:
         # Overpass names are noisy ("Manipal Hospital" vs our fuller title).
         # Require a distinctive token overlap rather than any substring, so
         # "Lakshmi Hospital" cannot inherit "Manipal Hospital"'s profile.
-        stop = {"hospital", "hospitals", "the", "and", "of", "institute",
-                "medical", "centre", "center", "clinic", "multispeciality",
-                "multi", "speciality", "specialty", "care", "health"}
+        stop = {
+            "hospital",
+            "hospitals",
+            "the",
+            "and",
+            "of",
+            "institute",
+            "medical",
+            "centre",
+            "center",
+            "clinic",
+            "multispeciality",
+            "multi",
+            "speciality",
+            "specialty",
+            "care",
+            "health",
+        }
         tokens = {t for t in lowered.replace(",", " ").split() if t not in stop and len(t) > 3}
         if not tokens:
             return None
         for cand_name, entry in by_name.items():
             cand_tokens = {
-                t for t in cand_name.replace(",", " ").replace("(", " ").replace(")", " ").split()
+                t
+                for t in cand_name.replace(",", " ").replace("(", " ").replace(")", " ").split()
                 if t not in stop and len(t) > 3
             }
             if tokens & cand_tokens:
                 return entry
         return None
-        
+
     # Real Bangalore hospitals as a reliable seed list — used when Overpass is slow/unavailable
     BANGALORE_HOSPITALS_SEED = [
-        {"id": "blr-001", "name": "Manipal Hospital (Old Airport Road)",     "lat": 12.9591, "lng": 77.6469},
-        {"id": "blr-002", "name": "Fortis Hospital (Bannerghatta Road)",      "lat": 12.8780, "lng": 77.5983},
-        {"id": "blr-003", "name": "Apollo Hospital (Bannerghatta Road)",      "lat": 12.8896, "lng": 77.5979},
-        {"id": "blr-004", "name": "Narayana Health City (Bommasandra)",       "lat": 12.8335, "lng": 77.6735},
-        {"id": "blr-005", "name": "St. John's Medical College Hospital",      "lat": 12.9360, "lng": 77.6227},
-        {"id": "blr-006", "name": "Sakra World Hospital (Devarabeesanahalli)","lat": 12.9582, "lng": 77.6982},
-        {"id": "blr-007", "name": "Aster CMI Hospital (Hebbal)",              "lat": 13.0473, "lng": 77.5908},
-        {"id": "blr-008", "name": "BGS Gleneagles Global Hospital (Kengeri)", "lat": 12.9051, "lng": 77.4876},
-        {"id": "blr-009", "name": "MS Ramaiah Memorial Hospital",             "lat": 13.0100, "lng": 77.5571},
-        {"id": "blr-010", "name": "NIMHANS (Hosur Road)",                     "lat": 12.9406, "lng": 77.5954},
-        {"id": "blr-011", "name": "Vikram Hospital (Millers Road)",           "lat": 12.9834, "lng": 77.5957},
-        {"id": "blr-012", "name": "Columbia Asia Hospital (Hebbal)",          "lat": 13.0430, "lng": 77.5963},
-        {"id": "blr-013", "name": "Sparsh Hospital (Palace Road)",            "lat": 12.9988, "lng": 77.5792},
-        {"id": "blr-014", "name": "Cloudnine Hospital (Jayanagar)",           "lat": 12.9244, "lng": 77.5837},
-        {"id": "blr-015", "name": "Manipal Hospital (Whitefield)",            "lat": 12.9698, "lng": 77.7499},
-        {"id": "blr-016", "name": "Kauvery Hospital (Electronic City)",       "lat": 12.8457, "lng": 77.6703},
-        {"id": "blr-017", "name": "Motherhood Hospital (Indiranagar)",        "lat": 12.9784, "lng": 77.6408},
-        {"id": "blr-018", "name": "Rainbow Hospital (BTM Layout)",            "lat": 12.9119, "lng": 77.6065},
-        {"id": "blr-019", "name": "Jayadeva Institute of Cardiovascular Sciences","lat": 12.9290, "lng": 77.5878},
-        {"id": "blr-020", "name": "Bangalore Baptist Hospital (Bellary Road)","lat": 13.0325, "lng": 77.5836},
-        {"id": "blr-021", "name": "Kidwai Memorial Institute of Oncology",   "lat": 12.9335, "lng": 77.5862},
-        {"id": "blr-022", "name": "Victoria Hospital (KR Market)",            "lat": 12.9653, "lng": 77.5751},
-        {"id": "blr-023", "name": "Bowring and Lady Curzon Hospital",         "lat": 12.9745, "lng": 77.6113},
-        {"id": "blr-024", "name": "Sanjay Gandhi Accident Hospital",          "lat": 12.9740, "lng": 77.5929},
-        {"id": "blr-025", "name": "HCG Cancer Hospital (KR Road)",            "lat": 12.9318, "lng": 77.5894},
-        {"id": "blr-026", "name": "Sri Shankara Cancer Hospital",             "lat": 12.9261, "lng": 77.5821},
-        {"id": "blr-027", "name": "Hosmat Hospital (Richmond Road)",         "lat": 12.9594, "lng": 77.6054},
-        {"id": "blr-028", "name": "Mallya Hospital (Vittal Mallya Road)",     "lat": 12.9714, "lng": 77.5975},
-        {"id": "blr-029", "name": "Manipal Hospital (Sarjapur Road)",         "lat": 12.8989, "lng": 77.6797},
-        {"id": "blr-030", "name": "Apollo Spectra Hospital (Koramangala)",    "lat": 12.9312, "lng": 77.6124},
+        {
+            "id": "blr-001",
+            "name": "Manipal Hospital (Old Airport Road)",
+            "lat": 12.9591,
+            "lng": 77.6469,
+        },
+        {
+            "id": "blr-002",
+            "name": "Fortis Hospital (Bannerghatta Road)",
+            "lat": 12.8780,
+            "lng": 77.5983,
+        },
+        {
+            "id": "blr-003",
+            "name": "Apollo Hospital (Bannerghatta Road)",
+            "lat": 12.8896,
+            "lng": 77.5979,
+        },
+        {
+            "id": "blr-004",
+            "name": "Narayana Health City (Bommasandra)",
+            "lat": 12.8335,
+            "lng": 77.6735,
+        },
+        {
+            "id": "blr-005",
+            "name": "St. John's Medical College Hospital",
+            "lat": 12.9360,
+            "lng": 77.6227,
+        },
+        {
+            "id": "blr-006",
+            "name": "Sakra World Hospital (Devarabeesanahalli)",
+            "lat": 12.9582,
+            "lng": 77.6982,
+        },
+        {"id": "blr-007", "name": "Aster CMI Hospital (Hebbal)", "lat": 13.0473, "lng": 77.5908},
+        {
+            "id": "blr-008",
+            "name": "BGS Gleneagles Global Hospital (Kengeri)",
+            "lat": 12.9051,
+            "lng": 77.4876,
+        },
+        {"id": "blr-009", "name": "MS Ramaiah Memorial Hospital", "lat": 13.0100, "lng": 77.5571},
+        {"id": "blr-010", "name": "NIMHANS (Hosur Road)", "lat": 12.9406, "lng": 77.5954},
+        {"id": "blr-011", "name": "Vikram Hospital (Millers Road)", "lat": 12.9834, "lng": 77.5957},
+        {
+            "id": "blr-012",
+            "name": "Columbia Asia Hospital (Hebbal)",
+            "lat": 13.0430,
+            "lng": 77.5963,
+        },
+        {"id": "blr-013", "name": "Sparsh Hospital (Palace Road)", "lat": 12.9988, "lng": 77.5792},
+        {"id": "blr-014", "name": "Cloudnine Hospital (Jayanagar)", "lat": 12.9244, "lng": 77.5837},
+        {"id": "blr-015", "name": "Manipal Hospital (Whitefield)", "lat": 12.9698, "lng": 77.7499},
+        {
+            "id": "blr-016",
+            "name": "Kauvery Hospital (Electronic City)",
+            "lat": 12.8457,
+            "lng": 77.6703,
+        },
+        {
+            "id": "blr-017",
+            "name": "Motherhood Hospital (Indiranagar)",
+            "lat": 12.9784,
+            "lng": 77.6408,
+        },
+        {"id": "blr-018", "name": "Rainbow Hospital (BTM Layout)", "lat": 12.9119, "lng": 77.6065},
+        {
+            "id": "blr-019",
+            "name": "Jayadeva Institute of Cardiovascular Sciences",
+            "lat": 12.9290,
+            "lng": 77.5878,
+        },
+        {
+            "id": "blr-020",
+            "name": "Bangalore Baptist Hospital (Bellary Road)",
+            "lat": 13.0325,
+            "lng": 77.5836,
+        },
+        {
+            "id": "blr-021",
+            "name": "Kidwai Memorial Institute of Oncology",
+            "lat": 12.9335,
+            "lng": 77.5862,
+        },
+        {"id": "blr-022", "name": "Victoria Hospital (KR Market)", "lat": 12.9653, "lng": 77.5751},
+        {
+            "id": "blr-023",
+            "name": "Bowring and Lady Curzon Hospital",
+            "lat": 12.9745,
+            "lng": 77.6113,
+        },
+        {
+            "id": "blr-024",
+            "name": "Sanjay Gandhi Accident Hospital",
+            "lat": 12.9740,
+            "lng": 77.5929,
+        },
+        {"id": "blr-025", "name": "HCG Cancer Hospital (KR Road)", "lat": 12.9318, "lng": 77.5894},
+        {"id": "blr-026", "name": "Sri Shankara Cancer Hospital", "lat": 12.9261, "lng": 77.5821},
+        {
+            "id": "blr-027",
+            "name": "Hosmat Hospital (Richmond Road)",
+            "lat": 12.9594,
+            "lng": 77.6054,
+        },
+        {
+            "id": "blr-028",
+            "name": "Mallya Hospital (Vittal Mallya Road)",
+            "lat": 12.9714,
+            "lng": 77.5975,
+        },
+        {
+            "id": "blr-029",
+            "name": "Manipal Hospital (Sarjapur Road)",
+            "lat": 12.8989,
+            "lng": 77.6797,
+        },
+        {
+            "id": "blr-030",
+            "name": "Apollo Spectra Hospital (Koramangala)",
+            "lat": 12.9312,
+            "lng": 77.6124,
+        },
     ]
 
-    async def _fetch_live_hospitals(self, lat: float, lng: float, radius_m: int = 25000) -> list[dict[str, Any]]:
+    async def _fetch_live_hospitals(
+        self, lat: float, lng: float, radius_m: int = 25000
+    ) -> list[dict[str, Any]]:
         """Queries Overpass API for real hospitals in Bangalore. Falls back to seed list if unavailable."""
         import time as _time
 
@@ -336,7 +506,9 @@ class HospitalIntelligenceAgent:
 
                 live_hospitals.append({"id": hid, "name": name, "lat": h_lat, "lng": h_lng})
 
-            logger.info("Overpass returned %d hospitals within %dkm", len(live_hospitals), radius_m // 1000)
+            logger.info(
+                "Overpass returned %d hospitals within %dkm", len(live_hospitals), radius_m // 1000
+            )
         except Exception as e:
             logger.warning("Overpass fetch failed (%s) — using seed list", e)
 
@@ -387,13 +559,13 @@ class HospitalIntelligenceAgent:
                 base = 0.25 + (self._deterministic_float(hid, "quality") * 0.35)
                 caps = {
                     "emergency_resource": round(base * 0.9, 3),
-                    "specialist":         round(base * 0.7, 3),
+                    "specialist": round(base * 0.7, 3),
                     "blood_availability": round(base * 0.7, 3),
-                    "cardiology":         round(base * 0.5, 3),
-                    "trauma_centre":      round(base * 0.5, 3),
-                    "surgical_capacity":  round(base * 0.6, 3),
-                    "neurology":          round(base * 0.45, 3),
-                    "ct_imaging":         round(base * 0.6, 3),
+                    "cardiology": round(base * 0.5, 3),
+                    "trauma_centre": round(base * 0.5, 3),
+                    "surgical_capacity": round(base * 0.6, 3),
+                    "neurology": round(base * 0.45, 3),
+                    "ct_imaging": round(base * 0.6, 3),
                 }
                 beds_total = int(30 + self._deterministic_float(hid, "beds") * 120)
                 icu_total = max(2, int(beds_total * 0.10))
@@ -427,30 +599,35 @@ class HospitalIntelligenceAgent:
             lat = profile.get("lat", h["lat"]) if profile else h["lat"]
             lng = profile.get("lng", h["lng"]) if profile else h["lng"]
 
-            hospitals.append({
-                "id": hid,
-                "curated_id": curated_id,
-                "on_divert": diverted,
-                "name": display_name,
-                "lat": lat, "lng": lng,
-                "type": facility_type,
-                "emergency_receiving": emergency_receiving,
-                "icu_available": 0 if diverted else icu_available,
-                "icu_total": icu_total,
-                "beds_total": beds_total,
-                "beds_available": beds_available,
-                "specialists": specialists,
-                "capabilities": caps,
-                "capability_provenance": capability_provenance,
-                "availability_provenance": "simulated",
-                "note": note,
-            })
+            hospitals.append(
+                {
+                    "id": hid,
+                    "curated_id": curated_id,
+                    "on_divert": diverted,
+                    "name": display_name,
+                    "lat": lat,
+                    "lng": lng,
+                    "type": facility_type,
+                    "emergency_receiving": emergency_receiving,
+                    "icu_available": 0 if diverted else icu_available,
+                    "icu_total": icu_total,
+                    "beds_total": beds_total,
+                    "beds_available": beds_available,
+                    "specialists": specialists,
+                    "capabilities": caps,
+                    "capability_provenance": capability_provenance,
+                    "availability_provenance": "simulated",
+                    "note": note,
+                }
+            )
 
         hospitals = self._deduplicate(hospitals)
 
         logger.info(
             "Enriched %d hospitals: %d curated profiles, %d modelled",
-            len(hospitals), curated_hits, len(hospitals) - curated_hits,
+            len(hospitals),
+            curated_hits,
+            len(hospitals) - curated_hits,
         )
         self._fetch_cache[cache_key] = (_time.monotonic(), hospitals)
         self._hospitals = hospitals
@@ -500,8 +677,6 @@ class HospitalIntelligenceAgent:
 
         return deduped
 
-
-
     def resolve_key(self, identifier: str) -> str | None:
         """
         Map anything the UI might send to a curated profile key.
@@ -539,7 +714,8 @@ class HospitalIntelligenceAgent:
         self._fetch_cache.clear()
         logger.info(
             "Hospital %s (%s) is now %s",
-            key, self._capabilities[key]["name"],
+            key,
+            self._capabilities[key]["name"],
             "ON DIVERT - excluded from emergency routing" if on_divert else "accepting",
         )
         return key
@@ -555,28 +731,34 @@ class HospitalIntelligenceAgent:
 
         logger.info(
             "Ranking hospitals for %s emergency at [%.4f, %.4f] using '%s' weights",
-            etype, request.incident_location.lat, request.incident_location.lng, weights_label
+            etype,
+            request.incident_location.lat,
+            request.incident_location.lng,
+            weights_label,
         )
 
-        hospitals = await self._fetch_live_hospitals(request.incident_location.lat, request.incident_location.lng)
+        hospitals = await self._fetch_live_hospitals(
+            request.incident_location.lat, request.incident_location.lng
+        )
 
         # An oncology centre or maternity-only unit is not a valid destination
         # for a cardiac arrest, no matter how close it is. Filter before
         # scoring, so proximity can never override clinical suitability.
         if etype in _RECEIVING_REQUIRED:
             eligible = [
-                h for h in hospitals
+                h
+                for h in hospitals
                 if h.get("emergency_receiving", True)
                 and not (
-                    h["capability_provenance"] != "curated"
-                    and _looks_non_emergency(h["name"])
+                    h["capability_provenance"] != "curated" and _looks_non_emergency(h["name"])
                 )
             ]
             excluded = len(hospitals) - len(eligible)
             if excluded:
                 logger.info(
                     "Excluded %d non-receiving facilities for %s emergency",
-                    excluded, etype,
+                    excluded,
+                    etype,
                 )
             hospitals = eligible or hospitals
 
@@ -585,15 +767,16 @@ class HospitalIntelligenceAgent:
         gate_applied = False
         if gate:
             factor, threshold = gate
-            qualified = [
-                h for h in hospitals
-                if h["capabilities"].get(factor, 0.0) >= threshold
-            ]
+            qualified = [h for h in hospitals if h["capabilities"].get(factor, 0.0) >= threshold]
             if len(qualified) >= _MIN_GATED_CANDIDATES:
                 logger.info(
                     "Specialty bypass: %d of %d facilities meet %s >= %.2f "
                     "for %s - restricting candidates",
-                    len(qualified), len(hospitals), factor, threshold, etype,
+                    len(qualified),
+                    len(hospitals),
+                    factor,
+                    threshold,
+                    etype,
                 )
                 hospitals = qualified
                 gate_applied = True
@@ -610,11 +793,15 @@ class HospitalIntelligenceAgent:
 
         for hosp in hospitals:
             dist = _haversine(
-                request.incident_location.lat, request.incident_location.lng,
-                hosp["lat"], hosp["lng"]
+                request.incident_location.lat,
+                request.incident_location.lng,
+                hosp["lat"],
+                hosp["lng"],
             )
 
-            bed_score = (hosp["beds_available"] / hosp["beds_total"] if hosp["beds_total"] > 0 else 0.0)
+            bed_score = (
+                hosp["beds_available"] / hosp["beds_total"] if hosp["beds_total"] > 0 else 0.0
+            )
 
             scores: dict[str, float] = {
                 "travel_time": _travel_time_score(dist),
@@ -629,46 +816,43 @@ class HospitalIntelligenceAgent:
                 raw = scores.get(factor, 0.0)
                 weighted = round(weight * raw, 4)
                 total += weighted
-                breakdown.append(ScoreBreakdown(
-                    factor=_FACTOR_LABELS.get(factor, factor),
-                    weight=weight,
-                    raw_score=round(raw, 3),
-                    weighted_score=weighted,
-                ))
+                breakdown.append(
+                    ScoreBreakdown(
+                        factor=_FACTOR_LABELS.get(factor, factor),
+                        weight=weight,
+                        raw_score=round(raw, 3),
+                        weighted_score=weighted,
+                    )
+                )
 
             total = round(total, 4)
             reasoning = self._build_reasoning(hosp, total, dist, etype, breakdown)
 
-            entries.append(HospitalEntry(
-                hospital_id=hosp["id"],
-                name=hosp["name"],
-                location=Coordinate(lat=hosp["lat"], lng=hosp["lng"]),
-                score=total,
-                confidence=round(min(1.0, 0.6 + (total * 0.4)), 3),
-                reasoning=reasoning,
-                icu_available=hosp["icu_available"],
-                specialists=hosp["specialists"],
-                blood_availability=hosp["capabilities"].get("blood_availability", 0.5),
-                capability_provenance=hosp.get("capability_provenance", "simulated"),
-                emergency_receiving=hosp.get("emergency_receiving", True),
-                score_breakdown=breakdown,
-            ))
+            entries.append(
+                HospitalEntry(
+                    hospital_id=hosp["id"],
+                    name=hosp["name"],
+                    location=Coordinate(lat=hosp["lat"], lng=hosp["lng"]),
+                    score=total,
+                    confidence=round(min(1.0, 0.6 + (total * 0.4)), 3),
+                    reasoning=reasoning,
+                    icu_available=hosp["icu_available"],
+                    specialists=hosp["specialists"],
+                    blood_availability=hosp["capabilities"].get("blood_availability", 0.5),
+                    capability_provenance=hosp.get("capability_provenance", "simulated"),
+                    emergency_receiving=hosp.get("emergency_receiving", True),
+                    score_breakdown=breakdown,
+                )
+            )
 
         entries.sort(key=lambda e: e.score, reverse=True)
 
-        # Guard: if no hospitals matched (e.g. all on divert, or graph empty),
-        # return the full unfiltered list so the dispatcher always sees options.
+        # Guard: with no candidate hospitals there is nothing to rank, and
+        # HospitalRankingResponse requires at least one entry. Fail loudly so
+        # the incident pipeline marks the incident failed with a clear reason.
         if not entries:
-            logger.warning(
-                "Hospital ranking produced zero entries for %s — returning unfiltered fallback",
-                request.emergency_type,
-            )
-            return HospitalRankingResponse(
-                ranked_hospitals=[],
-                emergency_type=request.emergency_type,
-                weights_used="fallback-no-candidates",
-                data_freshness=DataFreshness.STALE,
-            )
+            logger.warning("Hospital ranking produced zero candidate hospitals")
+            raise NoHospitalCandidatesError(f"No candidate hospitals to rank for {etype} emergency")
 
         # ------------------------------------------------------------------
         # Stage 2: re-rank the shortlist on real road-network travel time.
@@ -680,7 +864,9 @@ class HospitalIntelligenceAgent:
         # ------------------------------------------------------------------
         shortlist = entries[:_ROAD_ETA_SHORTLIST]
         upgraded = self._rerank_on_road_eta(
-            shortlist, request.incident_location, weights,
+            shortlist,
+            request.incident_location,
+            weights,
         )
 
         return HospitalRankingResponse(
@@ -720,9 +906,7 @@ class HospitalIntelligenceAgent:
                 continue
 
             road_time_s = path["travel_time_s"]
-            new_travel_score = max(
-                0.0, min(1.0, 1.0 - (road_time_s / _MAX_TRAVEL_TIME_S))
-            )
+            new_travel_score = max(0.0, min(1.0, 1.0 - (road_time_s / _MAX_TRAVEL_TIME_S)))
 
             # Swap the travel component out of the total, leaving every other
             # weighted factor exactly as stage 1 computed it.
@@ -745,8 +929,14 @@ class HospitalIntelligenceAgent:
         shortlist.sort(key=lambda e: e.score, reverse=True)
         return shortlist
 
-    def _build_reasoning(self, hosp: dict[str, Any], total_score: float, distance_m: float,
-                         emergency_type: str, breakdown: list[ScoreBreakdown]) -> str:
+    def _build_reasoning(
+        self,
+        hosp: dict[str, Any],
+        total_score: float,
+        distance_m: float,
+        emergency_type: str,
+        breakdown: list[ScoreBreakdown],
+    ) -> str:
         sorted_bd = sorted(breakdown, key=lambda b: b.weighted_score, reverse=True)
         top_factors = sorted_bd[:2]
         weak_factor = sorted_bd[-1] if len(sorted_bd) > 1 else None
@@ -786,5 +976,6 @@ class HospitalIntelligenceAgent:
             source_agent=AGENT_NAME,
         )
         return result
+
 
 hospital_agent = HospitalIntelligenceAgent()

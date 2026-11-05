@@ -13,12 +13,12 @@ Pub/Sub or Streams later, replace this module — agents import only the
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import uuid
 from collections import defaultdict
-from datetime import datetime, timezone
-from typing import Any, Callable, Coroutine
+from collections.abc import Callable, Coroutine
+from datetime import UTC, datetime
+from typing import Any
 
 from models.schemas import Event
 
@@ -43,6 +43,7 @@ CASE_CLOSED = "case.closed"
 # ---------------------------------------------------------------------------
 # EventBus
 # ---------------------------------------------------------------------------
+
 
 class EventBus:
     """
@@ -70,7 +71,7 @@ class EventBus:
         event = Event(
             event_id=str(uuid.uuid4()),
             topic=topic,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             payload=payload,
             source_agent=source_agent,
         )
@@ -80,7 +81,9 @@ class EventBus:
 
         logger.info(
             "Event published — topic=%s source=%s id=%s",
-            topic, source_agent, event.event_id,
+            topic,
+            source_agent,
+            event.event_id,
         )
 
         # Fan-out to subscribers (fire-and-forget; errors are logged, not raised)
@@ -90,7 +93,8 @@ class EventBus:
             except Exception:
                 logger.exception(
                     "Subscriber %s failed for event %s",
-                    callback.__qualname__, event.event_id,
+                    callback.__qualname__,
+                    event.event_id,
                 )
 
         return event
@@ -106,7 +110,8 @@ class EventBus:
         self._subscribers[topic].append(callback)
         logger.info(
             "Subscribed %s to topic=%s",
-            callback.__qualname__, topic,
+            callback.__qualname__,
+            topic,
         )
 
     # -- query ----------------------------------------------------------------

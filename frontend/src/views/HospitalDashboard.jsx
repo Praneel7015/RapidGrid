@@ -9,7 +9,7 @@
  * treated as a consequential action, not a decorative switch.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Check, BedDouble } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import LiveEmergencyChat from '../components/LiveEmergencyChat';
@@ -33,6 +33,10 @@ export default function HospitalDashboard() {
   const [acknowledged, setAcknowledged] = useState({});
   const [openThread, setOpenThread] = useState(null);
   const [conn, setConn] = useState('ok');
+  // Bumped when a capacity toggle starts and when its PATCH settles, so a poll
+  // that began before (or during) a toggle cannot put back the old value.
+  const capacityGen = useRef(0);
+  const capacityPending = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -50,10 +54,13 @@ export default function HospitalDashboard() {
         // Sync ICU/divert state from backend so refresh doesn't show stale "Accepting".
         if (id !== 'all' && !cancelled) {
           try {
+            const gen = capacityGen.current;
             const hRes = await fetch(`/api/hospital/${id}`);
             if (hRes.ok) {
               const hData = await hRes.json();
-              setIcuOpen(hData.icu_available > 0);
+              if (!cancelled && gen === capacityGen.current && capacityPending.current === 0) {
+                setIcuOpen(hData.icu_available > 0);
+              }
             }
           } catch { /* non-critical — keep UI value */ }
         }
@@ -67,18 +74,29 @@ export default function HospitalDashboard() {
   }, [hospitalInfo]);
 
   const setCapacity = async (open) => {
+    if (!hospitalInfo?.id || hospitalInfo.id === 'all') return;
+    capacityGen.current += 1;
+    capacityPending.current += 1;
     setIcuOpen(open);
     try {
       const id = hospitalInfo?.id || 'all';
-      await fetch(`/api/hospital/${id}/resources`, {
+      const res = await fetch(`/api/hospital/${id}/resources`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ icu_available: open }),
       });
+      if (!res.ok) throw new Error();
     } catch {
       setConn('down');
+    } finally {
+      capacityPending.current -= 1;
+      capacityGen.current += 1;
     }
   };
+
+  // The aggregate "all" desk is not a facility; its capacity switch would
+  // resolve to some real hospital by substring and divert it.
+  const isFacility = Boolean(hospitalInfo?.id) && hospitalInfo.id !== 'all';
 
   const critical = incoming.filter((c) => (c.severity ?? 0) >= 0.8).length;
   const soonest = incoming.reduce(
@@ -91,11 +109,12 @@ export default function HospitalDashboard() {
       <Panel ink>
         <div className="flex flex-wrap items-center justify-between gap-x-8 gap-y-4 px-4 py-4 sm:px-5">
           <div className="flex flex-wrap items-center gap-x-6 gap-y-4 sm:gap-x-9">
-            <Stat ink label="Inbound patients" value={incoming.length} />
+            <Stat ink label="Inbound patients" value={incoming.length} modelled={false} />
             <Stat
               ink
               label="Critical"
               value={critical}
+              modelled={false}
               tone={critical ? 'critical' : 'default'}
             />
             <Stat
@@ -103,6 +122,7 @@ export default function HospitalDashboard() {
               label="Next arrival"
               value={Number.isFinite(soonest) ? soonest : '--'}
               unit="min"
+              modelled
               tone="signal"
             />
           </div>
@@ -115,7 +135,8 @@ export default function HospitalDashboard() {
               <div className="flex overflow-hidden rounded-xs border border-rule-ink">
                 <button
                   onClick={() => setCapacity(true)}
-                  className={`tap px-3 py-2.5 t-tag transition-colors lg:px-2.5 lg:py-1 ${
+                  disabled={!isFacility}
+                  className={`tap px-3 py-2.5 t-tag transition-colors disabled:cursor-not-allowed disabled:opacity-45 lg:px-2.5 lg:py-1 ${
                     icuOpen ? 'bg-signal text-ink' : 'bg-transparent text-on-ink-muted'
                   }`}
                 >
@@ -123,7 +144,8 @@ export default function HospitalDashboard() {
                 </button>
                 <button
                   onClick={() => setCapacity(false)}
-                  className={`tap px-3 py-2.5 t-tag transition-colors lg:px-2.5 lg:py-1 ${
+                  disabled={!isFacility}
+                  className={`tap px-3 py-2.5 t-tag transition-colors disabled:cursor-not-allowed disabled:opacity-45 lg:px-2.5 lg:py-1 ${
                     !icuOpen ? 'bg-critical text-white' : 'bg-transparent text-on-ink-muted'
                   }`}
                 >
@@ -194,7 +216,7 @@ export default function HospitalDashboard() {
                       <div className="flex w-full shrink-0 items-center justify-between gap-4 border-t border-rule pt-3 sm:w-auto sm:justify-end sm:border-0 sm:pt-0">
                         <div className="text-right">
                           <div className="eyebrow">Arrives in</div>
-                          <div className="font-mono text-[26px] font-bold leading-none text-signal">
+                          <div className="font-mono text-[26px] font-bold leading-none text-signal-hover">
                             {c.eta_minutes ?? '--'}
                             <span className="ml-1 text-[13px] font-medium opacity-60">min</span>
                           </div>

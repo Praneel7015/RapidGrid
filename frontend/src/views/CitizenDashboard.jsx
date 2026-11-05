@@ -99,7 +99,8 @@ export default function CitizenDashboard() {
         );
         const latest = mine[mine.length - 1];
         // Only rejoin in-flight work. Failed/completed reports must not trap the home screen.
-        const active = latest && !['failed', 'completed'].includes(latest.status);
+        const active =
+          latest && !['failed', 'completed'].includes(latest.status) ? latest : null;
         if (!cancelled && active?.citizen_view) {
           setIncident(latest);
           setPollUrl(`/api/incidents/${latest.incident_id}`);
@@ -152,7 +153,11 @@ export default function CitizenDashboard() {
   const sendSOS = async () => {
     if (sending) return; // double-submit guard
     setSending(true);
-    speech.stop();
+    // Words still in flight from the recognizer arrive after stop; wait for them
+    // and build the report from them rather than from render state.
+    const spoken = await speech.finish();
+    const reportText = `${details} ${spoken}`.trim();
+    const voice = usedVoice || Boolean(spoken);
     navigator.vibrate?.([180, 90, 180]);
     setError(null);
     setIncident(null);
@@ -163,12 +168,12 @@ export default function CitizenDashboard() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          citizen_text: details.trim() || `Emergency reported, ${service} requested.`,
+          citizen_text: reportText || `Emergency reported, ${service} requested.`,
           citizen_name: citizenInfo?.name ?? 'Anonymous',
           citizen_phone: citizenInfo?.phone ?? 'Unregistered',
           vehicle_required: service,
           location: coords ?? FALLBACK_LOCATION,
-          input_modality: usedVoice ? 'voice' : 'text',
+          input_modality: voice ? 'voice' : 'text',
           timestamp: new Date().toISOString(),
         }),
       });
@@ -300,7 +305,10 @@ export default function CitizenDashboard() {
             placeholder="Chest pain, difficulty breathing, road accident… or tap the mic"
             className="mt-2 w-full resize-none rounded-sm border border-rule bg-paper p-3 text-[16px] leading-relaxed text-text placeholder:text-text-faint focus:border-signal focus:outline-none lg:text-[14px]"
           />
-          <span className={`mt-2 block t-micro ${speech.error ? 'text-critical' : 'text-text-faint'}`}>
+          <span
+            role="status"
+            className={`mt-2 block t-micro ${speech.error ? 'text-critical' : 'text-text-faint'}`}
+          >
             {speech.error
               ? speech.error
               : speech.phase === 'loading'
@@ -421,6 +429,7 @@ export default function CitizenDashboard() {
               label="Unit reaches you in"
               value={view.phase1_eta_minutes ?? '--'}
               unit="min"
+              modelled
               tone="signal"
               sub={view.phase1_hub?.name}
             />
@@ -428,6 +437,7 @@ export default function CitizenDashboard() {
               label="Then to hospital"
               value={view.eta_minutes ?? '--'}
               unit="min"
+              modelled
               sub={`${fmt.km(view.distance_meters)} km`}
             />
           </div>

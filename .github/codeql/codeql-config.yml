@@ -1,0 +1,7 @@
+name: RapidGrid CodeQL config
+
+# temp/ holds design scratch files that are not built or deployed.
+paths-ignore:
+  - temp
+  - frontend/dist
+  - "**/node_modules"

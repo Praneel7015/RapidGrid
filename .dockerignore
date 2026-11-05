@@ -4,6 +4,11 @@ frontend/dist
 backend/venv
 backend/.env
 **/.env
+**/.env.*
+!**/.env.example
 **/__pycache__
 **/*.pyc
 temp
+# Runtime incident snapshot holds citizen names/phones; never bake it into the image
+backend/data/incidents_db.json
+backend/data/.osm_healthcare_cache.json
