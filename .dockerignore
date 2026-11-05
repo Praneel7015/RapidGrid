@@ -4,6 +4,8 @@ frontend/dist
 backend/venv
 backend/.env
 **/.env
+**/.env.*
+!**/.env.example
 **/__pycache__
 **/*.pyc
 temp

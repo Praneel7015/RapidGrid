@@ -4,6 +4,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from agents.hospital_intelligence import hospital_agent
 from routers.incident import ACTIVE_INCIDENTS, save_db
 
 router = APIRouter(prefix="/api/driver", tags=["Driver Queue"])
@@ -78,6 +79,13 @@ async def get_active_dispatches():
 async def claim_dispatch(payload: ClaimPayload):
     for inc in ACTIVE_INCIDENTS:
         if inc["incident_id"] == payload.incident_id:
+            # Only an approved dispatch can be claimed; anything else would skip
+            # dispatcher approval or revive a rejected call.
+            if inc.get("status") != "dispatched":
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Cannot claim {payload.incident_id}: status is '{inc.get('status')}'.",
+                )
             existing_driver = inc.get("assigned_driver")
             if (
                 existing_driver
@@ -188,16 +196,32 @@ async def arrived_pickup(payload: ClaimPayload):
     raise HTTPException(status_code=404, detail="Incident not found")
 
 
+def _hospital_coords(name: str) -> dict[str, float] | None:
+    if name in BANGALORE_HOSPITAL_COORDS:
+        return BANGALORE_HOSPITAL_COORDS[name]
+    key = hospital_agent.resolve_key(name)
+    if key is None:
+        return None
+    profile = hospital_agent._load_capabilities()[key]
+    if profile.get("lat") is None or profile.get("lng") is None:
+        return None
+    return {"lat": profile["lat"], "lng": profile["lng"]}
+
+
 @router.post("/change_hospital")
 async def change_hospital(payload: HospitalChangePayload):
     from routers.incident import Coordinate, RouteRequest, _hospital_phone, route_agent
 
     for inc in ACTIVE_INCIDENTS:
         if inc["incident_id"] == payload.incident_id:
-            h_coords = BANGALORE_HOSPITAL_COORDS.get(payload.hospital_name) or {
-                "lat": 13.0473,
-                "lng": 77.5908,
-            }
+            # The route, location and phone must all describe the same ER, so
+            # an unknown name is an error rather than a default destination.
+            h_coords = _hospital_coords(payload.hospital_name)
+            if h_coords is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Hospital '{payload.hospital_name}' not found.",
+                )
 
             cit_view = inc.get("citizen_view") or {}
             origin = (

@@ -97,8 +97,10 @@ DEMO_HOSPITAL_PHONES = {
     "Aster CMI Hospital (Hebbal)": "+91 80 4342 0107",
     "Manipal Hospital (Old Airport Road)": "+91 80 2502 4444",
     "Fortis Hospital (Bannerghatta Road)": "+91 80 6621 4444",
-    "Sri Jayadeva Institute of Cardiovascular Sciences": "+91 80 2297 7200",
+    # Keys match the curated names in data/hospital_capabilities.json.
+    "Sri Jayadeva Institute of Cardiovascular Sciences and Research": "+91 80 2297 7200",
     "NIMHANS": "+91 80 2699 5000",
+    "NIMHANS (National Institute of Mental Health and Neurosciences)": "+91 80 2699 5000",
     "St. John's Medical College Hospital": "+91 80 2206 5000",
     "Victoria Hospital (BMCRI)": "+91 80 2670 1150",
 }
@@ -487,8 +489,20 @@ async def reject_incident(incident_id: str, dispatcher_id: str = "DISPATCHER-01"
 @router.post("/{incident_id}/arrived")
 async def incident_arrived(incident_id: str, unit_type: str = "primary"):
     """Step 5 - Driver arrives for specific unit (primary vs ambulance)."""
+    async with _INCIDENTS_LOCK:
+        return _mark_arrived(incident_id, unit_type)
+
+
+def _mark_arrived(incident_id: str, unit_type: str) -> dict[str, Any]:
+    # Caller holds _INCIDENTS_LOCK.
     for inc in ACTIVE_INCIDENTS:
         if inc["incident_id"] == incident_id:
+            # A stale driver tab must not complete a rejected or unplanned call.
+            if inc.get("status") not in ("dispatched", "patient_picked_up"):
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Cannot mark {incident_id} arrived: status is '{inc.get('status')}'.",
+                )
             unit_statuses = inc.get("unit_statuses") or {
                 "primary": "dispatched",
                 "ambulance": "dispatched",

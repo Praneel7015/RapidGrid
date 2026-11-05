@@ -241,6 +241,9 @@ def test_unmatched_api_path_is_404_not_the_spa(tmp_path):
 def test_hospital_phone_needs_an_exact_name():
     phone = incident_router._hospital_phone
     assert phone("NIMHANS") == "+91 80 2699 5000"
+    assert phone("NIMHANS (National Institute of Mental Health and Neurosciences)") == (
+        "+91 80 2699 5000"
+    )
     assert phone("st johns medical college hospital") == "+91 80 2206 5000"
     # A partial name could be a different branch, and an unknown one has no number.
     assert phone("Manipal Hospital") is None
@@ -279,8 +282,43 @@ def test_diversion_updates_the_er_phone(client):
             json={"incident_id": "INC-div", "hospital_name": "Victoria Hospital (BMCRI)"},
         )
     assert res.status_code == 200
-    assert res.json()["citizen_view"]["hospital_phone"] == "+91 80 2670 1150"
+    view = res.json()["citizen_view"]
+    assert view["hospital_phone"] == "+91 80 2670 1150"
+    # The destination must be the same ER as the phone, not a default point.
+    assert view["hospital_location"] == {"lat": 12.963496, "lng": 77.573695}
     assert incident_router.ACTIVE_INCIDENTS[0]["hospital_phone"] == "+91 80 2670 1150"
+
+
+def test_diversion_to_unknown_hospital_is_404(client):
+    incident_router.ACTIVE_INCIDENTS.append({"incident_id": "INC-div", "status": "dispatched"})
+    res = client.post(
+        "/api/driver/change_hospital",
+        json={"incident_id": "INC-div", "hospital_name": "Nowhere General"},
+    )
+    assert res.status_code == 404
+
+
+@pytest.mark.parametrize("status", ["processing", "awaiting_dispatcher_approval", "failed"])
+def test_only_dispatched_incidents_can_be_claimed(client, status):
+    incident_router.ACTIVE_INCIDENTS.append({"incident_id": "INC-c", "status": status})
+    res = client.post("/api/driver/claim", json={"incident_id": "INC-c", "driver_id": "drv-2"})
+    assert res.status_code == 409
+    assert incident_router.ACTIVE_INCIDENTS[0]["status"] == status
+
+
+@pytest.mark.parametrize("status", ["processing", "failed"])
+def test_arrival_needs_a_dispatched_incident(client, status):
+    incident_router.ACTIVE_INCIDENTS.append({"incident_id": "INC-a", "status": status})
+    res = client.post("/api/incidents/INC-a/arrived")
+    assert res.status_code == 409
+    assert incident_router.ACTIVE_INCIDENTS[0]["status"] == status
+
+
+def test_arrival_completes_a_dispatched_incident(client):
+    incident_router.ACTIVE_INCIDENTS.append({"incident_id": "INC-a", "status": "dispatched"})
+    res = client.post("/api/incidents/INC-a/arrived")
+    assert res.status_code == 200
+    assert incident_router.ACTIVE_INCIDENTS[0]["status"] == "completed"
 
 
 def test_hospital_ranking_with_no_candidates_is_503(client):
