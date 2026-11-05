@@ -29,7 +29,7 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -274,21 +274,28 @@ def _safe_frontend_file(full_path: str, dist: Path = _FRONTEND_DIST) -> str | No
     return None
 
 
-if _FRONTEND_DIST.is_dir():
-    _assets = _FRONTEND_DIST / "assets"
-    if _assets.is_dir():
-        app.mount("/assets", StaticFiles(directory=_assets), name="frontend-assets")
+def _mount_frontend(app: FastAPI, dist: Path) -> None:
+    assets = dist / "assets"
+    if assets.is_dir():
+        app.mount("/assets", StaticFiles(directory=assets), name="frontend-assets")
 
     @app.get("/", include_in_schema=False)
     async def frontend_index():
-        return FileResponse(_FRONTEND_DIST / "index.html")
+        return FileResponse(dist / "index.html")
 
     @app.get("/{full_path:path}", include_in_schema=False)
     async def frontend_spa(full_path: str):
-        found = _safe_frontend_file(full_path)
+        # Unknown API paths are a client error, not a page to render.
+        if full_path == "api" or full_path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="Not Found")
+        found = _safe_frontend_file(full_path, dist)
         if found is not None:
             return FileResponse(found)
-        return FileResponse(_FRONTEND_DIST / "index.html")
+        return FileResponse(dist / "index.html")
+
+
+if _FRONTEND_DIST.is_dir():
+    _mount_frontend(app, _FRONTEND_DIST)
 
 
 # Touch for per-unit tracking reload

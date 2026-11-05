@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import uuid
 from pathlib import Path
 from typing import Any
@@ -111,15 +112,20 @@ def _resolve_modality(raw: str) -> AccessibilityInputModality:
         return AccessibilityInputModality.TEXT
 
 
+def _phone_key(name: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", name.lower()).strip()
+
+
+_DEMO_PHONES_BY_KEY = {_phone_key(k): v for k, v in DEMO_HOSPITAL_PHONES.items()}
+
+
 def _hospital_phone(name: str | None) -> str | None:
+    # Exact names only (ignoring case and punctuation). A substring match could
+    # dial a different branch, and a placeholder number dials no one; with no
+    # match the dashboards hide the call control instead.
     if not name:
         return None
-    if name in DEMO_HOSPITAL_PHONES:
-        return DEMO_HOSPITAL_PHONES[name]
-    for key, phone in DEMO_HOSPITAL_PHONES.items():
-        if key.lower() in name.lower() or name.lower() in key.lower():
-            return phone
-    return "+91 80 0000 0000"
+    return _DEMO_PHONES_BY_KEY.get(_phone_key(name))
 
 
 def _mark_failed(incident_id: str, exc: Exception) -> None:
@@ -333,6 +339,14 @@ async def approve_incident(incident_id: str, payload: ApprovePayload):
         for inc in ACTIVE_INCIDENTS:
             if inc["incident_id"] != incident_id:
                 continue
+
+            # A rejected or finished incident must not be dispatched from a
+            # stale dispatcher tab.
+            if inc.get("status") in ("failed", "completed"):
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Cannot approve {incident_id}: status is '{inc.get('status')}'.",
+                )
 
             action_plan = inc.get("action_plan") or {}
             all_hospitals = action_plan.get("all_hospitals") or []

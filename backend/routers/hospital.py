@@ -14,7 +14,7 @@ import logging
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from agents.hospital_intelligence import hospital_agent
+from agents.hospital_intelligence import NoHospitalCandidatesError, hospital_agent
 from models.schemas import HospitalRankingResponse, HospitalRequest
 from routers.incident import ACTIVE_INCIDENTS
 
@@ -49,8 +49,10 @@ async def rank_hospitals(request: HospitalRequest) -> HospitalRankingResponse:
     Never ranks by distance alone — this is the agent's core
     differentiator.
     """
-    result = await hospital_agent.publish_ranking(request)
-    return result
+    try:
+        return await hospital_agent.publish_ranking(request)
+    except NoHospitalCandidatesError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @router.get(

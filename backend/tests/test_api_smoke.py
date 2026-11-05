@@ -219,6 +219,85 @@ def test_safe_frontend_file_stays_inside_dist(tmp_path):
     assert _safe_frontend_file("missing.js", dist) is None
 
 
+def test_unmatched_api_path_is_404_not_the_spa(tmp_path):
+    from fastapi import FastAPI
+
+    from main import _mount_frontend
+
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "index.html").write_text("<html>app</html>", encoding="utf-8")
+    spa = FastAPI()
+    _mount_frontend(spa, dist)
+    c = TestClient(spa)
+
+    assert c.get("/api/does-not-exist").status_code == 404
+    assert c.get("/api").status_code == 404
+    page = c.get("/dispatcher")
+    assert page.status_code == 200
+    assert "app" in page.text
+
+
+def test_hospital_phone_needs_an_exact_name():
+    phone = incident_router._hospital_phone
+    assert phone("NIMHANS") == "+91 80 2699 5000"
+    assert phone("st johns medical college hospital") == "+91 80 2206 5000"
+    # A partial name could be a different branch, and an unknown one has no number.
+    assert phone("Manipal Hospital") is None
+    assert phone("Some Clinic") is None
+    assert phone(None) is None
+
+
+@pytest.mark.parametrize("status", ["failed", "completed"])
+def test_terminal_incident_cannot_be_approved(client, status):
+    incident_router.ACTIVE_INCIDENTS.append(
+        {"incident_id": "INC-done", "status": status, "error": "Rejected by dispatcher"}
+    )
+    res = client.post(
+        "/api/incidents/INC-done/approve",
+        json={"dispatcher_id": "D-2", "approved_hospital": "HOSP-AUTO", "approved_route": "R"},
+    )
+    assert res.status_code == 409
+    inc = incident_router.ACTIVE_INCIDENTS[0]
+    assert inc["status"] == status
+    assert "assigned_driver" not in inc
+
+
+def test_hospital_ranking_with_no_candidates_is_503(client):
+    from agents.hospital_intelligence import hospital_agent
+
+    with patch.object(hospital_agent, "_fetch_live_hospitals", new=AsyncMock(return_value=[])):
+        res = client.post(
+            "/api/hospital/rank",
+            json={"incident_location": {"lat": 12.97, "lng": 77.59}, "emergency_type": "cardiac"},
+        )
+    assert res.status_code == 503
+    assert "No candidate hospitals" in res.json()["detail"]
+
+
+def test_empty_google_polyline_uses_the_offline_router():
+    from agents.route_optimization import route_agent
+    from models.schemas import Coordinate, RouteRequest
+
+    request = RouteRequest(
+        origin=Coordinate(lat=12.97, lng=77.59), destination=Coordinate(lat=12.93, lng=77.62)
+    )
+    google = MagicMock()
+    google.json.return_value = {
+        "routes": [{"duration": "300s", "distanceMeters": 2000, "polyline": {}}]
+    }
+    client_cm = MagicMock()
+    client_cm.__enter__.return_value.post.return_value = google
+    with (
+        patch.object(route_agent, "api_key", "test-key"),
+        patch.object(route_agent, "_cache_get", return_value=None),
+        patch("agents.route_optimization.httpx.Client", return_value=client_cm),
+        patch.object(route_agent, "_local_route", return_value="offline") as local,
+    ):
+        assert route_agent.compute_route(request) == "offline"
+    assert local.call_args.kwargs["reason"] == "Google Routes returned an empty polyline"
+
+
 def test_startup_survives_missing_offline_graph():
     # prediction_agent used to be imported only on the offline-graph path,
     # so startup raised UnboundLocalError when the graph was missing.
