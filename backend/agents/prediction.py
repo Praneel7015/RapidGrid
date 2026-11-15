@@ -14,6 +14,7 @@ import httpx
 from typing import Optional
 
 from bus.event_bus import PREDICTION_UPDATE, TRAFFIC_UPDATE, bus
+from logsafe import log_safe
 from models.schemas import (
     DataFreshness,
     Event,
@@ -78,7 +79,7 @@ class PredictionAgent:
                             # Apply delay multiplier if it's raining (common in Bengaluru)
                             if weather_condition in ["Rain", "Thunderstorm", "Drizzle"]:
                                 weather_delay_s = route.eta * 0.25 # 25% delay
-                                logger.info(f"Detected Rain in Bengaluru! Adding {weather_delay_s:.0f}s to ETA.")
+                                logger.info("Detected Rain in Bengaluru! Adding %ss to ETA.", log_safe(f"{weather_delay_s:.0f}"))
             except Exception as e:
                 logger.error("Weather API failed: %s", type(e).__name__)
 
