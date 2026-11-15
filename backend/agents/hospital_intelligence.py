@@ -4,6 +4,8 @@ Hospital Intelligence Agent for GeoAgentic (Live Overpass API).
 
 from __future__ import annotations
 
+import asyncio
+
 import json
 import logging
 import math
@@ -679,7 +681,7 @@ class HospitalIntelligenceAgent:
         # every candidate would take ~45s, so only the shortlist is upgraded.
         # ------------------------------------------------------------------
         shortlist = entries[:_ROAD_ETA_SHORTLIST]
-        upgraded = self._rerank_on_road_eta(
+        upgraded = await asyncio.to_thread(self._rerank_on_road_eta,
             shortlist, request.incident_location, weights,
         )
 

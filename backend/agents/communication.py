@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from datetime import datetime
 
 from bus.event_bus import COMMUNICATION_DISPATCHED, FUSION_COMPLETE, bus
@@ -50,8 +51,10 @@ class CommunicationAgent:
 
     async def dispatch_plan(self, request: CommunicationRequest) -> CommunicationResponse:
         """
-        Dispatches notifications concurrently. 
-        Mocked to force one channel to fail to prove non-blocking behaviour.
+        Simulate concurrent notifications; never claim external delivery.
+
+        RAPIDGRID_SIMULATE_SMS_FAILURE=1 demonstrates a channel failure while
+        the other channels finish. Normal showcases do not force an outage.
         """
         plan = request.action_plan
         hospital_id = "Unknown Hospital"
@@ -64,7 +67,7 @@ class CommunicationAgent:
             self._notify_hospital(hospital_id),
             self._notify_driver(),
             self._notify_traffic_control(),
-            self._notify_family()  # This one is set up to fail
+            self._notify_family()
         ]
 
         # Use return_exceptions=True so a single failure doesn't crash the gather
@@ -95,7 +98,8 @@ class CommunicationAgent:
         response = CommunicationResponse(
             receipts=receipts,
             overall_status=overall_status,
-            data_freshness=DataFreshness.LIVE
+            data_freshness=DataFreshness.LIVE,
+            simulated=True,
         )
 
         # Publish the delivery receipts back to the bus
@@ -113,7 +117,7 @@ class CommunicationAgent:
         return DeliveryReceipt(
             recipient=f"{hospital_id} ER Desk",
             channel=CommunicationChannel.HOSPITAL_API,
-            status="delivered"
+            status="simulated"
         )
 
     async def _notify_driver(self) -> DeliveryReceipt:
@@ -122,7 +126,7 @@ class CommunicationAgent:
         return DeliveryReceipt(
             recipient="Ambulance Driver",
             channel=CommunicationChannel.APP_PUSH,
-            status="delivered"
+            status="simulated"
         )
 
     async def _notify_traffic_control(self) -> DeliveryReceipt:
@@ -131,18 +135,18 @@ class CommunicationAgent:
         return DeliveryReceipt(
             recipient="City Traffic Control",
             channel=CommunicationChannel.TRAFFIC_CONTROL,
-            status="delivered"
+            status="simulated"
         )
 
     async def _notify_family(self) -> DeliveryReceipt:
-        """Mock sending an SMS to the patient's emergency contact, FORCED TO FAIL."""
+        """Simulate SMS, optionally exercising the explicit outage scenario."""
         await asyncio.sleep(0.2)
-        # Mocking an SMS gateway timeout/failure
+        fail = os.getenv("RAPIDGRID_SIMULATE_SMS_FAILURE", "0") == "1"
         return DeliveryReceipt(
             recipient="Patient's Emergency Contact",
             channel=CommunicationChannel.SMS,
-            status="failed",
-            error_message="SMS Gateway Timeout (504 Gateway Time-out)"
+            status="failed" if fail else "simulated",
+            error_message="Simulated SMS gateway timeout (demo scenario)" if fail else None
         )
 
 

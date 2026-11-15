@@ -29,8 +29,15 @@ import {
 export default function HospitalDashboard() {
   const { hospitalInfo } = useAuth();
   const [incoming, setIncoming] = useState([]);
-  const [icuOpen, setIcuOpen] = useState(true);
-  const [acknowledged, setAcknowledged] = useState({});
+  const [icuOpen, setIcuOpen] = useState(null);
+  const ackKey = `rapidgrid_ack_${hospitalInfo?.id ?? 'all'}`;
+  const [acknowledged, setAcknowledged] = useState(() => {
+    try { return JSON.parse(sessionStorage.getItem(ackKey)) || {}; } catch { return {}; }
+  });
+  useEffect(() => { sessionStorage.setItem(ackKey, JSON.stringify(acknowledged)); }, [ackKey, acknowledged]);
+  const [saving, setSaving] = useState(false);
+  const [capacityError, setCapacityError] = useState(null);
+  const capacityRequest = React.useRef(false);
   const [openThread, setOpenThread] = useState(null);
   const [conn, setConn] = useState('ok');
 
@@ -53,7 +60,7 @@ export default function HospitalDashboard() {
             const hRes = await fetch(`/api/hospital/${id}`);
             if (hRes.ok) {
               const hData = await hRes.json();
-              setIcuOpen(hData.icu_available > 0);
+              if (!cancelled && !capacityRequest.current) setIcuOpen(hData.icu_available > 0);
             }
           } catch { /* non-critical — keep UI value */ }
         }
@@ -67,16 +74,24 @@ export default function HospitalDashboard() {
   }, [hospitalInfo]);
 
   const setCapacity = async (open) => {
-    setIcuOpen(open);
+    if (capacityRequest.current || !hospitalInfo?.id || hospitalInfo.id === 'all') return;
+    capacityRequest.current = true;
+    setSaving(true);
+    setCapacityError(null);
     try {
-      const id = hospitalInfo?.id || 'all';
-      await fetch(`/api/hospital/${id}/resources`, {
+      const res = await fetch(`/api/hospital/${hospitalInfo.id}/resources`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ icu_available: open }),
       });
-    } catch {
-      setConn('down');
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(typeof data.detail === 'string' ? data.detail : `Capacity update failed (HTTP ${res.status})`);
+      setIcuOpen(data.icu_available != null ? data.icu_available > 0 : open);
+    } catch (err) {
+      setCapacityError(err.message || 'Capacity was not saved. Try again.');
+    } finally {
+      capacityRequest.current = false;
+      setSaving(false);
     }
   };
 
@@ -107,14 +122,16 @@ export default function HospitalDashboard() {
             />
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <ConnectionState status={conn} />
-            <div className="flex items-center gap-2 rounded-sm border border-rule-ink bg-ink-raised px-3 py-2">
+            <div className="flex flex-wrap items-center gap-2 rounded-sm border border-rule-ink bg-ink-raised px-3 py-2">
               <BedDouble size={14} className="text-on-ink-muted" />
               <span className="eyebrow eyebrow-ink">ICU capacity</span>
               <div className="flex overflow-hidden rounded-xs border border-rule-ink">
                 <button
                   onClick={() => setCapacity(true)}
+                  disabled={saving || icuOpen === null || !hospitalInfo?.id || hospitalInfo.id === 'all'}
+                  aria-pressed={icuOpen === true}
                   className={`tap px-3 py-2.5 t-tag transition-colors lg:px-2.5 lg:py-1 ${
                     icuOpen ? 'bg-signal text-ink' : 'bg-transparent text-on-ink-muted'
                   }`}
@@ -123,8 +140,10 @@ export default function HospitalDashboard() {
                 </button>
                 <button
                   onClick={() => setCapacity(false)}
+                  disabled={saving || icuOpen === null || !hospitalInfo?.id || hospitalInfo.id === 'all'}
+                  aria-pressed={icuOpen === false}
                   className={`tap px-3 py-2.5 t-tag transition-colors lg:px-2.5 lg:py-1 ${
-                    !icuOpen ? 'bg-critical text-white' : 'bg-transparent text-on-ink-muted'
+                    icuOpen === false ? 'bg-critical text-white' : 'bg-transparent text-on-ink-muted'
                   }`}
                 >
                   On divert
@@ -133,7 +152,7 @@ export default function HospitalDashboard() {
             </div>
           </div>
         </div>
-        {!icuOpen && (
+        {icuOpen === false && (
           <div className="border-t border-rule-ink bg-critical px-5 py-2">
             <p className="t-tag text-white">
               On divert — routing will send new critical cases elsewhere
@@ -142,6 +161,9 @@ export default function HospitalDashboard() {
         )}
       </Panel>
 
+      {(!hospitalInfo?.id || hospitalInfo.id === 'all') && <p className="text-xs text-text-muted">Select a specific facility from the portal sign-in to change capacity.</p>}
+      {saving && <p role="status" className="text-xs text-text-muted">Saving capacity…</p>}
+      {capacityError && <p role="alert" className="text-sm text-critical">{capacityError}</p>}
       <Panel>
         <PanelHead
           label={`Inbound · ${incoming.length}`}
@@ -201,7 +223,7 @@ export default function HospitalDashboard() {
                         </div>
                         {ack ? (
                           <span className="inline-flex items-center gap-1.5 rounded-xs border border-ink px-2.5 py-1.5 t-tag text-text">
-                            <Check size={12} /> Bay ready
+                            <Check size={12} /> Acknowledged on this device
                           </span>
                         ) : (
                           <Button
@@ -210,7 +232,7 @@ export default function HospitalDashboard() {
                               setAcknowledged((p) => ({ ...p, [c.incident_id]: true }))
                             }
                           >
-                            Acknowledge
+                            Acknowledge locally
                           </Button>
                         )}
                       </div>

@@ -22,6 +22,8 @@ export default function SharedShell({ children }) {
   const navigate = useNavigate();
   const [health, setHealth] = useState(null);
   const [reachable, setReachable] = useState(true);
+  const [logoutError, setLogoutError] = useState(null);
+  const [loggingOut, setLoggingOut] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -59,18 +61,20 @@ export default function SharedShell({ children }) {
     sub = meta.sub;
   }
 
-  const status = health?.status;
-  const live = status === 'healthy' && health?.routing?.live_api_key_configured;
-  const degraded = status === 'degraded' || (reachable && health?.routing && !health.routing.live_api_key_configured);
-  const tier = health === null
-    ? { label: 'Connecting…', tone: 'warn' }
-    : !reachable || status === 'unhealthy'
-      ? { label: 'Backend offline', tone: 'bad' }
-      : degraded
-        ? { label: 'Offline A*', tone: 'warn' }
-        : live
-          ? { label: 'Live routing', tone: 'ok' }
-          : { label: 'Backend online', tone: 'warn' };
+  const source = health?.routing?.active_source;
+  const tier = !reachable || health?.status === 'unhealthy'
+    ? { label: 'Backend offline', tone: 'bad' }
+    : health === null
+      ? { label: 'Connecting…', tone: 'warn' }
+      : source === 'live'
+        ? { label: 'Live routing available', tone: 'ok' }
+        : source === 'live_cache'
+          ? { label: 'Cached routing', tone: 'warn' }
+          : source === 'offline_graph'
+            ? { label: 'Offline A* available', tone: 'warn' }
+            : source === 'unavailable'
+              ? { label: 'Routing unavailable', tone: 'bad' }
+              : { label: 'Routing unverified', tone: 'warn' };
 
   const tones = {
     ok: 'tier-live',
@@ -113,9 +117,20 @@ export default function SharedShell({ children }) {
               {tier.label}
             </span>
             <button
-              onClick={() => {
-                logout();
-                navigate('/', { replace: true });
+              aria-label="Sign out"
+              disabled={loggingOut}
+              onClick={async () => {
+                setLoggingOut(true);
+                setLogoutError(null);
+                try {
+                  const res = await fetch('/api/session', { method: 'DELETE' });
+                  if (!res.ok) throw new Error();
+                  logout();
+                  navigate('/', { replace: true });
+                  window.dispatchEvent(new Event('rapidgrid-session-changed'));
+                } catch {
+                  setLogoutError('Sign out failed. Your showcase session is still open. Try again.');
+                } finally { setLoggingOut(false); }
               }}
               className="tap inline-flex items-center gap-1.5 rounded-sm border border-rule-ink bg-transparent px-3 py-2.5 t-tag text-on-ink transition-colors hover:border-signal hover:text-signal lg:py-1.5"
             >
@@ -126,7 +141,9 @@ export default function SharedShell({ children }) {
         </div>
       </header>
 
-      <main className="flex-1">{children}</main>
+      {logoutError && <p role="alert" className="bg-critical-wash px-4 py-2 text-sm text-critical">{logoutError}</p>}
+      <p className="border-b border-rule bg-paper-sunk px-4 py-1.5 text-center text-[11px] text-text-muted">Demonstration only · Shared role access · Simulated fleet and bed counts · For real emergencies call 112</p>
+      <main className="min-w-0 flex-1">{children}</main>
     </div>
   );
 }

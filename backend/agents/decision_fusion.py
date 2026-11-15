@@ -24,6 +24,8 @@ single opaque score with no per-agent breakdown in the output.
 
 from __future__ import annotations
 
+import asyncio
+
 import logging
 import uuid
 from typing import Any
@@ -180,7 +182,7 @@ class DecisionFusionEngine:
             destination=destination_node,
             vehicle_type=request.vehicle_type,
         )
-        route_result = route_agent.compute_route(route_request)
+        route_result = await asyncio.to_thread(route_agent.compute_route, route_request)
 
         # Track this route in the Prediction Agent to receive live ETA updates
         prediction_agent.track_route(route_result)

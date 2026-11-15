@@ -584,7 +584,7 @@ class DeliveryReceipt(BaseModel):
     """Receipt for a single notification dispatch."""
     recipient: str = Field(..., description="E.g., 'Hospital ER', 'Driver', 'Family'")
     channel: CommunicationChannel
-    status: str = Field(..., description="'delivered', 'failed', 'pending'")
+    status: str = Field(..., description="'delivered', 'failed', 'pending', or 'simulated'")
     timestamp: datetime = Field(default_factory=datetime.utcnow)
     error_message: Optional[str] = None
 
@@ -599,6 +599,7 @@ class CommunicationResponse(BaseModel):
     receipts: list[DeliveryReceipt]
     overall_status: str = Field(..., description="E.g., 'completed_with_errors', 'success'")
     data_freshness: DataFreshness = DataFreshness.LIVE
+    simulated: bool = Field(default=False, description="True when no external delivery was attempted")
 
 
 # ---------------------------------------------------------------------------

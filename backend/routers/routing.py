@@ -8,6 +8,8 @@ Endpoints:
 
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, HTTPException
 
 from agents.route_optimization import route_agent
@@ -36,7 +38,7 @@ async def compute_route(request: RouteRequest) -> RouteResponse:
     (e.g. "N1" for Incident Site, "N5" for Hospital Gate).
     """
     try:
-        route = route_agent.compute_route(request)
+        route = await asyncio.to_thread(route_agent.compute_route, request)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except RuntimeError as exc:

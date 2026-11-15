@@ -6,4 +6,11 @@ backend/.env
 **/.env
 **/__pycache__
 **/*.pyc
+**/*.sqlite3
+**/*.sqlite3-*
+backend/data/incidents_db.json
+backend/data/.osm_healthcare_cache.json
+test-results
+.pytest_cache
+tests
 temp

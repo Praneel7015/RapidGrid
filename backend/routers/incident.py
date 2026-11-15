@@ -35,36 +35,40 @@ _INCIDENTS_LOCK: asyncio.Lock = asyncio.Lock()
 import json
 from pathlib import Path
 
-DB_FILE = Path(__file__).parent.parent / "data" / "incidents_db.json"
+from storage import data_path, load_collection, save_collection
+
+_LEGACY_DB_FILE = Path(__file__).parent.parent / "data" / "incidents_db.json"
+DB_FILE = _LEGACY_DB_FILE
+
+
+def persistence_path() -> Path:
+    # Keep explicit per-test / legacy path overrides isolated from real state.
+    return DB_FILE.with_suffix(".sqlite3") if DB_FILE != _LEGACY_DB_FILE else data_path()
+
 
 def save_db():
-    try:
-        DB_FILE.parent.mkdir(parents=True, exist_ok=True)
-        with open(DB_FILE, "w", encoding="utf-8") as f:
-            json.dump(ACTIVE_INCIDENTS, f, indent=2)
-    except Exception as e:
-        print("DB save error:", e)
+    # Let write failures surface instead of claiming an unpersisted transition
+    # succeeded. SQLite commits the snapshot atomically.
+    save_collection("incidents", ACTIVE_INCIDENTS, database=persistence_path())
+
 
 def load_db():
-    global ACTIVE_INCIDENTS
-    # NOTE: load_db() is called once at module import (see below).  If
-    # incidents_db.json contains incidents with status "failed", "processing",
-    # or "dispatched" from a previous server run, those records will be restored
-    # into ACTIVE_INCIDENTS and re-surfaced to citizens on the next server
-    # restart.  This is intentional for "dispatched" incidents (they are still
-    # live), but stale "failed" or "processing" incidents from a crashed run
-    # will appear valid until they time out or are explicitly cleared.
-    # To avoid ghost incidents after a crash, consider filtering on load:
-    #   data = [i for i in data if i.get("status") not in {"failed", "processing"}]
-    try:
-        if DB_FILE.exists():
-            with open(DB_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                if isinstance(data, list):
-                    ACTIVE_INCIDENTS.clear()
-                    ACTIVE_INCIDENTS.extend(data)
-    except Exception as e:
-        print("DB load error:", e)
+    data = load_collection("incidents", None, database=persistence_path())
+    if data is None:
+        # One-time migration; the legacy JSON remains available for rollback.
+        legacy = DB_FILE if DB_FILE != _LEGACY_DB_FILE else persistence_path().parent / "incidents_db.json"
+        data = json.loads(legacy.read_text(encoding="utf-8")) if legacy.exists() else []
+    if not isinstance(data, list):
+        raise RuntimeError("Stored incidents must be a list")
+    ACTIVE_INCIDENTS.clear()
+    ACTIVE_INCIDENTS.extend(data)
+    # An in-process task cannot survive a restart. Fail interrupted reports
+    # visibly so a citizen can retry instead of polling forever.
+    for incident in ACTIVE_INCIDENTS:
+        if incident.get("status") == "processing":
+            incident["status"] = "failed"
+            incident["error"] = "Processing was interrupted by a server restart. Please submit again."
+    save_db()
 
 load_db()
 
@@ -145,7 +149,7 @@ async def run_pipeline(incident_id: str, payload: IncidentReportPayload):
         async with _INCIDENTS_LOCK:
             found = False
             for inc in ACTIVE_INCIDENTS:
-                if inc["incident_id"] == incident_id:
+                if inc["incident_id"] == incident_id and inc.get("status") == "processing":
                     inc["emergency_type"] = access_res.incident_report.incident_type.value
                     inc["severity"] = access_res.incident_report.severity_estimate
                     inc["details"] = access_res.incident_report.extracted_details
@@ -178,18 +182,17 @@ async def run_pipeline(incident_id: str, payload: IncidentReportPayload):
         hospital_phone = _hospital_phone(hosp.name)
 
         try:
-            p1_route = route_agent.compute_route(RouteRequest(
+            p1_route = await asyncio.to_thread(route_agent.compute_route, RouteRequest(
                 origin=Coordinate(lat=nearest_hub["lat"], lng=nearest_hub["lng"]),
                 destination=payload.location
             ))
+            if p1_route.confidence <= 0 or len(p1_route.coordinates) < 2:
+                raise ValueError("No usable hub-to-patient route")
             p1_coords = [{"lat": c.lat, "lng": c.lng} for c in p1_route.coordinates]
             p1_eta = max(1, int(p1_route.eta // 60))
         except Exception:
-            p1_coords = [
-                {"lat": nearest_hub["lat"], "lng": nearest_hub["lng"]},
-                {"lat": payload.location.lat, "lng": payload.location.lng},
-            ]
-            p1_eta = 5
+            p1_coords = []
+            p1_eta = None
 
         route_coords = [
             {"lat": c.lat, "lng": c.lng}
@@ -211,6 +214,7 @@ async def run_pipeline(incident_id: str, payload: IncidentReportPayload):
             "phase1_hub": nearest_hub,
             "phase1_route_coordinates": p1_coords,
             "phase1_eta_minutes": p1_eta,
+            "phase1_route_degraded": p1_eta is None,
             "distance_meters": fusion_res.recommended_route.distance,
             "emergency_type": access_res.incident_report.incident_type.value,
             "severity": access_res.incident_report.severity_estimate,
@@ -221,7 +225,7 @@ async def run_pipeline(incident_id: str, payload: IncidentReportPayload):
         async with _INCIDENTS_LOCK:
             found = False
             for inc in ACTIVE_INCIDENTS:
-                if inc["incident_id"] == incident_id:
+                if inc["incident_id"] == incident_id and inc.get("status") == "processing":
                     # Write action_plan, citizen_view, and status atomically
                     # inside the lock so no reader ever sees action_plan without
                     # citizen_view, or a "awaiting_dispatcher_approval" status
@@ -243,7 +247,7 @@ async def run_pipeline(incident_id: str, payload: IncidentReportPayload):
 @router.post("")
 async def report_incident(payload: IncidentReportPayload, response: Response):
     """Step 1 - Citizen raises emergency. Returns 202 immediately."""
-    incident_id = f"INC-{uuid.uuid4().hex[:4]}"
+    incident_id = f"INC-{uuid.uuid4().hex}"
     
     incident = {
         "incident_id": incident_id,
@@ -293,115 +297,57 @@ async def get_all_incidents():
 
 @router.post("/{incident_id}/approve")
 async def approve_incident(incident_id: str, payload: ApprovePayload):
-    """Step 4 - Dispatcher approves the AI plan, or overrides the hospital."""
+    """Approve a reviewed destination without allowing terminal cases to rewind."""
+    from routers.driver import _route
+    from routers.hospital import _resolve
+    from agents.hospital_intelligence import hospital_agent
 
     async with _INCIDENTS_LOCK:
-        for inc in ACTIVE_INCIDENTS:
-            if inc["incident_id"] != incident_id:
-                continue
-
-            action_plan = inc.get("action_plan") or {}
-            all_hospitals = action_plan.get("all_hospitals") or []
-
-            # Resolve the approved hospital by id or name.
-            target_hosp = None
-            for h in all_hospitals:
-                h_dict = h if isinstance(h, dict) else h.model_dump()
-                if payload.approved_hospital in (
-                    h_dict.get("hospital_id"), h_dict.get("name")
-                ):
-                    target_hosp = h_dict
-                    break
-
-        # BUG: the dispatcher UI sends sentinel ids ('HOSP-DEFAULT', 'HOSP-AUTO')
-        # whenever the plan is still loading, and the old code then dereferenced
-        # target_hosp=None -> HTTP 500. Fall back to the AI recommendation.
-            if target_hosp is None:
-                recommended = action_plan.get("recommended_hospital")
-                if isinstance(recommended, dict):
-                    target_hosp = recommended
-                    logger.warning(
-                        "Approve for %s: '%s' not in candidate list — falling back "
-                        "to the recommended hospital '%s'.",
-                        incident_id, payload.approved_hospital,
-                        target_hosp.get("name"),
-                    )
-                else:
-                    raise HTTPException(
-                        status_code=409,
-                        detail=(
-                            f"Cannot approve {incident_id}: no action plan is ready "
-                            f"yet and '{payload.approved_hospital}' matched no "
-                            f"candidate hospital."
-                        ),
-                    )
-
-            inc["status"] = "dispatched"
-            inc["assigned_driver"] = "drv-11"
-            inc["dispatcher_id"] = payload.dispatcher_id
-
-            hosp_loc = target_hosp.get("location") or {}
-            hosp_lat = hosp_loc.get("lat") or 12.9716
-            hosp_lng = hosp_loc.get("lng") or 77.5946
-
-            cit_loc = inc.get("location") or {}
-            cit_lat = cit_loc.get("lat") or 12.9756
-            cit_lng = cit_loc.get("lng") or 77.6068
-
-            # Recompute Phase 2 (citizen -> approved hospital).
-            route_ok = True
-            try:
-                new_route = route_agent.compute_route(RouteRequest(
-                    origin=Coordinate(lat=cit_lat, lng=cit_lng),
-                    destination=Coordinate(lat=hosp_lat, lng=hosp_lng),
-                ))
-                route_ok = new_route.confidence > 0 and len(new_route.coordinates) >= 2
-                new_coords = [{"lat": c.lat, "lng": c.lng} for c in new_route.coordinates]
-                eta_mins = max(1, int(new_route.eta // 60))
-                dist_meters = new_route.distance
-            except Exception:
-                logger.exception("Re-route failed for %s", incident_id)
-                route_ok = False
-                new_coords = [
-                    {"lat": cit_lat, "lng": cit_lng},
-                    {"lat": hosp_lat, "lng": hosp_lng},
-                ]
-                eta_mins = 0
-                dist_meters = 0.0
-
-            # MERGE into citizen_view rather than replacing it.
-            hospital_phone = _hospital_phone(target_hosp.get("name"))
-            unit_phone = inc.get("unit_phone") or DEMO_UNIT_PHONE
-            citizen_view = dict(inc.get("citizen_view") or {})
-            citizen_view.update({
-                "message": f"Help is being dispatched. Approved Hospital: {target_hosp.get('name')}.",
-                "eta_minutes": eta_mins,
-                "hospital_name": target_hosp.get("name"),
-                "hospital_location": {"lat": hosp_lat, "lng": hosp_lng},
-                "hospital_phone": hospital_phone,
-                "unit_phone": unit_phone,
-                "origin": {"lat": cit_lat, "lng": cit_lng},
-                "route_coordinates": new_coords,
-                "distance_meters": dist_meters,
-                "emergency_type": inc.get("emergency_type", "General"),
-                "severity": inc.get("severity", 0.5),
-                "route_degraded": not route_ok,
-            })
-            inc["hospital_phone"] = hospital_phone
-            inc["unit_phone"] = unit_phone
-            inc["citizen_view"] = citizen_view
-
-            # Persist AFTER the view is built, not before.
-            save_db()
-
-            logger.info(
-                "PLAN_APPROVED for %s by %s: hospital=%s, ETA=%dmin%s",
-                incident_id, payload.dispatcher_id, target_hosp.get("name"),
-                eta_mins, "" if route_ok else " (ROUTE DEGRADED)",
-            )
-            return inc
-
-    raise HTTPException(status_code=404, detail="Incident not found")
+        inc = next((i for i in ACTIVE_INCIDENTS if i["incident_id"] == incident_id), None)
+        if inc is None:
+            raise HTTPException(status_code=404, detail="Incident not found")
+        if inc.get("status") != "awaiting_dispatcher_approval":
+            raise HTTPException(status_code=409, detail="Only a report awaiting approval can be dispatched")
+        plan = inc.get("action_plan") or {}
+        candidates = plan.get("all_hospitals") or []
+        target = next((h for h in candidates if payload.approved_hospital in {h.get("hospital_id"), h.get("name")}), None)
+        recommended = plan.get("recommended_hospital") or {}
+        if target is None and payload.approved_hospital in {recommended.get("hospital_id"), recommended.get("name")}:
+            target = recommended
+        if not target or not target.get("location"):
+            raise HTTPException(status_code=422, detail="Choose a hospital from the reviewed plan")
+        canonical = _resolve(str(target.get("hospital_id", ""))) or _resolve(target["name"])
+        if canonical in hospital_agent.diverted:
+            raise HTTPException(status_code=409, detail="That hospital is on divert; select another destination")
+        origin = dict(inc["location"])
+        destination = dict(target["location"])
+    # Network I/O does not hold the incident lock or block the event loop.
+    route = await _route(origin, destination)
+    async with _INCIDENTS_LOCK:
+        inc = next((i for i in ACTIVE_INCIDENTS if i["incident_id"] == incident_id), None)
+        if inc is None or inc.get("status") != "awaiting_dispatcher_approval":
+            raise HTTPException(status_code=409, detail="The incident changed while routing; refresh the call")
+        if canonical in hospital_agent.diverted:
+            raise HTTPException(status_code=409, detail="The hospital went on divert; select another destination")
+        view = dict(inc.get("citizen_view") or {})
+        view.update(route)
+        view.update({
+            "status": "dispatched",
+            "message": f"Help is being dispatched. Approved Hospital: {target['name']}.",
+            "hospital_name": target["name"], "hospital_location": destination,
+            "hospital_phone": _hospital_phone(target["name"]),
+            "unit_phone": inc.get("unit_phone") or DEMO_UNIT_PHONE,
+            "origin": origin, "emergency_type": inc.get("emergency_type", "general"),
+            "severity": inc.get("severity", 0.5),
+        })
+        inc.update({"status": "dispatched", "driver_stage": "pickup", "dispatcher_id": payload.dispatcher_id,
+                    "approved_hospital_id": canonical or target.get("hospital_id"),
+                    "hospital_phone": view["hospital_phone"], "citizen_view": view})
+        inc["unit_statuses"] = {unit: "dispatched" for unit in required_units(inc)}
+        view["unit_statuses"] = inc["unit_statuses"]
+        save_db()
+        logger.info("PLAN_APPROVED for %s by %s: hospital=%s", incident_id, payload.dispatcher_id, target["name"])
+        return inc
 
 
 @router.post("/{incident_id}/reject")
@@ -427,50 +373,75 @@ async def reject_incident(incident_id: str, dispatcher_id: str = "DISPATCHER-01"
     raise HTTPException(status_code=404, detail="Incident not found")
 
 
+def required_units(incident: dict) -> set[str]:
+    return {"primary", "ambulance"} if incident.get("include_ambulance_backup") else {"primary"}
+
+
+def unit_statuses(incident: dict) -> dict:
+    """Read legacy records while keeping primary and backup progress separate."""
+    medical = (incident.get("vehicle_required") or "Ambulance") in {"Ambulance", "Medical"}
+    primary = "patient_picked_up" if incident.get("status") == "patient_picked_up" and medical else "dispatched"
+    defaults = {unit: "dispatched" for unit in required_units(incident)}
+    defaults["primary"] = primary
+    if incident.get("status") == "completed":
+        defaults = {unit: "arrived" for unit in required_units(incident)}
+    return {**defaults, **incident.get("unit_statuses", {})}
+
+
 @router.post("/{incident_id}/arrived")
 async def incident_arrived(incident_id: str, unit_type: str = "primary"):
-    """Step 5 - Driver arrives for specific unit (primary vs ambulance)."""
-    for inc in ACTIVE_INCIDENTS:
-        if inc["incident_id"] == incident_id:
-            unit_statuses = inc.get("unit_statuses") or {"primary": "dispatched", "ambulance": "dispatched"}
-            unit_statuses[unit_type] = "arrived"
-            inc["unit_statuses"] = unit_statuses
-            
-            # If primary unit arrived or both arrived, set main incident status to completed
-            if unit_statuses.get("primary") == "arrived":
-                inc["status"] = "completed"
-            
+    """Record each unit independently; finish only when all required units arrive."""
+    if unit_type not in {"primary", "ambulance"}:
+        raise HTTPException(status_code=422, detail="Unknown unit type")
+    async with _INCIDENTS_LOCK:
+        for inc in ACTIVE_INCIDENTS:
+            if inc["incident_id"] != incident_id:
+                continue
+            if unit_type not in required_units(inc):
+                raise HTTPException(status_code=409, detail="No backup ambulance is assigned")
+            states = unit_statuses(inc)
+            if inc.get("status") not in {"dispatched", "patient_picked_up", "completed"}:
+                raise HTTPException(status_code=409, detail="Dispatcher approval is required before arrival")
+            medical = unit_type == "ambulance" or (inc.get("vehicle_required") or "Ambulance") in {"Ambulance", "Medical"}
+            if states[unit_type] != "arrived" and medical and states[unit_type] != "patient_picked_up":
+                raise HTTPException(status_code=409, detail="Pickup must be confirmed before medical handover")
+            states[unit_type] = "arrived"
+            inc["unit_statuses"] = states
+            complete = all(states.get(unit) == "arrived" for unit in required_units(inc))
+            inc["status"] = "completed" if complete else ("patient_picked_up" if "patient_picked_up" in states.values() else "dispatched")
+            inc["driver_stage"] = "completed" if complete else ("hospital" if inc["status"] == "patient_picked_up" else "pickup")
             if "citizen_view" in inc:
-                inc["citizen_view"]["unit_statuses"] = unit_statuses
-                if inc["status"] == "completed":
-                    inc["citizen_view"]["status"] = "completed"
-                    
+                inc["citizen_view"]["unit_statuses"] = states
+                inc["citizen_view"]["status"] = inc["status"]
             save_db()
-            return {"status": "arrived", "unit_type": unit_type, "unit_statuses": unit_statuses, "incident_status": inc["status"]}
+            return {"status": "arrived", "unit_type": unit_type, "unit_statuses": states, "incident_status": inc["status"]}
     raise HTTPException(status_code=404, detail="Incident not found")
 
 
 @router.post("/clear")
 async def clear_incidents():
-    # SECURITY NOTE: This endpoint has NO authentication guard.  Any caller
-    # with network access can wipe all live incidents.  In production this
-    # must be protected by at minimum an internal-network restriction or an
-    # API-key / operator-role check.  Auth is out of scope for this sprint —
-    # do NOT ship this endpoint to a public-facing deployment without adding it.
+    # The application middleware requires operator access for this bulk action,
+    # including when the rest of the service runs in synthetic-data demo mode.
     async with _INCIDENTS_LOCK:
         ACTIVE_INCIDENTS.clear()
         save_db()
     # Also clear chat history so old messages don't surface on new incidents with the same ID.
     from routers.chat import manager
-    manager.chat_history.clear()
+    manager.clear_history()
     return {"status": "cleared"}
 @router.post("/{incident_id}/request_ambulance")
 async def request_ambulance_backup(incident_id: str):
-    for inc in ACTIVE_INCIDENTS:
-        if inc["incident_id"] == incident_id:
+    async with _INCIDENTS_LOCK:
+        for inc in ACTIVE_INCIDENTS:
+            if inc["incident_id"] != incident_id:
+                continue
+            if inc.get("status") not in {"awaiting_dispatcher_approval", "dispatched", "patient_picked_up"}:
+                raise HTTPException(status_code=409, detail="Backup can be added only to an active call")
             inc["include_ambulance_backup"] = True
+            inc["unit_statuses"] = unit_statuses(inc)
             if "citizen_view" in inc:
                 inc["citizen_view"]["include_ambulance_backup"] = True
+                inc["citizen_view"]["unit_statuses"] = inc["unit_statuses"]
             save_db()
             return {"status": "ambulance_requested", "incident_id": incident_id}
     raise HTTPException(status_code=404, detail="Incident not found")

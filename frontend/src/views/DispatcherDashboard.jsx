@@ -41,6 +41,8 @@ export default function DispatcherDashboard() {
   const [busy, setBusy] = useState(false);
   const [overlay, setOverlay] = useState({ closures: [], congestion: [] });
   const failures = useRef(0);
+  const autoAttempted = useRef(new Set());
+  const [actionError, setActionError] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -70,7 +72,8 @@ export default function DispatcherDashboard() {
 
         if (autoDispatch) {
           for (const inc of list) {
-            if (inc.status === 'awaiting_dispatcher_approval' && inc.action_plan) {
+            if (inc.status === 'awaiting_dispatcher_approval' && inc.action_plan && !autoAttempted.current.has(inc.incident_id)) {
+              autoAttempted.current.add(inc.incident_id);
               const res = await fetch(`/api/incidents/${inc.incident_id}/approve`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -82,6 +85,7 @@ export default function DispatcherDashboard() {
                 }),
               }).catch(() => null);
               // Only update local state on success — do NOT retry 409/500 on next tick.
+              if (!res?.ok && !cancelled) setActionError(`Auto-approval failed for ${inc.incident_id}${res ? ` (HTTP ${res.status})` : ''}. Review and approve manually.`);
               if (res?.ok) {
                 const updated = await res.json().catch(() => null);
                 if (updated) {
@@ -134,7 +138,9 @@ export default function DispatcherDashboard() {
     const chosen = hospital || selected.action_plan.recommended_hospital;
     if (!chosen?.hospital_id) return;
 
+    if (busy) return;
     setBusy(true);
+    setActionError(null);
     try {
       const res = await fetch(`/api/incidents/${selected.incident_id}/approve`, {
         method: 'POST',
@@ -145,6 +151,7 @@ export default function DispatcherDashboard() {
           approved_route: selected.action_plan?.recommended_route?.route_id ?? '',
         }),
       });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || `Approval failed (HTTP ${res.status})`);
       if (res.ok) {
         const updated = await res.json();
         setIncidents((prev) =>
@@ -152,8 +159,8 @@ export default function DispatcherDashboard() {
         );
         setShowOverride(false);
       }
-    } catch {
-      setConn('retry');
+    } catch (err) {
+      setActionError(typeof err.message === 'string' ? err.message : 'Action failed. Try again.');
     } finally {
       setBusy(false);
     }
@@ -161,12 +168,15 @@ export default function DispatcherDashboard() {
 
   const reject = async () => {
     if (!selected?.incident_id) return;
+    if (busy) return;
     setBusy(true);
+    setActionError(null);
     try {
       const res = await fetch(
         `/api/incidents/${selected.incident_id}/reject?dispatcher_id=DISPATCHER-01`,
         { method: 'POST' },
       );
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || `Rejection failed (HTTP ${res.status})`);
       if (res.ok) {
         setSelectedId(null);
         setIncidents((prev) =>
@@ -175,8 +185,8 @@ export default function DispatcherDashboard() {
           ),
         );
       }
-    } catch {
-      setConn('retry');
+    } catch (err) {
+      setActionError(typeof err.message === 'string' ? err.message : 'Action failed. Try again.');
     } finally {
       setBusy(false);
     }
@@ -243,7 +253,8 @@ export default function DispatcherDashboard() {
         </div>
       </Panel>
 
-      <div className="grid flex-1 grid-cols-1 gap-3 md:grid-cols-[240px_minmax(0,1fr)] lg:grid-cols-[270px_minmax(0,1fr)] xl:grid-cols-[290px_minmax(0,1fr)_380px]">
+      {actionError && <p role="alert" className="rounded-sm border border-critical bg-critical-wash p-3 text-sm text-critical">{actionError}</p>}
+      <div className="grid min-w-0 flex-1 grid-cols-1 gap-3 md:grid-cols-[240px_minmax(0,1fr)] lg:grid-cols-[270px_minmax(0,1fr)] xl:grid-cols-[260px_minmax(0,1fr)_340px]">
         {/* ---- Queue ----------------------------------------------------- */}
         <Panel className="flex flex-col overflow-hidden md:max-h-[calc(100vh-150px)]">
           <PanelHead
@@ -308,7 +319,7 @@ export default function DispatcherDashboard() {
 
         {/* ---- Map + actions --------------------------------------------- */}
         {selected ? (
-          <div className="flex min-h-[520px] flex-col gap-3">
+          <div className="flex min-w-0 min-h-[520px] flex-col gap-3">
             <Panel className="flex min-h-0 flex-1 flex-col overflow-hidden">
               <PanelHead
                 label="Tactical map"
@@ -474,7 +485,7 @@ export default function DispatcherDashboard() {
         )}
 
         {/* ---- Rationale -------------------------------------------------- */}
-        <div className="grid content-start gap-3 md:col-span-2 md:grid-cols-2 xl:col-span-1 xl:grid-cols-1 xl:max-h-[calc(100vh-150px)] xl:overflow-y-auto">
+        <div className="grid min-w-0 content-start gap-3 md:col-span-2 md:grid-cols-2 xl:col-span-1 xl:grid-cols-1">
           <CityControls onChange={loadOverlay} />
 
           {plan ? (
@@ -541,6 +552,7 @@ export default function DispatcherDashboard() {
 
           {selected?.incident_id && (
             <LiveEmergencyChat
+              key={selected.incident_id}
               incidentId={selected.incident_id}
               senderRole="dispatcher"
               senderName="Dispatch"
