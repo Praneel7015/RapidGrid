@@ -547,7 +547,7 @@ class HospitalIntelligenceAgent:
         self._fetch_cache.clear()
         logger.info(
             "Hospital %s (%s) is now %s",
-            key, self._capabilities[key]["name"],
+            log_safe(key), log_safe(self._capabilities[key]["name"]),
             "ON DIVERT - excluded from emergency routing" if on_divert else "accepting",
         )
         return key
@@ -562,8 +562,9 @@ class HospitalIntelligenceAgent:
         weights_label = etype if etype in WEIGHT_TABLES else "general"
 
         logger.info(
-            "Ranking hospitals for %s emergency at [%.4f, %.4f] using '%s' weights",
-            etype, request.incident_location.lat, request.incident_location.lng, weights_label
+            "Ranking hospitals for %s emergency at [%s, %s] using '%s' weights",
+            log_safe(etype), log_safe(f"{request.incident_location.lat:.4f}"),
+            log_safe(f"{request.incident_location.lng:.4f}"), log_safe(weights_label),
         )
 
         hospitals = await self._fetch_live_hospitals(request.incident_location.lat, request.incident_location.lng)
@@ -584,7 +585,7 @@ class HospitalIntelligenceAgent:
             if excluded:
                 logger.info(
                     "Excluded %d non-receiving facilities for %s emergency",
-                    excluded, etype,
+                    excluded, log_safe(etype),
                 )
             hospitals = eligible or hospitals
 
@@ -601,7 +602,7 @@ class HospitalIntelligenceAgent:
                 logger.info(
                     "Specialty bypass: %d of %d facilities meet %s >= %.2f "
                     "for %s - restricting candidates",
-                    len(qualified), len(hospitals), factor, threshold, etype,
+                    len(qualified), len(hospitals), log_safe(factor), threshold, log_safe(etype),
                 )
                 hospitals = qualified
                 gate_applied = True
