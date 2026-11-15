@@ -251,6 +251,45 @@ def test_fire_scene_arrival_keeps_backup_ambulance_workflow_active(context, serv
     assert incident["unit_statuses"] == {"primary": "arrived", "ambulance": "arrived"}
 
 
+def test_voice_send_waits_for_late_final_transcript(context, server):
+    unlock(context, server)
+    page = context.new_page()
+    page.add_init_script("""window.SpeechRecognition = class {
+      start() { setTimeout(() => this.onstart?.(), 0); }
+      stop() {
+        if (this.stopped) return;
+        this.stopped = true;
+        setTimeout(() => {
+          const result = [{transcript: 'late final words'}];
+          result.isFinal = true;
+          this.onresult?.({resultIndex: 0, results: [result]});
+          this.onend?.();
+        }, 50);
+      }
+    };""")
+    page.goto(server + "/citizen")
+    page.evaluate("sessionStorage.setItem('geoagentic_citizen', JSON.stringify({name:'Voice test',phone:'TEST-VOICE-ONLY'}))")
+    page.reload()
+    page.get_by_role("button", name="SOS").click()
+    page.locator("textarea").fill("Typed report")
+    page.get_by_role("button", name="Start voice input", exact=True).click()
+    expect(page.get_by_role("button", name="Stop voice input", exact=True)).to_be_visible()
+    with page.expect_response(lambda r: r.request.method == "POST" and r.url.endswith("/api/incidents")) as created:
+        page.get_by_role("button", name="Send emergency report", exact=True).click()
+    payload = created.value.request.post_data_json
+    assert payload["citizen_text"] == "Typed report late final words"
+    assert payload["input_modality"] == "voice"
+    incident_id = created.value.json()["incident_id"]
+    poll_incident(context, server, incident_id, "awaiting_dispatcher_approval")
+    message = page.get_by_role("textbox", name="Message to incident channel")
+    message.fill("Typed message")
+    page.get_by_role("button", name="Start voice input", exact=True).click()
+    expect(page.get_by_role("button", name="Stop voice input", exact=True)).to_be_visible()
+    with page.expect_response(lambda r: r.request.method == "POST" and r.url.endswith(f"/api/chat/{incident_id}/send")) as sent:
+        page.get_by_role("button", name="Send message", exact=True).click()
+    assert sent.value.request.post_data_json["message"] == "Typed message late final words"
+
+
 def test_hospital_capacity_rejects_failure_and_restores_state(context, server):
     unlock(context, server)
     page = context.new_page()

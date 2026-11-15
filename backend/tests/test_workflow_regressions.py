@@ -63,6 +63,35 @@ def seed(status="awaiting_dispatcher_approval", **extra):
     return report
 
 
+def test_hospital_phone_never_selects_another_branch_or_a_placeholder():
+    assert incident._hospital_phone("ASTER CMI HOSPITAL (HEBBAL)") == "+91 80 4342 0107"
+    assert incident._hospital_phone("St Johns Medical College Hospital") == "+91 80 2206 5000"
+    assert incident._hospital_phone("Aster CMI Hospital (Hebbal) Annex") is None
+    assert incident._hospital_phone("Aster") is None
+    assert incident._hospital_phone("Unknown hospital") is None
+
+
+def test_pipeline_exception_cannot_overwrite_dispatcher_rejection(client, monkeypatch):
+    import asyncio
+
+    report = seed("processing")
+
+    async def reject_during_fusion(_request):
+        await incident.reject_incident(report["incident_id"], "reviewer")
+        raise RuntimeError("Late provider failure after rejection")
+
+    monkeypatch.setattr(incident.fusion_engine, "fuse", reject_during_fusion)
+    payload = incident.IncidentReportPayload(
+        citizen_text="Test report", location={"lat": 13.035, "lng": 77.597},
+    )
+    asyncio.run(incident.run_pipeline(report["incident_id"], payload))
+    assert report["status"] == "failed"
+    assert report["error"] == "Rejected by dispatcher"
+    incident.ACTIVE_INCIDENTS.clear()
+    incident.load_db()
+    assert incident.ACTIVE_INCIDENTS[0]["error"] == "Rejected by dispatcher"
+
+
 def test_full_approval_pickup_handover_survives_persistence(client, mocked_route):
     seed()
     assert client.get("/api/driver/active").json()["dispatches"] == []

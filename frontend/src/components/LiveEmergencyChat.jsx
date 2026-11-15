@@ -19,7 +19,13 @@ const ROLE_LABEL = {
   hospital: 'ER desk',
 };
 
-export default function LiveEmergencyChat({
+export default function LiveEmergencyChat(props) {
+  // Scope recordings and in-flight sends as well as visible messages to the
+  // incident, even when a caller reuses this component without its own key.
+  return <IncidentChannel key={props.incidentId} {...props} />;
+}
+
+function IncidentChannel({
   incidentId,
   senderRole = 'citizen',
   senderName,
@@ -34,6 +40,7 @@ export default function LiveEmergencyChat({
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState(null);
   const stream = useRef(null);
+  const channelGeneration = useRef(0);
   const speech = useSpeechToText({ lang: 'en-IN' });
 
   const displayName = senderName ?? ROLE_LABEL[senderRole] ?? 'User';
@@ -54,9 +61,11 @@ export default function LiveEmergencyChat({
 
   useEffect(() => {
     if (!incidentId) return;
+    channelGeneration.current += 1;
     let cancelled = false;
     setMessages([]);
     setText('');
+    setSending(false);
     setSendError(null);
     following.current = true;
     const load = async () => {
@@ -81,7 +90,7 @@ export default function LiveEmergencyChat({
     };
     load();
     const timer = setInterval(load, 3000);
-    return () => { cancelled = true; clearInterval(timer); };
+    return () => { cancelled = true; channelGeneration.current += 1; clearInterval(timer); };
   }, [incidentId]);
 
   useEffect(() => {
@@ -125,10 +134,13 @@ export default function LiveEmergencyChat({
 
   const send = async (e) => {
     e?.preventDefault();
-    speech.stop();
-    const body = text.trim();
-    if (!body || !incidentId || sending) return;
+    if (!incidentId || sending) return;
     setSending(true);
+    const generation = channelGeneration.current;
+    const spoken = await speech.finish();
+    if (channelGeneration.current !== generation) return;
+    const body = `${text} ${spoken}`.trim();
+    if (!body) { setSending(false); return; }
     setSendError(null);
     following.current = true;
     setText('');
@@ -257,7 +269,7 @@ export default function LiveEmergencyChat({
         />
         <button
           type="submit"
-          disabled={sending || !text.trim()}
+          disabled={sending || (!text.trim() && !speech.listening && speech.phase === 'idle')}
           aria-label="Send message"
           className="tap grid h-11 w-11 shrink-0 place-items-center rounded-sm border border-ink bg-signal text-ink transition-colors hover:bg-ink hover:text-signal disabled:opacity-40 lg:h-9 lg:w-9"
         >

@@ -7,6 +7,7 @@ from __future__ import annotations
 import uuid
 import asyncio
 import logging
+import re
 from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, Response, status, HTTPException
 from pydantic import BaseModel
@@ -109,14 +110,19 @@ def _resolve_modality(raw: str) -> AccessibilityInputModality:
 
 
 def _hospital_phone(name: str | None) -> str | None:
+    """Only expose a demo directory number for an exact normalized name."""
     if not name:
         return None
-    if name in DEMO_HOSPITAL_PHONES:
-        return DEMO_HOSPITAL_PHONES[name]
+
+    def normalize(value: str) -> str:
+        value = re.sub("['’]", "", value.lower())
+        return re.sub(r"[^a-z0-9]+", " ", value).strip()
+
+    requested = normalize(name)
     for key, phone in DEMO_HOSPITAL_PHONES.items():
-        if key.lower() in name.lower() or name.lower() in key.lower():
+        if normalize(key) == requested:
             return phone
-    return "+91 80 0000 0000"
+    return None
 
 
 def _mark_failed(incident_id: str, exc: Exception) -> None:
@@ -126,7 +132,7 @@ def _mark_failed(incident_id: str, exc: Exception) -> None:
     # is the only writer at this point — the task already owns the logical
     # "pipeline slot" for this incident_id — so direct mutation is safe here.
     for inc in ACTIVE_INCIDENTS:
-        if inc["incident_id"] == incident_id:
+        if inc["incident_id"] == incident_id and inc.get("status") == "processing":
             inc["status"] = "failed"
             inc["error"] = str(exc) or "Pipeline failed"
             save_db()

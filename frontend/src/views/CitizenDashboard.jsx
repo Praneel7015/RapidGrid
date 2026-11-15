@@ -153,7 +153,12 @@ export default function CitizenDashboard() {
   const sendSOS = async () => {
     if (sending) return; // double-submit guard
     setSending(true);
-    speech.stop();
+    // stop() delivers the final words asynchronously. Collect those words
+    // directly, instead of posting the render's stale draft text.
+    const spoken = await speech.finish();
+    if (!mounted.current) return;
+    const reportText = `${details} ${spoken}`.trim();
+    const voice = usedVoice || Boolean(spoken);
     navigator.vibrate?.([180, 90, 180]);
     setError(null);
     setIncident(null);
@@ -164,12 +169,12 @@ export default function CitizenDashboard() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          citizen_text: details.trim() || `Emergency reported, ${service} requested.`,
+          citizen_text: reportText || `Emergency reported, ${service} requested.`,
           citizen_name: citizenInfo?.name ?? 'Anonymous',
           citizen_phone: citizenInfo?.phone ?? 'Unregistered',
           vehicle_required: service,
           location: coords ?? FALLBACK_LOCATION,
-          input_modality: usedVoice ? 'voice' : 'text',
+          input_modality: voice ? 'voice' : 'text',
           timestamp: new Date().toISOString(),
         }),
       });
