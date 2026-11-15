@@ -18,6 +18,7 @@ import logging
 
 from bus.event_bus import INCIDENT_REPORTED, bus
 from agents.triage import classify
+from logsafe import log_safe
 from models.schemas import (
     AccessibilityInputModality,
     AccessibilityProfile,
@@ -48,7 +49,7 @@ class AccessibilityAgent:
         Both "text" and mocked "sign_language" inputs result in the exact same
         normalized IncidentReport shape downstream.
         """
-        logger.info(f"AccessibilityAgent processing input via {request.modality.value}")
+        logger.info("AccessibilityAgent processing input via %s", log_safe(request.modality.value))
 
         raw_content = str(request.raw_input)
 
@@ -97,8 +98,9 @@ class AccessibilityAgent:
         )
 
         logger.info(
-            f"Normalized {request.modality.value} input to {etype.value} "
-            f"(severity={severity:.2f}, confidence={confidence:.2f})"
+            "Normalized %s input to %s (severity=%s, confidence=%s)",
+            log_safe(request.modality.value), log_safe(etype.value),
+            log_safe(f"{severity:.2f}"), log_safe(f"{confidence:.2f}"),
         )
 
         # 4. Publish to the event bus for the Emergency Coordinator / Fusion Engine

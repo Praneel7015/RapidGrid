@@ -31,3 +31,63 @@ def test_log_safe_handles_non_string_values():
     out = log_safe("a\r\nb\rc\nd")
     assert "\r" not in out and "\n" not in out
     assert out == "a b c d"
+
+
+FAKE_OWM_KEY = "fake-owm-key-123"
+
+
+def _prediction_request():
+    from models.schemas import Coordinate, PredictionRequest, RouteResponse
+
+    route = RouteResponse(
+        route_id="route-1",
+        coordinates=[Coordinate(lat=12.97, lng=77.59), Coordinate(lat=12.95, lng=77.61)],
+        distance=1000.0,
+        eta=600.0,
+        delay_probability=0.1,
+        selection_reason="test",
+        confidence=0.9,
+    )
+    return PredictionRequest(route_details=route)
+
+
+def test_weather_call_uses_constant_url_and_params_and_never_logs_key(monkeypatch, caplog):
+    import asyncio
+    import logging
+
+    import httpx
+
+    from agents.prediction import PredictionAgent
+
+    calls = []
+
+    async def fake_get(self, url, **kwargs):
+        calls.append((url, kwargs))
+        return httpx.Response(200, json={"weather": [{"main": "Rain"}]}, request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+    agent = PredictionAgent()
+    agent.api_key = FAKE_OWM_KEY
+
+    response = asyncio.run(agent.predict_on_demand(_prediction_request()))
+    assert response.eta_estimate == 750.0  # rain adds 25%
+
+    url, kwargs = calls[0]
+    assert url == "https://api.openweathermap.org/data/2.5/weather"
+    assert FAKE_OWM_KEY not in url
+    params = kwargs["params"]
+    assert set(params) == {"lat", "lon", "appid"}
+    assert params["lat"] == 12.95 and params["lon"] == 77.61
+    assert params["appid"] == FAKE_OWM_KEY
+
+    # Failure path: exception text carries the key; it must not reach any log record.
+    async def failing_get(self, url, **kwargs):
+        raise RuntimeError(f"boom while calling {url}?appid={FAKE_OWM_KEY}")
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", failing_get)
+    caplog.set_level(logging.DEBUG)
+    response = asyncio.run(agent.predict_on_demand(_prediction_request()))
+    assert response.eta_estimate == 600.0
+    messages = [record.getMessage() for record in caplog.records]
+    assert any("Weather API failed: RuntimeError" in m for m in messages)
+    assert not any(FAKE_OWM_KEY in m for m in messages)
