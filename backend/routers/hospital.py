@@ -144,5 +144,5 @@ async def update_hospital_resources(hospital_id: str, update: HospitalResourceUp
     overrides[key] = {**overrides.get(key, {}), **update.model_dump(exclude_unset=True)}
     save_collection("hospital_capacity", overrides, database=persistence_path())
     hospital_agent.set_divert(key, on_divert=not update.icu_available)
-    logger.info("Operator capacity override for %s: accepting=%s", log_safe(key), update.icu_available)
+    logger.info("Operator capacity override for %s: accepting=%s", log_safe(key), log_safe(update.icu_available))
     return {"status": "updated", **_details(key), "diverted_facilities": sorted(hospital_agent.diverted)}
