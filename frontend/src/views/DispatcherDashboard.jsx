@@ -423,7 +423,7 @@ export default function DispatcherDashboard() {
                   </Button>
                 )}
                 {!autoDispatch && selected.status === 'awaiting_dispatcher_approval' && (
-                  <Button variant="quiet" onClick={reject} disabled={busy} className="shrink-0 border-error text-error hover:bg-error hover:text-white">
+                  <Button variant="critical" onClick={reject} disabled={busy} className="shrink-0">
                     <X size={15} />
                     Reject
                   </Button>

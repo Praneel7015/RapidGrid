@@ -38,6 +38,9 @@ export default function HospitalDashboard() {
   const [saving, setSaving] = useState(false);
   const [capacityError, setCapacityError] = useState(null);
   const capacityRequest = React.useRef(false);
+  // Bumped when a capacity toggle starts and settles, so a poll that began
+  // before the toggle cannot put the old value back after the PATCH completes.
+  const capacityGen = React.useRef(0);
   const [openThread, setOpenThread] = useState(null);
   const [conn, setConn] = useState('ok');
 
@@ -57,10 +60,11 @@ export default function HospitalDashboard() {
         // Sync ICU/divert state from backend so refresh doesn't show stale "Accepting".
         if (id !== 'all' && !cancelled) {
           try {
+            const gen = capacityGen.current;
             const hRes = await fetch(`/api/hospital/${id}`);
             if (hRes.ok) {
               const hData = await hRes.json();
-              if (!cancelled && !capacityRequest.current) setIcuOpen(hData.icu_available > 0);
+              if (!cancelled && !capacityRequest.current && gen === capacityGen.current) setIcuOpen(hData.icu_available > 0);
             }
           } catch { /* non-critical — keep UI value */ }
         }
@@ -76,6 +80,7 @@ export default function HospitalDashboard() {
   const setCapacity = async (open) => {
     if (capacityRequest.current || !hospitalInfo?.id || hospitalInfo.id === 'all') return;
     capacityRequest.current = true;
+    capacityGen.current += 1;
     setSaving(true);
     setCapacityError(null);
     try {
@@ -91,6 +96,7 @@ export default function HospitalDashboard() {
       setCapacityError(err.message || 'Capacity was not saved. Try again.');
     } finally {
       capacityRequest.current = false;
+      capacityGen.current += 1;
       setSaving(false);
     }
   };

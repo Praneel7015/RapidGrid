@@ -16,6 +16,7 @@ from __future__ import annotations
 import logging
 
 from bus.event_bus import CASE_CLOSED, bus
+from logsafe import log_safe
 from models.schemas import Event
 
 logger = logging.getLogger("geoagentic.agent.learning")
@@ -38,19 +39,19 @@ class LearningAgent:
         incident_id = payload.get("incident_id", "Unknown")
         
         logger.info(f"--- LEARNING AGENT STUB ---")
-        logger.info(f"Case {incident_id} closed. Logging outcomes for future training:")
+        logger.info(f"Case {log_safe(incident_id)} closed. Logging outcomes for future training:")
         
         # Log the discrepancies/outcomes
         if "predicted_eta" in payload and "actual_eta" in payload:
             logger.info(
-                f"  ETA Variance: Predicted {payload['predicted_eta']}s, "
-                f"Actual {payload['actual_eta']}s "
-                f"(Diff: {payload['actual_eta'] - payload['predicted_eta']}s)"
+                f"  ETA Variance: Predicted {log_safe(payload['predicted_eta'])}s, "
+                f"Actual {log_safe(payload['actual_eta'])}s "
+                f"(Diff: {log_safe(payload['actual_eta'] - payload['predicted_eta'])}s)"
             )
         
         if "dispatcher_override" in payload:
             override = payload["dispatcher_override"]
-            logger.info(f"  Dispatcher Override: {override}")
+            logger.info(f"  Dispatcher Override: {log_safe(override)}")
             
         logger.info(f"Data stored in telemetry warehouse for next offline training run.")
         logger.info(f"---------------------------")

@@ -36,6 +36,7 @@ from agents.prediction import prediction_agent
 from agents.route_optimization import route_agent
 from agents.traffic_intelligence import traffic_agent
 from bus.event_bus import FUSION_COMPLETE, bus
+from logsafe import log_safe
 from models.schemas import (
     Coordinate,
     DataFreshness,
@@ -124,7 +125,7 @@ class DecisionFusionEngine:
 
         logger.info(
             "Fusion started for %s — %s emergency, severity=%.2f",
-            incident_id, etype, request.severity,
+            log_safe(incident_id), etype, request.severity,
         )
 
         # -- 1. Traffic Intelligence ------------------------------------------
@@ -168,7 +169,7 @@ class DecisionFusionEngine:
 
         logger.info(
             "Hospital: top=%s (score=%.3f), %d candidates ranked",
-            top_hospital.hospital_id, hospital_score,
+            log_safe(top_hospital.hospital_id), hospital_score,
             len(hospital_result.ranked_hospitals),
         )
 
@@ -213,7 +214,7 @@ class DecisionFusionEngine:
             logger.warning(
                 "Route computation DEGRADED for %s — scoring response_time=0.0 "
                 "(eta=%.1f, confidence=%.2f, points=%d)",
-                incident_id, route_result.eta, route_result.confidence,
+                log_safe(incident_id), route_result.eta, route_result.confidence,
                 len(route_result.coordinates),
             )
         else:
@@ -352,7 +353,7 @@ class DecisionFusionEngine:
                         outcome["verdict"],
                     )
             except Exception:
-                logger.exception("Outcome estimation failed for %s", incident_id)
+                logger.exception("Outcome estimation failed for %s", log_safe(incident_id))
 
         # -- 9. Assemble response ---------------------------------------------
         response = FusionResponse(
@@ -382,9 +383,9 @@ class DecisionFusionEngine:
         logger.info(
             "Fusion complete for %s — overall_confidence=%.3f, "
             "route=%s (ETA %.0fs), hospital=%s (%s)",
-            incident_id, overall_confidence,
+            log_safe(incident_id), overall_confidence,
             route_result.route_id, route_result.eta,
-            top_hospital.hospital_id, top_hospital.name,
+            log_safe(top_hospital.hospital_id), log_safe(top_hospital.name),
         )
 
         return response

@@ -24,6 +24,7 @@ from __future__ import annotations
 # Uvicorn Reload Trigger
 import json
 import logging
+import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
@@ -34,6 +35,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from security import ShowcaseAccessMiddleware, allowed_origins, router as session_router
+from logsafe import log_safe
 
 from agents.accessibility import accessibility_agent
 from agents.communication import communication_agent
@@ -255,7 +257,7 @@ async def websocket_chat_endpoint(websocket: WebSocket, incident_id: str):
                 )
                 await chat.manager.broadcast(incident_id, msg_data)
             except Exception:
-                logger.exception("WebSocket chat message failed for %s", incident_id)
+                logger.exception("WebSocket chat message failed for %s", log_safe(incident_id))
     except WebSocketDisconnect:
         chat.manager.disconnect(websocket, incident_id)
 
@@ -267,12 +269,17 @@ async def websocket_chat_endpoint(websocket: WebSocket, incident_id: str):
 _FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 
 
-def _safe_frontend_file(full_path: str) -> Path | None:
-    root = _FRONTEND_DIST.resolve()
-    candidate = (root / full_path).resolve()
-    if candidate != root and root not in candidate.parents:
+def _safe_frontend_file(full_path: str, dist: Path | None = None) -> str | None:
+    # realpath + startswith(root + sep) is the containment check CodeQL
+    # recognises as a path-injection sanitiser; it also rejects symlink escapes.
+    root = os.path.realpath(dist or _FRONTEND_DIST)
+    try:
+        candidate = os.path.realpath(os.path.join(root, full_path))
+    except ValueError:  # e.g. an embedded NUL byte
         return None
-    if candidate.is_file():
+    if not candidate.startswith(root + os.sep):
+        return None
+    if os.path.isfile(candidate):
         return candidate
     return None
 

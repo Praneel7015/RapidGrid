@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -296,3 +297,116 @@ def test_hospital_diversion_while_route_is_loading_does_not_commit(client, monke
     response = client.post("/api/driver/change_hospital", json={"incident_id": "INC-review", "hospital_name": "blr-007"})
     assert response.status_code == 409
     assert report["citizen_view"] == original_view
+
+
+# --- No-candidate ranking -------------------------------------------------------
+
+def test_rank_with_no_candidates_is_503_not_500(client, monkeypatch):
+    monkeypatch.setattr(hospital_agent, "_fetch_live_hospitals", AsyncMock(return_value=[]))
+    response = client.post("/api/hospital/rank", json={
+        "incident_location": {"lat": 12.97, "lng": 77.59}, "emergency_type": "cardiac",
+    })
+    assert response.status_code == 503
+    assert "No hospital is currently accepting patients" in response.json()["detail"]
+
+
+def test_fusion_with_no_candidates_is_503(client, monkeypatch):
+    monkeypatch.setattr(hospital_agent, "_fetch_live_hospitals", AsyncMock(return_value=[]))
+    response = client.post("/api/fusion/combine", json={
+        "incident_location": {"lat": 12.97, "lng": 77.59}, "emergency_type": "cardiac",
+        "severity": 0.8, "vehicle_location": {"lat": 12.95, "lng": 77.6},
+    })
+    assert response.status_code == 503
+
+
+def test_incident_with_no_candidates_ends_failed_with_readable_error(client, monkeypatch):
+    monkeypatch.setattr(hospital_agent, "_fetch_live_hospitals", AsyncMock(return_value=[]))
+    report = seed("processing")
+    payload = incident.IncidentReportPayload(
+        citizen_text="Chest pain and cannot breathe", location={"lat": 13.035, "lng": 77.597},
+    )
+    asyncio.run(incident.run_pipeline(report["incident_id"], payload))
+    assert report["status"] == "failed"
+    assert "No hospital is currently accepting patients" in report["error"]
+
+
+# --- Demo ER phone numbers ------------------------------------------------------
+
+def test_demo_phone_keys_are_curated_hospital_names_and_resolve():
+    curated = {h["name"] for h in hospital_agent._load_capabilities().values()}
+    assert set(incident.DEMO_HOSPITAL_PHONES) <= curated
+    for name in curated:
+        expected = incident.DEMO_HOSPITAL_PHONES.get(name)
+        assert incident._hospital_phone(name) == expected
+    assert incident._hospital_phone("NIMHANS (National Institute of Mental Health and Neurosciences)") == "+91 80 2699 5000"
+
+
+# --- ER number follows a diversion ---------------------------------------------
+
+@pytest.mark.parametrize("destination,expected", [
+    ("blr-001", "+91 80 2502 4444"),  # Manipal Hospital (Old Airport Road)
+    ("blr-013", None),               # Sparsh Hospital: curated, but no demo number
+])
+def test_diversion_updates_incident_level_er_phone(client, monkeypatch, destination, expected):
+    report = seed("patient_picked_up", hospital_phone="+91 80 4342 0107")
+    report["citizen_view"]["hospital_phone"] = "+91 80 4342 0107"
+    report["action_plan"]["all_hospitals"] += [
+        {"hospital_id": "blr-001", "name": "Manipal Hospital (Old Airport Road)", "location": {"lat": 12.9583, "lng": 77.6483}},
+        {"hospital_id": "blr-013", "name": "Sparsh Hospital (Palace Road)", "location": {"lat": 12.9868, "lng": 77.5855}},
+    ]
+
+    async def route(origin, destination):
+        return {"route_coordinates": [origin, destination], "eta_minutes": 5, "distance_meters": 2000}
+
+    monkeypatch.setattr(driver, "_route", route)
+    response = client.post("/api/driver/change_hospital", json={"incident_id": "INC-review", "hospital_name": destination})
+    assert response.status_code == 200
+    assert report["hospital_phone"] == expected
+    assert report["citizen_view"]["hospital_phone"] == expected
+    assert response.json()["citizen_view"]["hospital_phone"] == expected
+
+
+# --- Log injection --------------------------------------------------------------
+
+def test_reject_log_line_cannot_be_forged_by_dispatcher_id(client, caplog):
+    seed()
+    caplog.set_level(logging.INFO)
+    response = client.post("/api/incidents/INC-review/reject", params={"dispatcher_id": "ops\nINFO forged entry\r"})
+    assert response.status_code == 200
+    lines = [r.getMessage() for r in caplog.records if r.getMessage().startswith("REJECTED")]
+    assert len(lines) == 1
+    assert "\n" not in lines[0] and "\r" not in lines[0]
+    assert "forged entry" in lines[0]
+
+
+def test_approve_log_line_cannot_be_forged_by_dispatcher_id(client, mocked_route, caplog):
+    seed()
+    caplog.set_level(logging.INFO)
+    response = client.post("/api/incidents/INC-review/approve", json={
+        "dispatcher_id": "ops\nINFO forged entry", "approved_hospital": "blr-007", "approved_route": "route",
+    })
+    assert response.status_code == 200
+    lines = [r.getMessage() for r in caplog.records if r.getMessage().startswith("PLAN_APPROVED")]
+    assert len(lines) == 1
+    assert "\n" not in lines[0] and "forged entry" in lines[0]
+
+
+def test_websocket_failure_log_line_cannot_be_forged_by_incident_id(client, caplog):
+    caplog.set_level(logging.ERROR)
+    with client.websocket_connect("/ws/chat/INC-x%0AERROR%20forged") as ws:
+        ws.send_text("not json")
+    lines = [r.getMessage() for r in caplog.records if r.getMessage().startswith("WebSocket chat message failed")]
+    assert len(lines) == 1
+    assert "\n" not in lines[0] and "forged" in lines[0]
+
+
+
+@pytest.mark.parametrize("status", ["failed", "completed"])
+def test_terminal_incident_cannot_be_approved(client, status):
+    report = seed(status)
+    response = client.post("/api/incidents/INC-review/approve", json={
+        "dispatcher_id": "reviewer", "approved_hospital": "blr-007", "approved_route": "route",
+    })
+    assert response.status_code == 409
+    assert report["status"] == status
+    assert "assigned_driver" not in report

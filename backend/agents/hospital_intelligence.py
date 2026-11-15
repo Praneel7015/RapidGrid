@@ -29,6 +29,11 @@ from models.schemas import (
 
 logger = logging.getLogger("geoagentic.agent.hospital")
 
+
+class NoHospitalCandidatesError(RuntimeError):
+    """Raised when no hospital is currently available to receive the patient."""
+
+
 AGENT_NAME = "hospital_intelligence"
 
 _DATA_DIR = Path(__file__).resolve().parent.parent / "data"
@@ -658,18 +663,14 @@ class HospitalIntelligenceAgent:
 
         entries.sort(key=lambda e: e.score, reverse=True)
 
-        # Guard: if no hospitals matched (e.g. all on divert, or graph empty),
-        # return the full unfiltered list so the dispatcher always sees options.
+        # Guard: nothing to rank (e.g. every facility on divert, or an empty
+        # catalogue). An empty HospitalRankingResponse is invalid, so raise a
+        # dedicated error: /rank maps it to 503 and the incident pipeline
+        # marks the incident failed with a readable reason.
         if not entries:
-            logger.warning(
-                "Hospital ranking produced zero entries for %s — returning unfiltered fallback",
-                request.emergency_type,
-            )
-            return HospitalRankingResponse(
-                ranked_hospitals=[],
-                emergency_type=request.emergency_type,
-                weights_used="fallback-no-candidates",
-                data_freshness=DataFreshness.STALE,
+            logger.warning("Hospital ranking produced zero candidates for %s", etype)
+            raise NoHospitalCandidatesError(
+                f"No hospital is currently accepting patients for a {etype} emergency"
             )
 
         # ------------------------------------------------------------------

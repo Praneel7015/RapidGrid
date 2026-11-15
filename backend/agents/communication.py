@@ -18,6 +18,7 @@ import os
 from datetime import datetime
 
 from bus.event_bus import COMMUNICATION_DISPATCHED, FUSION_COMPLETE, bus
+from logsafe import log_safe
 from models.schemas import (
     CommunicationChannel,
     CommunicationRequest,
@@ -81,7 +82,7 @@ class CommunicationAgent:
                 # A hard exception was thrown by a mocked notification coroutine
                 has_errors = True
                 # In a real system, we'd queue this for retry or DLQ
-                logger.error(f"Notification task failed with exception: {result}")
+                logger.error(f"Notification task failed with exception: {log_safe(result)}")
                 # We can't easily extract the intended receipt from the generic Exception here,
                 # but our mock functions return explicit DeliveryReceipts even on failure 
                 # (via try/except inside the mock), so this branch shouldn't actually hit in our setup.
@@ -89,9 +90,9 @@ class CommunicationAgent:
                 receipts.append(result)
                 if result.status == "failed":
                     has_errors = True
-                    logger.error(f"Dispatch failed for {result.recipient} via {result.channel.value}: {result.error_message}")
+                    logger.error(f"Dispatch failed for {log_safe(result.recipient)} via {result.channel.value}: {log_safe(result.error_message)}")
                 else:
-                    logger.info(f"Dispatch successful for {result.recipient} via {result.channel.value}")
+                    logger.info(f"Dispatch successful for {log_safe(result.recipient)} via {result.channel.value}")
 
         overall_status = "completed_with_errors" if has_errors else "success"
         
