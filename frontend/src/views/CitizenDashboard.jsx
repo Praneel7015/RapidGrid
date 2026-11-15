@@ -53,7 +53,7 @@ export default function CitizenDashboard() {
 
   const speech = useSpeechToText({ lang: 'en-IN' });
   const mounted = useRef(true);
-  useEffect(() => () => { mounted.current = false; }, []);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
 
   useEffect(() => {
     speech.setOnFinal((finalText) => {
@@ -99,7 +99,7 @@ export default function CitizenDashboard() {
         );
         const latest = mine[mine.length - 1];
         // Only rejoin in-flight work. Failed/completed reports must not trap the home screen.
-        const active = latest && !['failed', 'completed'].includes(latest.status);
+        const active = latest && !['failed', 'completed', 'arrived'].includes(latest.status) ? latest : null;
         if (!cancelled && active?.citizen_view) {
           setIncident(latest);
           setPollUrl(`/api/incidents/${latest.incident_id}`);
@@ -130,18 +130,19 @@ export default function CitizenDashboard() {
     const poll = async () => {
       try {
         const res = await fetch(pollUrl);
-        if (!res.ok) return;
+        if (!res.ok) throw new Error(`Dispatch status unavailable (HTTP ${res.status}). Retrying…`);
         const data = await res.json();
         if (cancelled) return;
         setIncident(data);
+        setError(null);
         if (data.status === 'failed') {
           setError(data.error || 'Dispatch could not complete your report.');
           setStage('failed');
           return;
         }
         if (data.citizen_view) setStage('tracking');
-      } catch {
-        if (!cancelled) setError('Lost connection to dispatch. Retrying…');
+      } catch (err) {
+        if (!cancelled) setError(err.message || 'Lost connection to dispatch. Retrying…');
       }
     };
     poll();
@@ -152,7 +153,12 @@ export default function CitizenDashboard() {
   const sendSOS = async () => {
     if (sending) return; // double-submit guard
     setSending(true);
-    speech.stop();
+    // stop() delivers the final words asynchronously. Collect those words
+    // directly, instead of posting the render's stale draft text.
+    const spoken = await speech.finish();
+    if (!mounted.current) return;
+    const reportText = `${details} ${spoken}`.trim();
+    const voice = usedVoice || Boolean(spoken);
     navigator.vibrate?.([180, 90, 180]);
     setError(null);
     setIncident(null);
@@ -163,12 +169,12 @@ export default function CitizenDashboard() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          citizen_text: details.trim() || `Emergency reported, ${service} requested.`,
+          citizen_text: reportText || `Emergency reported, ${service} requested.`,
           citizen_name: citizenInfo?.name ?? 'Anonymous',
           citizen_phone: citizenInfo?.phone ?? 'Unregistered',
           vehicle_required: service,
           location: coords ?? FALLBACK_LOCATION,
-          input_modality: usedVoice ? 'voice' : 'text',
+          input_modality: voice ? 'voice' : 'text',
           timestamp: new Date().toISOString(),
         }),
       });
@@ -176,7 +182,7 @@ export default function CitizenDashboard() {
       if (res.ok || res.status === 202) {
         setPollUrl(data.poll_url ?? `/api/incidents/${data.incident_id}`);
       } else {
-        setError(data.detail ?? 'Dispatch rejected the report. Try again.');
+        setError(typeof data.detail === 'string' ? data.detail : `Dispatch rejected the report (HTTP ${res.status}). Try again.`);
         setStage('report');
       }
     } catch {
@@ -199,7 +205,7 @@ export default function CitizenDashboard() {
             Need emergency help?
           </h1>
           <p className="mt-1.5 text-[13px] leading-relaxed text-text-muted">
-            Tap SOS to send your location to city dispatch. You can add details next — including by voice.
+            Tap SOS to prepare a demo report. Add details and review your location before sending.
           </p>
         </div>
 
@@ -349,7 +355,9 @@ export default function CitizenDashboard() {
           <h1 className="font-display text-[20px] font-semibold text-text">
             Help is being arranged
           </h1>
-          <p className="mt-1.5 text-[13px] text-text-muted">Stay on this screen.</p>
+          <p className="mt-1.5 text-[13px] text-text-muted">Waiting for dispatch assessment. You can refresh to resume.</p>
+          <p className="mt-2 text-[11px] text-text-faint">Illustrative checklist; the service does not report individual step progress.</p>
+          {error && <p role="status" className="mt-3 text-sm text-critical">{error}</p>}
         </div>
 
         <ol className="space-y-0">
@@ -392,6 +400,7 @@ export default function CitizenDashboard() {
 
   return shell(
     <div className="space-y-3">
+      {error && <p role="status" className="text-sm text-critical">{error}</p>}
       <Panel>
         <PanelHead
           label={`Incident ${incident?.incident_id ?? ''}`}
@@ -399,7 +408,11 @@ export default function CitizenDashboard() {
         />
         <div className="px-4 py-3.5">
           <p className="text-[14px] font-semibold leading-snug text-text">
-            {dispatched
+            {incident?.status === 'completed' || incident?.status === 'arrived'
+              ? 'This response is complete.'
+              : incident?.status === 'patient_picked_up'
+                ? 'Your unit is transporting you to the receiving hospital.'
+                : dispatched
               ? `A ${incident.vehicle_required?.toLowerCase() ?? 'unit'} is on the way to you.`
               : 'Your report is with the city dispatcher for approval.'}
           </p>
@@ -468,7 +481,7 @@ export default function CitizenDashboard() {
 
       <button
         onClick={() => {
-          setStage('home');
+          setStage('report');
           setIncident(null);
           setPollUrl(null);
           setDetails('');

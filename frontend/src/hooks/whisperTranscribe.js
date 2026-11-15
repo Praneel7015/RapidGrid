@@ -73,6 +73,7 @@ export async function transcribeRecording(blob) {
   const samples = await decodeTo16kMono(blob);
   if (samples.length < 1600) return '';
   const transcriber = await preloadWhisper();
-  const result = await transcriber(samples);
+  // Whisper sees a 30 s window; chunk longer clips so nothing after it is dropped.
+  const result = await transcriber(samples, { chunk_length_s: 30, stride_length_s: 5 });
   return transcriptOf(result);
 }

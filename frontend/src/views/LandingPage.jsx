@@ -15,8 +15,8 @@ const CAPABILITIES = [
     body: 'A cardiac call goes to a facility with a 24×7 cath lab even when a general hospital is closer — the same specialty-centre bypass real EMS protocols use. Capability profiles are curated for 30 Bengaluru hospitals; oncology, maternity and day-surgery units are excluded from emergency routing entirely.',
   },
   {
-    title: 'It keeps working when the internet does not',
-    body: 'Live traffic routing runs against the Google Routes API. When that is unavailable — quota, outage, venue wi-fi — an A* router falls back to a cached 112,725-node OpenStreetMap graph of Bengaluru and keeps producing real paths, labelled as offline rather than passed off as live.',
+    title: 'Routing can fall back to a cached road graph',
+    body: 'Live traffic routing runs against the Google Routes API. When that is unavailable — quota, outage, provider connectivity — an A* router falls back to a cached 112,725-node OpenStreetMap graph of Bengaluru and keeps producing real paths, labelled as offline rather than passed off as live.',
   },
   {
     title: 'It separates what it knows from what it models',
@@ -33,6 +33,7 @@ const SAMPLE = {
 
 export default function LandingPage() {
   const [plan, setPlan] = useState(SAMPLE);
+  const [isSample, setIsSample] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -46,7 +47,11 @@ export default function LandingPage() {
           .pop();
         if (!withPlan || cancelled) return;
 
-        const [a, b] = withPlan.action_plan.all_hospitals;
+        const candidates = withPlan.action_plan.all_hospitals;
+        const recommendation = withPlan.action_plan.recommended_hospital;
+        const a = candidates.find((h) => h.hospital_id === recommendation?.hospital_id);
+        const b = candidates.find((h) => h.hospital_id !== a?.hospital_id);
+        if (!a || !b) return;
         const fa = a.score_breakdown ?? [];
         const fb = b.score_breakdown ?? [];
         const key = fa.reduce(
@@ -59,6 +64,7 @@ export default function LandingPage() {
         );
         if (!key.factor) return;
 
+        setIsSample(false);
         setPlan({
           emergency: (withPlan.emergency_type ?? 'Emergency').replace(/^\w/, (c) => c.toUpperCase()),
           location: 'Bengaluru',
@@ -169,7 +175,7 @@ export default function LandingPage() {
         <section className="border-y border-ink bg-paper">
           <div className="mx-auto max-w-[1440px] px-5 sm:px-8">
             <div className="flex flex-wrap items-center gap-3 border-b border-rule py-4">
-              <span className="eyebrow text-text">One real decision</span>
+              <span className="eyebrow text-text">{isSample ? 'Illustrative comparison' : 'Latest demo recommendation'}</span>
               <span className="hidden h-4 w-px bg-rule sm:block" />
               <span className="t-meta uppercase tracking-[0.12em] text-text-faint">
                 {plan.emergency} · {plan.location}
@@ -177,7 +183,7 @@ export default function LandingPage() {
               <span className="ml-auto">
                 <span className="inline-flex items-center gap-1.5 rounded-xs border border-ink px-2 py-1 t-tag">
                   <span className="inline-block h-1.5 w-1.5 bg-ink" />
-                  Road ETAs verified
+                  {isSample ? 'Sample scores and ETAs' : 'Estimated road travel times'}
                 </span>
               </span>
             </div>
@@ -188,7 +194,7 @@ export default function LandingPage() {
                   {plan.chosen.name}
                 </div>
                 <div className="mt-3 t-meta uppercase tracking-[0.1em] text-ink/80">
-                  Deciding factor · {plan.chosen.factor}
+                  Compared factor · {plan.chosen.factor}
                 </div>
                 <div className="mt-6 flex gap-10">
                   <div>
@@ -204,13 +210,13 @@ export default function LandingPage() {
               </div>
               <div className="bg-paper-sunk p-8 md:p-9">
                 <span className="inline-flex border border-rule px-2 py-1.5 t-tag text-text-faint">
-                  Closer, not chosen
+                  {further && Number(further) > 0 ? 'Faster alternative' : 'Alternative facility'}
                 </span>
                 <div className="mt-3 font-display text-[28px] font-semibold leading-tight tracking-tight text-text-muted sm:text-[36px]">
                   {plan.runnerUp.name}
                 </div>
                 <div className="mt-3 t-meta uppercase tracking-[0.1em] text-text-faint">
-                  Won on travel time · still the wrong room
+                  Alternative candidate · compare capability and travel time
                 </div>
                 <div className="mt-6 flex gap-10">
                   <div>
@@ -228,9 +234,8 @@ export default function LandingPage() {
             <p className="border-t border-rule px-5 py-5 text-[16px] leading-relaxed text-text-muted sm:px-8 sm:text-[22px]">
               {further && Number(further) > 0 ? (
                 <>
-                  The ambulance drove{' '}
-                  <span className="val-verified text-text">{further}</span> minutes further, on
-                  purpose — because the closer hospital could not treat this patient as well.
+                  This recommendation adds{' '}
+                  <span className="val-verified text-text">{further}</span> minutes of estimated travel. The compared capability score is one part of the ranking; this is not a record of an ambulance journey.
                 </>
               ) : (
                 <>
@@ -301,12 +306,12 @@ export default function LandingPage() {
             </h2>
             <div className="mt-6 grid gap-8 md:grid-cols-2">
               <div>
-                <div className="eyebrow mb-3 text-text">Real · verified</div>
+                <div className="eyebrow mb-3 text-text">Data sources and routing</div>
                 <ul className="space-y-2">
                   {[
                     'Bengaluru road network — 112,725 nodes from OpenStreetMap',
-                    'Live traffic routing via the Google Routes API',
-                    'Live weather, factored into ETA',
+                    'Google traffic routing when configured and available; offline A* fallback otherwise',
+                    'Weather input when available; estimated travel times',
                     'Hospital capability profiles, curated for 30 facilities',
                     'A* pathfinding, closures and congestion included',
                   ].map((t) => (

@@ -15,9 +15,12 @@ Implementation:
 from __future__ import annotations
 
 import logging
+import math
 import os
 import time
 import uuid
+from datetime import datetime, timezone
+from threading import RLock
 import httpx
 from collections import OrderedDict
 from typing import Any
@@ -44,6 +47,7 @@ AGENT_NAME = "route_optimization"
 _CACHE_TTL_S = 90.0
 _CACHE_MAX_ENTRIES = 256
 _CACHE_PRECISION = 4
+_PROVIDER_FRESHNESS_S = 300.0
 
 
 class RouteOptimizationAgent:
@@ -58,6 +62,14 @@ class RouteOptimizationAgent:
         self.api_calls = 0
         self.cache_hits = 0
         self.local_routes = 0
+        self._state_lock = RLock()
+        self._last_live_success_at: str | None = None
+        self._last_live_error_at: str | None = None
+        self._last_live_success_monotonic: float | None = None
+        self._last_live_error_monotonic: float | None = None
+        self._last_route_source = "unverified"
+        self._fallback_reason: str | None = None
+        self._provider_errors = 0
 
     def _cache_key(self, request: RouteRequest) -> tuple:
         return (
@@ -68,35 +80,76 @@ class RouteOptimizationAgent:
         )
 
     def _cache_get(self, key: tuple) -> RouteResponse | None:
-        hit = self._cache.get(key)
-        if hit is None:
-            return None
-        cached_at, response = hit
-        if time.monotonic() - cached_at > _CACHE_TTL_S:
-            del self._cache[key]
-            return None
-        self._cache.move_to_end(key)
-        self.cache_hits += 1
-        return response.model_copy(deep=True)
+        with self._state_lock:
+            hit = self._cache.get(key)
+            if hit is None:
+                return None
+            cached_at, response = hit
+            if time.monotonic() - cached_at > _CACHE_TTL_S:
+                del self._cache[key]
+                return None
+            self._cache.move_to_end(key)
+            self.cache_hits += 1
+            self._last_route_source = "live_cache"
+            return response.model_copy(deep=True)
 
     def _cache_put(self, key: tuple, response: RouteResponse) -> None:
-        self._cache[key] = (time.monotonic(), response.model_copy(deep=True))
-        self._cache.move_to_end(key)
-        while len(self._cache) > _CACHE_MAX_ENTRIES:
-            self._cache.popitem(last=False)
+        with self._state_lock:
+            self._cache[key] = (time.monotonic(), response.model_copy(deep=True))
+            self._cache.move_to_end(key)
+            while len(self._cache) > _CACHE_MAX_ENTRIES:
+                self._cache.popitem(last=False)
+
+    def _provider_success(self) -> None:
+        with self._state_lock:
+            self._last_live_success_at = datetime.now(timezone.utc).isoformat()
+            self._last_live_success_monotonic = time.monotonic()
+            self._last_route_source = "live"
+            self._fallback_reason = None
+
+    def _provider_failure(self, reason: str) -> None:
+        with self._state_lock:
+            self._last_live_error_at = datetime.now(timezone.utc).isoformat()
+            self._last_live_error_monotonic = time.monotonic()
+            self._fallback_reason = reason
+            self._provider_errors += 1
+            self._last_route_source = "unverified"
 
     def stats(self) -> dict[str, Any]:
-        """Quota telemetry — billable calls made vs. calls saved by the cache."""
-        total = self.api_calls + self.cache_hits
-        return {
-            "billable_api_calls": self.api_calls,
-            "cache_hits": self.cache_hits,
-            "cached_routes": len(self._cache),
-            "hit_rate": round(self.cache_hits / total, 3) if total else 0.0,
-            "cache_ttl_seconds": _CACHE_TTL_S,
-            "offline_graph_routes": self.local_routes,
-            "offline_graph_available": local_router.available,
-        }
+        """Recent observed provider status; reading health never spends quota."""
+        with self._state_lock:
+            success = self._last_live_success_monotonic
+            error = self._last_live_error_monotonic
+            if not self.api_key:
+                provider_status = "not_configured"
+            elif error is not None and (success is None or error >= success):
+                provider_status = "unavailable"
+            elif success is None:
+                provider_status = "unverified"
+            elif time.monotonic() - success > _PROVIDER_FRESHNESS_S:
+                provider_status = "stale"
+            else:
+                provider_status = "available"
+            source = self._last_route_source
+            if provider_status in {"stale", "not_configured"} and source in {"live", "live_cache"}:
+                source = "unverified"
+            total = self.api_calls + self.cache_hits
+            return {
+                "billable_api_calls": self.api_calls,
+                "cache_hits": self.cache_hits,
+                "cached_routes": len(self._cache),
+                "hit_rate": round(self.cache_hits / total, 3) if total else 0.0,
+                "cache_ttl_seconds": _CACHE_TTL_S,
+                "offline_graph_routes": self.local_routes,
+                "offline_graph_available": local_router.available,
+                "live_api_status": provider_status,
+                "active_source": source,
+                "last_live_success_at": self._last_live_success_at,
+                "last_live_error_at": self._last_live_error_at,
+                "provider_errors": self._provider_errors,
+                "fallback_reason": self._fallback_reason,
+                "provider_freshness_seconds": _PROVIDER_FRESHNESS_S,
+            }
 
     def load_network(
         self,
@@ -158,7 +211,8 @@ class RouteOptimizationAgent:
         }
 
         try:
-            self.api_calls += 1
+            with self._state_lock:
+                self.api_calls += 1
             with httpx.Client(timeout=10.0) as client:
                 resp = client.post(url, headers=headers, json=payload)
                 resp.raise_for_status()
@@ -166,31 +220,30 @@ class RouteOptimizationAgent:
         except httpx.HTTPStatusError as e:
             status = e.response.status_code
             logger.error("Google Routes HTTP %s - falling back to offline router", status)
+            self._provider_failure(f"Google Routes HTTP {status}")
             return self._local_route(request, reason=f"Google Routes HTTP {status}")
         except Exception as e:
             logger.error("Google Routes unreachable (%s) - falling back", type(e).__name__)
+            self._provider_failure(f"Google Routes unreachable ({type(e).__name__})")
             return self._local_route(request, reason=f"Google Routes unreachable ({type(e).__name__})")
 
-        routes = data.get("routes", [])
+        routes = data.get("routes", []) if isinstance(data, dict) else []
         if not routes:
+            self._provider_failure("Google Routes returned no path")
             return self._local_route(request, reason="Google Routes returned no path")
             
-        route_data = routes[0]
-        
-        duration_str = route_data.get("duration", "0s").replace("s", "")
-        eta = float(duration_str)
-        
-        distance = float(route_data.get("distanceMeters", 0))
-        
-        geojson = route_data.get("polyline", {}).get("geoJsonLinestring", {}).get("coordinates", [])
-        coords = [Coordinate(lat=c[1], lng=c[0]) for c in geojson]
-
-        # Guard: Google sometimes returns a route with an empty or single-point
-        # polyline. RouteResponse requires min_length=2 — fall back rather than
-        # raising a ValidationError that would bypass _mark_failed.
-        if len(coords) < 2:
-            logger.warning("Google Routes returned empty polyline — falling back to local/straight-line route")
-            return self._fallback_route(request)
+        try:
+            route_data = routes[0]
+            duration_str = route_data.get("duration", "0s").removesuffix("s")
+            eta = float(duration_str)
+            distance = float(route_data.get("distanceMeters", 0))
+            geojson = route_data.get("polyline", {}).get("geoJsonLinestring", {}).get("coordinates", [])
+            coords = [Coordinate(lat=c[1], lng=c[0]) for c in geojson]
+            if len(coords) < 2 or not math.isfinite(eta) or not math.isfinite(distance) or eta <= 0 or distance <= 0:
+                raise ValueError("Invalid route geometry or metrics")
+        except (TypeError, ValueError, IndexError, KeyError, AttributeError):
+            self._provider_failure("Google Routes returned invalid route data")
+            return self._local_route(request, reason="Google Routes returned invalid route data")
         
         reason = (
             f"Primary route via Google Maps Live Traffic. "
@@ -210,6 +263,7 @@ class RouteOptimizationAgent:
             node_ids=[],
             edge_ids=[],
         )
+        self._provider_success()
         self._cache_put(cache_key, response)
         return response
 
@@ -221,6 +275,8 @@ class RouteOptimizationAgent:
         because the speeds are modelled from road class plus whatever traffic
         the Traffic Intelligence Agent has overlaid - not observed live.
         """
+        with self._state_lock:
+            self._fallback_reason = reason
         if not local_router.available and not local_router.load():
             return self._fallback_route(request)
 
@@ -231,7 +287,10 @@ class RouteOptimizationAgent:
         if not path:
             return self._fallback_route(request)
 
-        self.local_routes += 1
+        with self._state_lock:
+            self.local_routes += 1
+            self._last_route_source = "offline_graph"
+            self._fallback_reason = reason
 
         roads = path["roads"]
         via = ", ".join(roads[:3]) + ("..." if len(roads) > 3 else "")
@@ -264,6 +323,9 @@ class RouteOptimizationAgent:
 
     def _fallback_route(self, request: RouteRequest) -> RouteResponse:
         """Tier 3, last resort: no usable route at all. Never claim otherwise."""
+        with self._state_lock:
+            self._last_route_source = "unavailable"
+            self._fallback_reason = self._fallback_reason or "No usable road route"
         return RouteResponse(
             route_id=f"R-{uuid.uuid4().hex[:8]}",
             coordinates=[request.origin, request.destination],
@@ -283,8 +345,6 @@ class RouteOptimizationAgent:
         )
 
 route_agent = RouteOptimizationAgent()
-
-import math
 
 EMERGENCY_HUBS = {
     "Ambulance": [

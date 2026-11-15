@@ -362,13 +362,13 @@
 
 @keyframes rg-ping {
   0%   { transform: scale(0.6); opacity: 0.85; }
-  100% { transform: scale(2.6); opacity: 0; }
+  100% { transform: scale(1.45); opacity: 0; }
 }
 .rg-ping::before {
   content: "";
   position: absolute;
   inset: 0;
-  border-radius: 2px;
+  border-radius: inherit;
   background: currentColor;
   animation: rg-ping 2s cubic-bezier(0, 0, 0.2, 1) infinite;
 }

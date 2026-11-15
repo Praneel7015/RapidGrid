@@ -5,6 +5,8 @@ from typing import Dict, List, Set
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException
 from pydantic import BaseModel
 from datetime import datetime, timezone
+from storage import load_collection, save_collection, delete_collections
+from routers.incident import persistence_path
 
 router = APIRouter(prefix="/api/chat", tags=["Realtime Emergency Chat"])
 
@@ -17,17 +19,27 @@ class ConnectionManager:
         await websocket.accept()
         if incident_id not in self.active_connections:
             self.active_connections[incident_id] = set()
-            self.chat_history[incident_id] = []
+        self.history(incident_id)
         self.active_connections[incident_id].add(websocket)
 
     def disconnect(self, websocket: WebSocket, incident_id: str):
         if incident_id in self.active_connections:
             self.active_connections[incident_id].discard(websocket)
 
-    async def broadcast(self, incident_id: str, message_data: Dict):
+    def history(self, incident_id: str) -> List[Dict]:
         if incident_id not in self.chat_history:
-            self.chat_history[incident_id] = []
-        self.chat_history[incident_id].append(message_data)
+            self.chat_history[incident_id] = load_collection("chat:" + incident_id, [], database=persistence_path())
+        return self.chat_history[incident_id]
+
+    def clear_history(self) -> None:
+        delete_collections("chat:", database=persistence_path())
+        self.chat_history.clear()
+
+    async def broadcast(self, incident_id: str, message_data: Dict):
+        history = self.history(incident_id)
+        updated = [*history, message_data]
+        save_collection("chat:" + incident_id, updated, database=persistence_path())
+        self.chat_history[incident_id] = updated
 
         if incident_id in self.active_connections:
             dead_sockets = set()
@@ -60,11 +72,13 @@ def _build_message(incident_id: str, sender_role: str, sender_name: str, message
 
 @router.get("/{incident_id}/messages")
 async def get_chat_history(incident_id: str):
-    history = manager.chat_history.get(incident_id, [])
+    history = manager.history(incident_id)
     return {"messages": history}
 
 @router.post("/{incident_id}/send")
 async def send_chat_message(incident_id: str, payload: ChatMessagePayload):
+    if payload.incident_id != incident_id:
+        raise HTTPException(status_code=400, detail="Message incident does not match channel")
     body = (payload.message or "").strip()
     if not body:
         raise HTTPException(status_code=400, detail="Message cannot be empty")

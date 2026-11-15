@@ -250,7 +250,11 @@ RapidGrid/
 
 ## Getting started
 
-**Prerequisites:** Python 3.11+, Node.js 18+
+**Prerequisites:** Python 3.11+, Node.js 22+
+
+For the protected hosted showcase, persistent storage, and browser regression
+checks, follow [Showcase setup and validation](docs/SHOWCASE.md). The default
+local demo uses synthetic data and does not verify individual identities.
 
 ### Backend
 
@@ -261,9 +265,9 @@ cd backend && python -m venv venv && ./venv/Scripts/activate && pip install -r r
 Copy `.env.example` to `.env` and add your keys:
 
 ```
-GOOGLE_ROUTES_API_KEY=...      # backend key — Application restrictions MUST be None
+GOOGLE_ROUTES_API_KEY=...      # server-side Routes API key; not a browser-referrer key
 OPENWEATHER_API_KEY=...
-GOOGLE_MAPS_JS_API_KEY=...     # browser key — restrict to http://localhost:5173/*
+GOOGLE_MAPS_JS_API_KEY=...     # optional legacy setting; current Leaflet UI does not use it
 ```
 
 > The Routes key must **not** carry an HTTP-referrer restriction — that
@@ -323,9 +327,11 @@ Runs at `http://localhost:5173`. API calls go through the Vite proxy
 cd backend && pip install -r requirements-dev.txt && ./venv/Scripts/python.exe -m pytest tests/ -q
 ```
 
-30 tests covering triage, offline routing, causal displacement, outcome
-estimation, the capability table and hospital coordinate integrity. None
-require network access.
+Tests cover triage, offline routing, hospital capability, incident transitions,
+durable storage, chat, provider readiness and showcase access. No live API keys
+are required. [Browser regressions](docs/SHOWCASE.md#validation) also cover the
+complete report-to-handover workflow, page refreshes, chat pointer access,
+hospital capacity failures and mobile layouts.
 
 ---
 

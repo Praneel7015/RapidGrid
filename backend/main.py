@@ -29,10 +29,11 @@ from datetime import datetime, timezone
 
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from security import ShowcaseAccessMiddleware, allowed_origins, router as session_router
 
 from agents.accessibility import accessibility_agent
 from agents.communication import communication_agent
@@ -72,6 +73,9 @@ async def lifespan(app: FastAPI):
     """
     logger.info("GeoAgentic backend starting up …")
 
+    # Capacity overrides live on the same durable store as incident snapshots.
+    hospital.restore_capacity()
+
     # 1. Load road network into Traffic Intelligence
     traffic_agent.load_network()
 
@@ -88,7 +92,6 @@ async def lifespan(app: FastAPI):
         # neighbouring roads rather than making it disappear.
         if city_state.attach(local_router):
             try:
-                from agents.prediction import prediction_agent
                 import httpx
 
                 if prediction_agent.api_key:
@@ -146,16 +149,19 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS — allow all origins for local dev (tighten in production)
+# A same-origin deployment needs no cross-origin grant. Development origins
+# must be explicitly listed; never combine wildcard origins with cookies.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allowed_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(ShowcaseAccessMiddleware)
 
 # Mount routers
+app.include_router(session_router)
 app.include_router(traffic.router)
 app.include_router(routing.router)
 app.include_router(hospital.router)
@@ -183,7 +189,9 @@ async def health():
     Honest status: degraded when offline graph is missing; unhealthy when
     neither live routing nor offline graph can serve paths.
     """
-    live = bool(route_agent.api_key)
+    telemetry = route_agent.stats()
+    configured = bool(route_agent.api_key)
+    live = telemetry["live_api_status"] == "available"
     offline = bool(local_router.available)
     if not live and not offline:
         status_value = "unhealthy"
@@ -197,12 +205,15 @@ async def health():
         "service": "geoagentic-backend",
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "city_model": (
-            city_state.snapshot() if city_state.ready else {"status": "unattached"}
+            # Health is public: intervention labels/targets belong behind the
+            # operator gate on /api/city/state, not in monitoring responses.
+            {key: value for key, value in city_state.snapshot().items() if key != "interventions"}
+            if city_state.ready else {"status": "unattached"}
         ),
         "routing": {
-            "live_api_key_configured": live,
+            "live_api_key_configured": configured,
             "offline_graph_available": offline,
-            **route_agent.stats(),
+            **telemetry,
         },
         "agents": {
             "traffic_intelligence": "active",
@@ -216,6 +227,12 @@ async def health():
             "learning_agent": "stub_active",
         },
     }
+
+
+@app.get("/health/live", tags=["Platform"])
+async def liveness():
+    """Process liveness, independent of paid providers and readiness checks."""
+    return {"status": "alive"}
 
 
 from fastapi import WebSocket, WebSocketDisconnect
@@ -271,6 +288,8 @@ if _FRONTEND_DIST.is_dir():
 
     @app.get("/{full_path:path}", include_in_schema=False)
     async def frontend_spa(full_path: str):
+        if full_path == "api" or full_path.startswith(("api/", "ws/")):
+            raise HTTPException(status_code=404, detail="API endpoint not found")
         found = _safe_frontend_file(full_path)
         if found is not None:
             return FileResponse(found)

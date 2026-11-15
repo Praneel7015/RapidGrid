@@ -7,10 +7,23 @@ services:
     dockerfilePath: ./Dockerfile
     dockerContext: .
     branch: main
-    plan: free
+    # Persistent disks require a paid instance. This manifest is reviewed before
+    # applying; changing it does not provision a disk by itself.
+    plan: starter
     region: singapore
-    healthCheckPath: /health
+    healthCheckPath: /health/live
+    numInstances: 1
+    disk:
+      name: rapidgrid-state
+      mountPath: /var/data
+      sizeGB: 1
     envVars:
+      - key: RAPIDGRID_MODE
+        value: operator
+      - key: RAPIDGRID_OPERATOR_TOKEN
+        sync: false
+      - key: RAPIDGRID_DATA_DIR
+        value: /var/data
       - key: GOOGLE_ROUTES_API_KEY
         sync: false
       - key: OPENWEATHER_API_KEY
