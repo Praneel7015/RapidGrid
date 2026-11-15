@@ -212,3 +212,50 @@ def test_startup_without_offline_graph_still_registers_prediction(monkeypatch):
 
         asyncio.run(start())
         register.assert_called_once()
+
+
+def test_static_path_containment_refuses_escapes_and_serves_inside(tmp_path):
+    import main
+
+    dist = tmp_path / "dist"
+    (dist / "assets").mkdir(parents=True)
+    (dist / "index.html").write_text("index")
+    (dist / "assets" / "app.js").write_text("js")
+    secret = tmp_path / "secret.txt"
+    secret.write_text("secret")
+    (dist / "leak.txt").symlink_to(secret)
+    (dist / "leakdir").symlink_to(tmp_path)
+
+    inside = main._safe_frontend_file("assets/app.js", dist)
+    assert inside is not None and Path(inside) == (dist / "assets" / "app.js").resolve()
+    assert main._safe_frontend_file("../secret.txt", dist) is None
+    assert main._safe_frontend_file("assets/../../secret.txt", dist) is None
+    assert main._safe_frontend_file(str(secret), dist) is None  # absolute path
+    assert main._safe_frontend_file("leak.txt", dist) is None  # symlink out of dist
+    assert main._safe_frontend_file("leakdir/secret.txt", dist) is None
+    assert main._safe_frontend_file("", dist) is None
+    assert main._safe_frontend_file("assets", dist) is None  # directory, not a file
+    assert main._safe_frontend_file("missing.js", dist) is None
+    assert main._safe_frontend_file("bad\x00name", dist) is None
+
+
+def test_spa_route_serves_inside_files_and_falls_back_for_escapes(tmp_path, monkeypatch):
+    import main
+
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "index.html").write_text("INDEX")
+    (dist / "robots.txt").write_text("ROBOTS")
+    (tmp_path / "secret.txt").write_text("SECRET")
+    (dist / "leak.txt").symlink_to(tmp_path / "secret.txt")
+    monkeypatch.setattr(main, "_FRONTEND_DIST", dist)
+    monkeypatch.setenv("RAPIDGRID_MODE", "demo")
+    client = TestClient(main.app)
+    # The SPA catch-all is only registered when a real dist/ existed at import time.
+    if not any(getattr(r, "path", "") == "/{full_path:path}" for r in main.app.routes):
+        pytest.skip("frontend/dist not built; catch-all route not registered")
+    assert client.get("/robots.txt").text == "ROBOTS"
+    for url in ("/%2e%2e/secret.txt", "/..%2fsecret.txt", "/leak.txt", "/%2Fetc/passwd", "/foo%00bar"):
+        body = client.get(url).text
+        assert "SECRET" not in body and "root:" not in body, url
+        assert body == "INDEX", url

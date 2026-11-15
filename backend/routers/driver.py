@@ -199,6 +199,7 @@ async def change_hospital(payload: HospitalChangePayload):
         view.update({"hospital_name": hospital["name"], "hospital_location": hospital["location"],
                      "hospital_phone": _hospital_phone(hospital["name"]),
                      "message": f"Rerouted by driver to {hospital['name']}."})
-        incident.update({"hospital_name": hospital["name"], "approved_hospital_id": canonical or hospital.get("hospital_id"), "citizen_view": view})
+        incident.update({"hospital_name": hospital["name"], "approved_hospital_id": canonical or hospital.get("hospital_id"),
+                         "hospital_phone": view["hospital_phone"], "citizen_view": view})
         save_db()
         return {"status": "rerouted", "citizen_view": view}

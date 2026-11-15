@@ -36,6 +36,7 @@ _INCIDENTS_LOCK: asyncio.Lock = asyncio.Lock()
 import json
 from pathlib import Path
 
+from logsafe import log_safe
 from storage import data_path, load_collection, save_collection
 
 _LEGACY_DB_FILE = Path(__file__).parent.parent / "data" / "incidents_db.json"
@@ -94,8 +95,8 @@ DEMO_HOSPITAL_PHONES = {
     "Aster CMI Hospital (Hebbal)": "+91 80 4342 0107",
     "Manipal Hospital (Old Airport Road)": "+91 80 2502 4444",
     "Fortis Hospital (Bannerghatta Road)": "+91 80 6621 4444",
-    "Sri Jayadeva Institute of Cardiovascular Sciences": "+91 80 2297 7200",
-    "NIMHANS": "+91 80 2699 5000",
+    "Sri Jayadeva Institute of Cardiovascular Sciences and Research": "+91 80 2297 7200",
+    "NIMHANS (National Institute of Mental Health and Neurosciences)": "+91 80 2699 5000",
     "St. John's Medical College Hospital": "+91 80 2206 5000",
     "Victoria Hospital (BMCRI)": "+91 80 2670 1150",
 }
@@ -352,7 +353,8 @@ async def approve_incident(incident_id: str, payload: ApprovePayload):
         inc["unit_statuses"] = {unit: "dispatched" for unit in required_units(inc)}
         view["unit_statuses"] = inc["unit_statuses"]
         save_db()
-        logger.info("PLAN_APPROVED for %s by %s: hospital=%s", incident_id, payload.dispatcher_id, target["name"])
+        logger.info("PLAN_APPROVED for %s by %s: hospital=%s",
+                    log_safe(incident_id), log_safe(payload.dispatcher_id), log_safe(target["name"]))
         return inc
 
 
@@ -374,7 +376,7 @@ async def reject_incident(incident_id: str, dispatcher_id: str = "DISPATCHER-01"
                     inc["citizen_view"]["status"] = "failed"
                     inc["citizen_view"]["message"] = "Your request could not be dispatched. Please call 112."
                 save_db()
-                logger.info("REJECTED %s by %s", incident_id, dispatcher_id)
+                logger.info("REJECTED %s by %s", log_safe(incident_id), log_safe(dispatcher_id))
                 return {"status": "rejected", "incident_id": incident_id}
     raise HTTPException(status_code=404, detail="Incident not found")
 

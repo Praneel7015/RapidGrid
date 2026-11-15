@@ -241,9 +241,12 @@ function IncidentChannel({
       </div>
 
       {sendError && <p role="alert" className="px-3 py-2 text-xs text-critical">{sendError}</p>}
-      {speech.error && (
-        <p className="border-t border-rule px-3 pt-2 text-[12px] leading-relaxed text-critical">{speech.error}</p>
-      )}
+      {/* Always mounted, so a screen reader announces the first error too. */}
+      <div role="status">
+        {speech.error && (
+          <p className="border-t border-rule px-3 pt-2 text-[12px] leading-relaxed text-critical">{speech.error}</p>
+        )}
+      </div>
       <form onSubmit={send} className="flex items-center gap-2 border-t border-rule p-2.5">
         <input
           aria-label="Message to incident channel"
