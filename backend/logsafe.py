@@ -8,5 +8,7 @@ _CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f  ]")
 
 def log_safe(value: object, limit: int = 200) -> str:
     """Return ``str(value)`` with control characters (CR, LF, ...) replaced and length capped."""
-    text = _CONTROL.sub(" ", str(value))
+    # Explicit replace calls are the line-break sanitiser form static analysis (CodeQL) recognises.
+    text = str(value).replace("\r\n", " ").replace("\n", " ").replace("\r", " ")
+    text = _CONTROL.sub(" ", text)
     return text if len(text) <= limit else text[: limit - 1] + "…"

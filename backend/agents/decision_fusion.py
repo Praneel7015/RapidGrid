@@ -124,8 +124,8 @@ class DecisionFusionEngine:
         weights = FUSION_WEIGHTS.get(etype, FUSION_WEIGHTS["general"])
 
         logger.info(
-            "Fusion started for %s — %s emergency, severity=%.2f",
-            log_safe(incident_id), etype, request.severity,
+            "Fusion started for %s — %s emergency, severity=%s",
+            log_safe(incident_id), log_safe(etype), log_safe(f"{request.severity:.2f}"),
         )
 
         # -- 1. Traffic Intelligence ------------------------------------------

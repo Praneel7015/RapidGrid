@@ -17,6 +17,7 @@ from typing import Any
 import httpx
 
 from bus.event_bus import HOSPITAL_RANKED, bus
+from logsafe import log_safe
 from models.schemas import (
     Coordinate,
     DataFreshness,
@@ -668,7 +669,7 @@ class HospitalIntelligenceAgent:
         # dedicated error: /rank maps it to 503 and the incident pipeline
         # marks the incident failed with a readable reason.
         if not entries:
-            logger.warning("Hospital ranking produced zero candidates for %s", etype)
+            logger.warning("Hospital ranking produced zero candidates for %s", log_safe(etype))
             raise NoHospitalCandidatesError(
                 f"No hospital is currently accepting patients for a {etype} emergency"
             )
