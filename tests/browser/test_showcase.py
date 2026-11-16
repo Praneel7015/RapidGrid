@@ -360,6 +360,34 @@ def test_ranked_destination_click_needs_explicit_confirmation(context, server):
     assert len(approvals) == 1
 
 
+def test_override_list_also_needs_confirmation(context, server):
+    unlock(context, server)
+    created = context.request.post(server + "/api/incidents", data={
+        "citizen_text": "Test scenario: chest pain near Hebbal.", "citizen_name": "Browser override test",
+        "citizen_phone": "TEST-OVERRIDE-ONLY", "location": {"lat": 13.035, "lng": 77.597},
+    })
+    assert created.status == 202, created.text()
+    incident_id = created.json()["incident_id"]
+    plan = poll_incident(context, server, incident_id, "awaiting_dispatcher_approval")["action_plan"]
+    target = plan["all_hospitals"][-1]["name"]
+
+    page = context.new_page()
+    approvals = []
+    page.on("request", lambda r: approvals.append(r.url) if r.url.endswith("/approve") else None)
+    page.goto(server + "/dispatcher")
+    page.get_by_role("button").filter(has_text=incident_id).first.click()
+    page.get_by_role("button", name="Send to a different hospital", exact=True).click()
+    override = page.locator("div.rise").filter(has_text="Override destination")
+    override.get_by_role("button").filter(has_text=target).first.click()
+    expect(page.get_by_role("button", name="Confirm dispatch", exact=True)).to_be_visible()
+    page.wait_for_timeout(600)
+    assert approvals == []
+    page.get_by_role("button", name="Confirm dispatch", exact=True).click()
+    dispatched = poll_incident(context, server, incident_id, "dispatched")
+    assert dispatched["citizen_view"]["hospital_name"] == target
+    assert len(approvals) == 1
+
+
 def test_report_without_a_location_fix_needs_the_caller_to_confirm_the_fallback(browser, server):
     # No geolocation permission: the browser denies the request.
     ctx = browser.new_context(service_workers="block", viewport={"width": 390, "height": 844})

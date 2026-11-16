@@ -44,8 +44,9 @@ export default function DispatcherDashboard() {
   const autoAttempted = useRef(new Set());
   const [actionError, setActionError] = useState(null);
   // A ranked row is only selected by a click; dispatch needs a second, explicit confirm.
+  // { incidentId, key, source }: the incident is stored with the choice so a
+  // confirmation opened for one call can never dispatch another.
   const [pendingHospital, setPendingHospital] = useState(null);
-  useEffect(() => { setPendingHospital(null); }, [selectedId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -135,6 +136,23 @@ export default function DispatcherDashboard() {
     const timer = setInterval(loadOverlay, 8000);
     return () => clearInterval(timer);
   }, [loadOverlay]);
+
+  const hospitalKey = (h) => h.hospital_id ?? h.name;
+  const isPending = (h, source) =>
+    Boolean(selected) &&
+    pendingHospital?.incidentId === selected.incident_id &&
+    pendingHospital.source === source &&
+    pendingHospital.key === hospitalKey(h);
+  const choose = (h, source) =>
+    setPendingHospital(
+      isPending(h, source) ? null : { incidentId: selected.incident_id, key: hospitalKey(h), source },
+    );
+  const confirmDispatch = (h) => {
+    // Re-check at click time: polling may have moved the panel to another call.
+    const matches = pendingHospital?.incidentId === selected?.incident_id && pendingHospital?.key === hospitalKey(h);
+    setPendingHospital(null);
+    if (matches) approve(h);
+  };
 
   const approve = async (hospital = null) => {
     if (!selected?.action_plan) return;
@@ -449,8 +467,9 @@ export default function DispatcherDashboard() {
                     {plan.all_hospitals.map((h, i) => (
                       <button
                         key={h.hospital_id ?? i}
-                        onClick={() => approve(h)}
+                        onClick={() => choose(h, 'override')}
                         disabled={busy}
+                        aria-pressed={isPending(h, 'override')}
                         className="rounded-sm border border-rule bg-paper-sunk p-3 text-left transition-colors hover:border-signal hover:bg-signal-wash disabled:opacity-50"
                       >
                         <div className="flex items-start justify-between gap-2">
@@ -474,6 +493,21 @@ export default function DispatcherDashboard() {
                       </button>
                     ))}
                   </div>
+                  {plan.all_hospitals.filter((h) => isPending(h, 'override')).map((h) => (
+                    <div key={h.hospital_id ?? h.name} className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-sm border border-rule bg-paper-sunk px-3 py-2.5">
+                      <span className="text-[12px] leading-snug text-text">
+                        Dispatch to <strong>{h.name}</strong>?
+                      </span>
+                      <span className="flex gap-2">
+                        <Button variant="quiet" onClick={() => setPendingHospital(null)} disabled={busy}>
+                          Cancel
+                        </Button>
+                        <Button onClick={() => confirmDispatch(h)} disabled={busy}>
+                          Confirm dispatch
+                        </Button>
+                      </span>
+                    </div>
+                  ))}
                 </div>
               )}
             </Panel>
@@ -502,11 +536,11 @@ export default function DispatcherDashboard() {
                       ? view.hospital_name === h.name
                       : i === 0;
                     const awaiting = selected.status === 'awaiting_dispatcher_approval';
-                    const pending = awaiting && pendingHospital === (h.hospital_id ?? h.name);
+                    const pending = awaiting && isPending(h, 'ranked');
                     return (
                       <React.Fragment key={h.hospital_id ?? i}>
                       <button
-                        onClick={() => setPendingHospital(pending ? null : (h.hospital_id ?? h.name))}
+                        onClick={() => choose(h, 'ranked')}
                         disabled={busy || !awaiting}
                         aria-expanded={pending}
                         className={`block w-full border-b border-rule/70 px-4 py-3 text-left transition-colors last:border-0 ${
@@ -547,7 +581,7 @@ export default function DispatcherDashboard() {
                             <Button variant="quiet" onClick={() => setPendingHospital(null)} disabled={busy}>
                               Cancel
                             </Button>
-                            <Button onClick={() => { setPendingHospital(null); approve(h); }} disabled={busy}>
+                            <Button onClick={() => confirmDispatch(h)} disabled={busy}>
                               Confirm dispatch
                             </Button>
                           </span>
