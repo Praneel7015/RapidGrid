@@ -385,6 +385,11 @@ def test_override_list_also_needs_confirmation(context, server):
     expect(page.get_by_role("button", name="Confirm dispatch", exact=True)).to_be_visible()
     page.wait_for_timeout(600)
     assert approvals == []
+    # Closing the list drops the hidden choice, so Approve is not left locked.
+    page.get_by_role("button", name="Close", exact=True).click()
+    expect(page.get_by_role("button", name="Approve and dispatch", exact=True)).to_be_enabled()
+    page.get_by_role("button", name="Send to a different hospital", exact=True).click()
+    override.get_by_role("button").filter(has_text=target).first.click()
     page.get_by_role("button", name="Confirm dispatch", exact=True).click()
     dispatched = poll_incident(context, server, incident_id, "dispatched")
     assert dispatched["citizen_view"]["hospital_name"] == target
