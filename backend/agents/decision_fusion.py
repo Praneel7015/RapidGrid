@@ -34,7 +34,7 @@ from agents.clinical_outcome import compare as compare_outcomes
 from agents.hospital_intelligence import hospital_agent
 from agents.prediction import prediction_agent
 from agents.route_optimization import route_agent
-from agents.traffic_intelligence import traffic_agent
+from agents.city_state import city_state
 from bus.event_bus import FUSION_COMPLETE, bus
 from logsafe import log_safe
 from models.schemas import (
@@ -128,26 +128,21 @@ class DecisionFusionEngine:
             log_safe(incident_id), log_safe(etype), log_safe(f"{request.severity:.2f}"),
         )
 
-        # -- 1. Traffic Intelligence ------------------------------------------
-        traffic_snapshot = traffic_agent.get_snapshot()
-        traffic_segments = traffic_snapshot.segments
-
-        # Aggregate traffic score: average congestion across all segments
-        # 0 = all clear, 1 = all gridlocked
-        avg_congestion = (
-            sum(s.congestion_score for s in traffic_segments) / len(traffic_segments)
-            if traffic_segments else 0.0
-        )
-        # Invert: high congestion → low traffic score (bad conditions)
+        # -- 1. Traffic conditions ---------------------------------------------
+        # There is no live traffic feed. The factor comes from the city model
+        # the routes are computed on (hour, weather, drawn closures), so it
+        # changes when those change. It is modelled, and says so.
+        city = city_state.snapshot() if city_state.ready else {}
+        peak = float(city.get("peak_factor", 0.0))
+        weather_drag = max(0.0, float(city.get("weather_multiplier", 1.0)) - 1.0)
+        total_closures = int(city.get("closed_segments", 0))
+        total_incidents = int(city.get("incident_segments", 0))
+        avg_congestion = min(1.0, 0.4 * peak + weather_drag + 0.01 * (total_closures + total_incidents))
         traffic_score = round(1.0 - avg_congestion, 3)
-        traffic_confidence = (
-            sum(s.confidence for s in traffic_segments) / len(traffic_segments)
-            if traffic_segments else 0.5
-        )
-
-        # Count active incidents and closures for the explanation
-        total_incidents = sum(len(s.incidents) for s in traffic_segments)
-        total_closures = sum(len(s.closures) for s in traffic_segments)
+        traffic_confidence = 0.5  # modelled conditions, not observed traffic
+        traffic_context = {
+            "hour": city.get("hour"), "weather": city.get("weather", "Clear"),
+        }
 
         logger.info(
             "Traffic: avg_congestion=%.3f, score=%.3f, incidents=%d, closures=%d",
@@ -260,7 +255,7 @@ class DecisionFusionEngine:
                 "label": "Traffic Conditions",
                 "weight": weights["traffic"],
                 "score": traffic_score,
-                "agent": "traffic_intelligence",
+                "agent": "city_model",
                 "confidence": traffic_confidence,
             },
             {
@@ -321,6 +316,7 @@ class DecisionFusionEngine:
             traffic_score=traffic_score,
             total_incidents=total_incidents,
             total_closures=total_closures,
+            traffic_context=traffic_context,
             ranked_hospitals=hospital_result.ranked_hospitals,
             route_failed=route_failed,
         )
@@ -407,6 +403,7 @@ class DecisionFusionEngine:
         traffic_score: float,
         total_incidents: int,
         total_closures: int,
+        traffic_context: dict | None = None,
         ranked_hospitals: list[Any] | None = None,
         route_failed: bool = False,
     ) -> str:
@@ -447,17 +444,14 @@ class DecisionFusionEngine:
         )
 
         # Traffic conditions
-        if total_incidents > 0 or total_closures > 0:
-            parts.append(
-                f"TRAFFIC: {total_incidents} active incident(s), "
-                f"{total_closures} road closure(s). "
-                f"Overall traffic score: {traffic_score:.2f}/1.00."
-            )
-        else:
-            parts.append(
-                f"TRAFFIC: No active incidents or closures. "
-                f"Traffic score: {traffic_score:.2f}/1.00."
-            )
+        context = traffic_context or {}
+        hour = context.get("hour")
+        when = f"{hour:02d}:00" if isinstance(hour, int) else "unknown hour"
+        parts.append(
+            f"TRAFFIC (modelled, no live feed): {when}, {context.get('weather', 'Clear')}, "
+            f"{total_closures} closed and {total_incidents} obstructed road segment(s). "
+            f"Score {traffic_score:.2f}/1.00."
+        )
 
         # Counterfactual: why the runner-up lost.
         #

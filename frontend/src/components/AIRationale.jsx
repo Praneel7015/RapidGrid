@@ -197,6 +197,10 @@ function OutcomeCard({ outcome }) {
       <p className="mb-2 t-micro text-text-faint">
         Target {chosen.target_minutes.toFixed(0)} min · {chosen.guideline}
       </p>
+      <p className="mb-2 t-micro leading-relaxed text-text-faint">
+        Illustrative only: fixed timing assumptions plus the modelled road time, excluding the
+        unit&rsquo;s drive to the patient. Not clinical evidence and not a measured outcome.
+      </p>
 
       <div className="divide-y divide-rule/60">
         <Bar entry={chosen} chosen />

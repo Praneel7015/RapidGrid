@@ -20,15 +20,15 @@ const CAPABILITIES = [
   },
   {
     title: 'It separates what it knows from what it models',
-    body: 'Hospital capability is curated and drives routing. Live bed counts are modelled, because no hospital data feed is integrated — so they are drawn differently, everywhere they appear. Nothing on screen is a number we invented and presented as a measurement.',
+    body: 'Hospital capability is curated and drives routing. There is no hospital data feed, so bed counts are simulated, drawn differently wherever they appear, and never used to rank hospitals. Only a figure an ER desk enters changes the ranking.',
   },
 ];
 
 const SAMPLE = {
   emergency: 'Cardiac',
   location: 'Hebbal, Bengaluru',
-  chosen: { name: 'Fortis Hospital (Bannerghatta Road)', factor: 'Cath lab', value: '0.90', eta: '10.7' },
-  runnerUp: { name: "St John's Medical College", factor: 'Cath lab', value: '0.76', eta: '4.5' },
+  chosen: { name: 'Aster CMI Hospital (Hebbal)', factor: 'Cath lab', value: '0.82', eta: '5.9' },
+  runnerUp: { name: 'MS Ramaiah Memorial Hospital', factor: 'Cath lab', value: '0.76', eta: '6.4' },
 };
 
 export default function LandingPage() {
@@ -155,7 +155,7 @@ export default function LandingPage() {
                 {[
                   { n: '112,725', l: 'OSM nodes · 178,089 edges\nBengaluru road graph', modelled: false },
                   { n: '30', l: 'Facilities · curated capability\nprofiles, coords via OSM', modelled: false },
-                  { n: '13', l: 'Agents feeding one\nrecommendation', modelled: false },
+                  { n: '4', l: 'Steps · triage, hospital ranking,\nrouting, dispatcher review', modelled: false },
                   { n: '~100', l: 'ms · A* fallback path,\nbenchmark not measured live', modelled: true },
                 ].map((row) => (
                   <div key={row.n}>
@@ -311,7 +311,7 @@ export default function LandingPage() {
                   {[
                     'Bengaluru road network — 112,725 nodes from OpenStreetMap',
                     'Google traffic routing when configured and available; offline A* fallback otherwise',
-                    'Weather input when available; estimated travel times',
+                    'Weather input when an OpenWeather key is set; estimated travel times',
                     'Hospital capability profiles, curated for 30 facilities',
                     'A* pathfinding, closures and congestion included',
                   ].map((t) => (
@@ -329,6 +329,9 @@ export default function LandingPage() {
                     'Live ICU beds and blood units — no hospital feed is integrated',
                     'Ambulance fleet positions — hubs are fixed, not GPS-tracked',
                     'Triage classification — transparent keyword scoring, not a trained model',
+                    'Traffic conditions — modelled from hour, weather and drawn closures; no live traffic feed',
+                    'Bed counts — simulated unless an ER desk enters them; simulated figures never rank hospitals',
+                    'Clinical outcome bars — illustrative timing assumptions, not measured outcomes',
                     'Signal preemption and congestion displacement — simulated',
                   ].map((t) => (
                     <li key={t} className="flex items-start gap-2 text-[13px] leading-relaxed text-text-muted">

@@ -1,8 +1,10 @@
 # RapidGrid — GeoAgentic emergency vehicle routing
 
-A multi-agent system that routes emergency vehicles in Bengaluru on what a
-hospital can actually **treat**, not just how close it is — and shows the
-dispatcher exactly what each decision traded away.
+A dispatch-workflow simulator for Bengaluru. A citizen reports an emergency,
+keyword triage suggests a category, hospitals are ranked on what they can
+actually **treat** and on real road time, a dispatcher approves or overrides,
+and the driver and the receiving ER follow the case — with the reasoning
+shown at every step.
 
 **The thesis:** the nearest hospital is often the wrong one. A cardiac arrest
 needs a cath lab. Sending the patient to a closer emergency room that has to
@@ -13,7 +15,9 @@ transfer them onward costs far more time than driving past it.
 > [What is real and what is modelled](#what-is-real-and-what-is-modelled).
 > Nothing is presented as measured unless it is.
 
-Try our Application ---- https://rapidgrid.onrender.com
+> **Hosted copy:** https://rapidgrid.onrender.com is built from an older
+> commit of a different repository and does not include the access gate or the
+> fixes in this one. Run it locally until the deployment is updated.
 
 ---
 
@@ -38,19 +42,21 @@ cost in road minutes:
 > cath-lab capability (0.90 vs 0.76) and takes it by 0.017. By road, Fortis is
 > 6.2 min further.*
 
-### Measures outcome, not minutes
+### Illustrates the cost of a secondary transfer
 
-Time-to-definitive-treatment against door-to-balloon (90 min), door-to-needle
-(60 min) and golden-hour targets. The dominant term is the **secondary
-transfer** — a hospital that cannot deliver the intervention costs a whole
-second journey:
+An **illustrative** estimate of call-to-treatment time against guideline
+targets (90 min to balloon, 60 min to needle, the first hour for trauma). It
+uses fixed timing assumptions plus the modelled road time and excludes the
+unit's drive to the patient, so it is not a measured or clinically validated
+outcome. Its point is the shape: a hospital that cannot deliver the
+intervention costs a whole second journey.
 
 ```
                           PCI CENTRE      NEAREST ER
   drive to hospital             16.0             5.0
   in-hospital workup            27.2            34.6
   secondary transfer             0.0            52.0
-  TOTAL to balloon              60.7           109.1
+  TOTAL to balloon (est.)       60.7           109.1
   within 90 min target          True           False
 ```
 
@@ -64,7 +70,8 @@ Routing runs in three tiers, and never pretends:
 | 2 | A* over a cached 112,725-node OpenStreetMap graph | `CACHED` | quota, outage, or no key |
 | 3 | Straight-line placeholder | `STALE` | both failed — explicitly *not dispatchable* |
 
-Tier 2 produces real paths over real Bengaluru roads in ~100 ms. Tier 3 says
+Tier 2 produces real paths over real Bengaluru roads (measured locally: median
+about 180 ms, 99th percentile about 1 s over 200 random routes). Tier 3 says
 `NO ROUTE AVAILABLE — do not dispatch on this geometry` rather than returning
 a confident-looking zero.
 
@@ -100,25 +107,25 @@ do(close Bellary Road) -> 52 segments closed, displaced onto 97 neighbours
 
 ---
 
-## Agents
+## How a report becomes a plan
 
-| Agent | Responsibility |
-| :-- | :-- |
-| **Triage** (`triage.py`) | Weighted-keyword classification of free-text reports into emergency type and severity. Transparent and auditable — not a learned model, and never described as one. |
-| **Accessibility** | Normalises multi-modal reports (text, voice, sign language, SOS button) into a standard incident contract. |
-| **Traffic Intelligence** | Segment congestion, incidents, closures, weather risk. |
-| **Route Optimization** | Three-tier routing with a 90 s response cache to protect API quota. |
-| **Local Router** (`local_router.py`) | A* over the cached OpenStreetMap graph, implementing the `route-scoring.md` cost model. |
-| **City State** (`city_state.py`) | Causal model: time of day, weather, closures, and traffic displacement. |
-| **Hospital Intelligence** | Two-stage ranking — cheap scoring across ~900 candidates, then real road ETAs for the shortlist. Specialty-bypass gate. |
-| **Clinical Outcome** (`clinical_outcome.py`) | Time-to-treatment against guideline targets, including transfer penalties. |
-| **Decision Fusion** | Five-dimension weighted synthesis with an explicit counterfactual. |
-| **Prediction** | ETA with weather adjustment and a confidence interval. |
-| **Communication** | Dispatch notifications (SMS, hospital API, traffic control channels). |
-| **Emergency Coordinator** | Severity assessment and workflow activation. |
-| **Learning** | **Stub.** Logs decisions; does not yet feed anything back. `/health` reports it as `stub_active`. |
+The code is organised as modules called "agents", but the decision path is a
+plain pipeline:
 
-Agents communicate over an in-process async event bus (`bus/event_bus.py`).
+| Step | Module | What it really does |
+| :-- | :-- | :-- |
+| Triage | `triage.py`, `accessibility.py` | Weighted keyword matching on English text into emergency type and severity. No negation handling; other languages fall to `general`. A suggestion for the dispatcher, not clinical triage. |
+| Hospital ranking | `hospital_intelligence.py` | Scores curated capability, road time over the offline graph, and only ER-desk-entered bed figures. Diverted hospitals are excluded; specialty-bypass gate for cardiac, stroke and trauma. **This step chooses the hospital.** |
+| Routing | `route_optimization.py`, `local_router.py` | Google Routes when configured, otherwise A* over the offline graph (see tiers above). |
+| Plan | `decision_fusion.py` | Packages the top-ranked hospital, the route and an explanation. Its five weighted factors describe the plan; they do not change which hospital is chosen. |
+| City model | `city_state.py` | Hour, weather and drawn closures, applied to the offline graph. Also the source of the traffic factor shown in the plan. |
+
+Other modules are supporting or placeholder: `clinical_outcome.py`
+(illustrative estimate), `prediction.py` (weather adjustment when a key is
+set), `communication.py` (**simulated** notifications; nothing is sent),
+`coordinator.py` and `learning.py` (**stubs**), `traffic_intelligence.py`
+(a six-segment sample file, no longer used in decisions). They are connected
+by an in-process event bus (`bus/event_bus.py`).
 
 ---
 
@@ -130,8 +137,8 @@ modelled values carry hatched badges and dotted underlines.
 **Real**
 
 - Bengaluru road network — 112,725 nodes / 178,089 edges from OpenStreetMap
-- Live traffic routing via Google Routes API v2
-- Live weather via OpenWeather, factored into ETA
+- Traffic-aware routing via Google Routes API v2, **when a key is configured**
+- Weather via OpenWeather, factored into ETA, **when a key is configured**
 - Hospital **capability** profiles, curated for 30 facilities
 - Hospital **coordinates**, resolved against OpenStreetMap — each carries a
   `coord_source` of `openstreetmap`, `manual-reviewed` or `manual-unverified`
@@ -139,7 +146,12 @@ modelled values carry hatched badges and dotted underlines.
 
 **Modelled — and labelled as such everywhere**
 
-- Live ICU beds and blood units. No hospital HMIS or HL7 feed is integrated.
+- ICU beds and blood units. No hospital HMIS or HL7 feed is integrated. Bed
+  counts are simulated for display and **never used to rank hospitals**; only
+  a figure an ER desk enters on its portal affects the ranking.
+- Traffic conditions. There is no live traffic feed; the traffic factor is
+  modelled from the hour, the weather and closures drawn by the dispatcher.
+- The clinical outcome comparison (see above) — illustrative assumptions.
 - Ambulance fleet positions. Station hubs are fixed, not GPS-tracked.
 - Triage classification — transparent keyword scoring, not a trained model.
 - Traffic displacement coefficients. Literature-informed estimates, **not
@@ -156,9 +168,15 @@ modelled values carry hatched badges and dotted underlines.
 
 **Not implemented**
 
-- Authentication. Selecting a role grants it, with no credential check. The
-  login screen states this. Real auth is the first thing a production
-  deployment needs.
+- Per-person authentication and roles. Operator mode protects the whole API
+  with one shared access token; demo mode is open. Within either mode any
+  user can act in any role and read every caller's details. Real roles are
+  the first thing a production deployment needs.
+- Notifications. The SMS, hospital and traffic-control dispatches are
+  simulated.
+- Sign-language input and non-English triage.
+- Offline use in the browser. Routing works without internet on the server;
+  the web app itself needs a connection.
 - Multi-incident resource contention. Each incident assumes an available unit.
 
 ---
@@ -259,7 +277,9 @@ local demo uses synthetic data and does not verify individual identities.
 ### Backend
 
 ```bash
-cd backend && python -m venv venv && ./venv/Scripts/activate && pip install -r requirements.txt
+cd backend && python -m venv venv
+source venv/bin/activate      # Windows: venv\Scripts\activate
+pip install -r requirements.txt
 ```
 
 Copy `.env.example` to `.env` and add your keys:
@@ -283,13 +303,13 @@ verification runs against OpenStreetMap instead, via
 Build the road graph once (~30 s):
 
 ```bash
-cd backend && ./venv/Scripts/python.exe scripts/build_road_graph.py
+cd backend && python scripts/build_road_graph.py
 ```
 
 Verify everything before you rely on it:
 
 ```bash
-cd backend && ./venv/Scripts/python.exe scripts/preflight.py
+cd backend && python scripts/preflight.py
 ```
 
 Checks all three keys, both routing tiers, the graph, the capability table and
@@ -299,7 +319,7 @@ router and says so.
 To check the data rather than the wiring:
 
 ```bash
-cd backend && ./venv/Scripts/python.exe scripts/validate_against_apis.py
+cd backend && python scripts/validate_against_apis.py
 ```
 
 Cross-validates every hospital and hub coordinate against both the local
@@ -309,7 +329,7 @@ Currently 0 problems across 30 hospitals and 11 hubs, with distance agreement
 of 1–15%.
 
 ```bash
-cd backend && ./venv/Scripts/python.exe -m uvicorn main:app --reload --port 8000
+cd backend && python -m uvicorn main:app --reload --port 8000
 ```
 
 ### Frontend
@@ -324,7 +344,7 @@ Runs at `http://localhost:5173`. API calls go through the Vite proxy
 ### Tests
 
 ```bash
-cd backend && pip install -r requirements-dev.txt && ./venv/Scripts/python.exe -m pytest tests/ -q
+cd backend && pip install -r requirements-dev.txt && python -m pytest tests/ -q
 ```
 
 Tests cover triage, offline routing, hospital capability, incident transitions,
@@ -350,8 +370,12 @@ hospital capacity failures and mobile layouts.
 
 Interactive docs at `http://localhost:8000/docs`.
 
+**Session** `GET /api/session` · `POST /api/session` · `DELETE /api/session`
+(operator-mode sign-in with the shared access token)
+
 **Incidents** `POST /api/incidents` · `GET /api/incidents/` · `GET /api/incidents/{id}` ·
-`POST /api/incidents/{id}/approve` · `POST /api/incidents/{id}/arrived` ·
+`POST /api/incidents/{id}/approve` · `POST /api/incidents/{id}/reject` ·
+`POST /api/incidents/{id}/arrived` ·
 `POST /api/incidents/{id}/request_ambulance` · `POST /api/incidents/clear`
 
 **Driver** `GET /api/driver/active` · `POST /api/driver/claim` ·
@@ -375,8 +399,8 @@ WebSocket delivers; HTTP is the durable write path and the fallback.
 `POST /api/coordinator/coordinate` · `POST /api/communication/dispatch` ·
 `POST /api/learning/dispatch_decision`
 
-**Platform** `GET /health` — includes routing tier status, quota telemetry and
-live city-model state.
+**Platform** `GET /health` — routing tier status, quota telemetry and city-model
+state · `GET /health/live` — process liveness for the host's health check.
 
 ---
 
@@ -385,9 +409,10 @@ live city-model state.
 **Frontend** React 18, Vite, Tailwind CSS v4, Leaflet, Lucide
 **Backend** FastAPI, Pydantic v2, asyncio, Uvicorn, httpx
 **Data** OpenStreetMap (Overpass), Google Routes API v2, OpenWeather
-**State** In-memory with JSON snapshotting (`incidents_db.json`, gitignored —
-it is per-demo runtime state, not source). Not a production datastore; there
-is no concurrency control.
+**State** SQLite in `RAPIDGRID_DATA_DIR`: one row per incident and per chat
+message, written off the event loop; a failed write is rolled back. Finished
+calls beyond `RAPIDGRID_KEEP_FINISHED` (default 100) are pruned. Run exactly
+one application process per data directory.
 
 ---
 
@@ -395,17 +420,20 @@ is no concurrency control.
 
 Stated plainly, because a system that hides these is harder to trust:
 
-1. **No authentication.** Role selection grants the role.
-2. **Incident state is in-memory**, snapshotted to JSON. No locking, no
-   transactions, lost on a crash between writes.
-3. **Traffic coefficients are uncalibrated.**
-4. **No live hospital data.** Capability is curated; availability is modelled.
-   Coordinates are OSM-resolved, but capability *scores* are still judgement
-   calls without a per-hospital citation.
-5. **The Learning Agent is a stub.**
-6. **Single-incident assumption.** No contention for a shared fleet.
-7. **`compute_route` is synchronous** inside an async pipeline; a slow upstream
-   call blocks the event loop. The response cache limits the exposure.
+1. **No per-person identity or roles.** One shared token in operator mode;
+   open in demo mode.
+2. **One process per data directory.** State is held in memory and written
+   through to SQLite; a second process would not see the first one's changes.
+3. **Traffic coefficients are uncalibrated**, and there is no live traffic feed.
+4. **No live hospital data.** Capability is curated; bed counts are simulated
+   unless an ER desk enters them. Capability *scores* are judgement calls
+   without a per-hospital citation.
+5. **Triage is English keyword matching** without negation handling.
+6. **Learning and coordinator modules are stubs; notifications are simulated.**
+7. **Single-incident assumption.** No contention for a shared fleet.
+8. **With a Google key, dispatched routes do not see drawn closures**, while
+   hospital ranking (on the offline graph) does. Leave the key unset to keep
+   the two consistent.
 
 ---
 
