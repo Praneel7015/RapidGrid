@@ -138,6 +138,24 @@ for the route module's legacy tier; it is not used in decisions.
 
 ---
 
+## Installable app
+
+RapidGrid is a progressive web app. In Chrome, Edge or Android, use
+**Install app** in the address bar or browser menu; on iOS, **Share → Add to
+Home Screen**. It then opens in its own window with shortcuts to each portal.
+
+- **Cached:** the app shell (HTML, JavaScript, CSS, icons), fonts, and map tiles
+  you have already viewed (up to 400, kept for a week).
+- **Never cached:** anything under `/api`, `/ws` or `/health`. Incidents, chat,
+  routes and sessions always come from the server, and no caller details are
+  stored in the browser cache.
+- **Offline:** the app opens and shows a banner saying live data needs a
+  connection; it retries the access check when the connection returns.
+- **Updates:** a new version waits until the user taps **Reload**, so an open
+  call is never interrupted.
+- **Not preloaded:** the in-browser speech model (about 21 MB) downloads only
+  when dictation is used on a browser without built-in speech recognition.
+
 ## What is real and what is modelled
 
 This distinction is enforced in the UI — verified values are drawn solid,
@@ -184,8 +202,8 @@ modelled values carry hatched badges and dotted underlines.
 - Notifications. The SMS, hospital and traffic-control dispatches are
   simulated.
 - Sign-language input and non-English triage.
-- Offline use in the browser. Routing works without internet on the server;
-  the web app itself needs a connection.
+- Working without a connection. The installed app opens offline (see
+  below), but reporting, dispatch, chat and routing all need the server.
 - Multi-incident resource contention. Each incident assumes an available unit.
 
 ---

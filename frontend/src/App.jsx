@@ -49,7 +49,10 @@ function SessionGate({ children }) {
       setSession(await res.json());
       setError(null);
     } catch (err) {
-      setError(err.message || 'Cannot check showcase access.');
+      // Opened from the installed app with no connection: say so plainly.
+      setError(navigator.onLine === false
+        ? 'You are offline. RapidGrid needs a connection to check access, and will retry when you are back online.'
+        : err.message || 'Cannot check showcase access.');
     }
   }, []);
   React.useEffect(() => {
@@ -58,7 +61,13 @@ function SessionGate({ children }) {
     const timer = window.setInterval(check, 30000);
     window.addEventListener('rapidgrid-session-changed', reset);
     window.addEventListener('focus', check);
-    return () => { window.clearInterval(timer); window.removeEventListener('rapidgrid-session-changed', reset); window.removeEventListener('focus', check); };
+    window.addEventListener('online', check);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('rapidgrid-session-changed', reset);
+      window.removeEventListener('focus', check);
+      window.removeEventListener('online', check);
+    };
   }, [check]);
   const unlock = async (e) => {
     e.preventDefault();

@@ -495,3 +495,63 @@ def test_zoom_button_click_survives_dispatcher_refresh(context, server):
     # Two refresh cycles of the incident list.
     page.wait_for_timeout(5000)
     assert zoom() == fitted + 1
+
+
+# --- Progressive web app ---------------------------------------------------------
+
+@pytest.fixture
+def pwa_context(browser, server):
+    # The main suite blocks service workers so request interception reaches the
+    # page; these tests need them.
+    ctx = browser.new_context(service_workers="allow", viewport={"width": 390, "height": 844})
+    unlock(ctx, server)
+    yield ctx
+    ctx.close()
+
+
+def test_manifest_and_icons_make_the_app_installable(pwa_context, server):
+    response = pwa_context.request.get(server + "/manifest.webmanifest")
+    assert response.ok
+    assert response.headers["content-type"].startswith("application/manifest+json")
+    manifest = response.json()
+    assert manifest["name"] == "RapidGrid" and manifest["display"] == "standalone"
+    assert manifest["start_url"] == "/" and manifest["theme_color"]
+    sizes = {(icon["sizes"], icon.get("purpose", "any")) for icon in manifest["icons"]}
+    assert {("192x192", "any"), ("512x512", "any"), ("512x512", "maskable")} <= sizes
+    for icon in manifest["icons"]:
+        image = pwa_context.request.get(server + icon["src"])
+        assert image.ok and image.headers["content-type"] == "image/png", icon["src"]
+    assert {s["url"] for s in manifest["shortcuts"]} == {"/citizen", "/dispatcher", "/driver", "/hospital"}
+
+
+def test_app_shell_opens_offline_but_live_data_is_never_cached(pwa_context, server):
+    page = pwa_context.new_page()
+    page.goto(server + "/citizen")
+    page.wait_for_function("navigator.serviceWorker && navigator.serviceWorker.ready.then(() => true)")
+    page.reload()  # now controlled by the service worker
+    page.wait_for_function("navigator.serviceWorker.controller !== null")
+
+    pwa_context.set_offline(True)
+    try:
+        page.goto(server + "/dispatcher")
+        # The shell renders from the cache, and the page says it is offline.
+        expect(page.get_by_role("status").filter(has_text="You are offline")).to_be_visible(timeout=10000)
+        assert page.locator("#root *").count() > 0
+        # Live data is network-only: an API call fails rather than returning a cached copy.
+        failed = page.evaluate("""() => fetch('/api/incidents/').then(() => false, () => true)""")
+        assert failed
+    finally:
+        pwa_context.set_offline(False)
+    # Back online, the app recovers without a manual reload.
+    expect(page.get_by_role("status").filter(has_text="You are offline")).to_have_count(0, timeout=10000)
+
+    cached = page.evaluate("""async () => {
+        const urls = [];
+        for (const name of await caches.keys()) {
+            for (const request of await (await caches.open(name)).keys()) urls.push(new URL(request.url).pathname);
+        }
+        return urls;
+    }""")
+    assert cached, "the app shell should be precached"
+    assert not [u for u in cached if u.startswith(("/api", "/ws", "/health"))]
+    assert not [u for u in cached if u.endswith(".wasm") or "transformers" in u]
