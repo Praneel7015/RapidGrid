@@ -34,12 +34,16 @@ def client(tmp_path, monkeypatch):
     chat.manager.active_connections.clear()
     hospital_agent._on_divert.clear()
     hospital_agent._fetch_cache.clear()  # cached rankings remember divert state
+    previous_beds = dict(hospital_agent._reported_beds)
+    hospital_agent._reported_beds.clear()
     yield TestClient(app)
     incident.ACTIVE_INCIDENTS.clear()
     chat.manager.chat_history.clear()
     chat.manager.active_connections.clear()
     hospital_agent._on_divert.clear()
     hospital_agent._fetch_cache.clear()
+    hospital_agent._reported_beds.clear()
+    hospital_agent._reported_beds.update(previous_beds)
     hospital_agent._on_divert.update(previous)
 
 
@@ -855,3 +859,70 @@ def test_triage_result_survives_a_rolled_back_rejection(client, monkeypatch):
     # A rollback now restores to a baseline that includes the triage result.
     incident._restore(report)
     assert report["emergency_type"] == "cardiac"
+
+
+# --- Truthfulness: what may influence the recommendation ------------------------
+
+def _rank_offline(monkeypatch, lat=13.035, lng=77.597, etype="cardiac"):
+    from models.schemas import EmergencyType, HospitalRequest
+
+    async def no_network(*args, **kwargs):
+        raise httpx.ConnectError("offline in tests")
+    monkeypatch.setattr(httpx.AsyncClient, "get", no_network)
+    return asyncio.run(hospital_agent.rank_hospitals(HospitalRequest(
+        incident_location={"lat": lat, "lng": lng}, emergency_type=EmergencyType(etype),
+    ))).ranked_hospitals
+
+
+def _bed_raw(entry):
+    return next(b.raw_score for b in entry.score_breakdown if b.factor == "Bed availability")
+
+
+def test_generated_bed_counts_do_not_score(client, monkeypatch):
+    ranked = _rank_offline(monkeypatch)
+    assert {_bed_raw(e) for e in ranked} == {0.5}  # identical for every hospital
+
+
+def test_bed_count_entered_by_an_er_desk_changes_the_ranking(client, monkeypatch):
+    before = _rank_offline(monkeypatch)
+    top = before[0]
+    key = hospital_agent.resolve_key(top.name)
+    response = client.patch(f"/api/hospital/{key}/resources", json={"icu_available": True, "beds_available": 0})
+    assert response.status_code == 200
+    after = {e.name: e for e in _rank_offline(monkeypatch)}
+    assert _bed_raw(after[top.name]) == 0.0
+    assert after[top.name].score < top.score
+    # Clearing the figure returns it to neutral.
+    client.patch(f"/api/hospital/{key}/resources", json={"icu_available": True, "beds_available": None})
+    assert _bed_raw({e.name: e for e in _rank_offline(monkeypatch)}[top.name]) == 0.5
+
+
+def test_traffic_factor_follows_the_city_model(client, monkeypatch):
+    from agents.city_state import city_state
+    from agents.decision_fusion import fusion_engine
+    from models.schemas import EmergencyType, FusionRequest
+
+    async def no_network(*args, **kwargs):
+        raise httpx.ConnectError("offline in tests")
+    monkeypatch.setattr(httpx.AsyncClient, "get", no_network)
+    request = FusionRequest(incident_id="INC-t", incident_location={"lat": 13.035, "lng": 77.597},
+                            emergency_type=EmergencyType.CARDIAC, severity=0.8,
+                            vehicle_location={"lat": 13.035, "lng": 77.597})
+
+    def traffic(plan):
+        return next(f for f in plan.model_dump(mode="json")["factor_breakdown"] if f["factor"] == "Traffic Conditions")
+
+    with client:  # attaches the road graph and city model
+        hour = city_state.hour
+        try:
+            city_state.set_hour(3)
+            city_state.set_weather("Clear")
+            calm = asyncio.run(fusion_engine.fuse(request))
+            city_state.set_hour(9)
+            city_state.set_weather("Thunderstorm")
+            busy = asyncio.run(fusion_engine.fuse(request))
+        finally:
+            city_state.set_weather("Clear")
+            city_state.set_hour(hour)
+    assert traffic(busy)["score"] < traffic(calm)["score"]
+    assert "modelled" in calm.explanation and "1 active incident" not in calm.explanation

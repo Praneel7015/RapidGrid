@@ -100,6 +100,8 @@ _ROAD_ETA_SHORTLIST = 8
 # slow (5-10s). Hospital locations do not change during a demo, so cache the
 # enriched result per coarse location. 3 decimal places ~ 110m.
 _HOSPITAL_CACHE_TTL_S = 900.0
+# Bed-availability score used when no ER desk has reported beds.
+_NEUTRAL_BED_SCORE = 0.5
 _HOSPITAL_CACHE_PRECISION = 2
 
 WEIGHT_TABLES: dict[str, list[tuple[str, float]]] = {
@@ -193,6 +195,9 @@ class HospitalIntelligenceAgent:
         # Facilities an ER desk has put on divert. Keyed by curated id, and
         # applied during enrichment so it survives catalogue cache rebuilds.
         self._on_divert: set[str] = set()
+        # Available beds entered by an ER desk, keyed by curated id. These are
+        # the only bed figures allowed to influence ranking.
+        self._reported_beds: dict[str, int] = {}
     
     def _deterministic_float(self, string_id: str, seed: str) -> float:
         """
@@ -416,10 +421,16 @@ class HospitalIntelligenceAgent:
                     "conservative modelled estimate."
                 )
 
-            # Live occupancy has no data source anywhere. Always simulated.
+            # No hospital feed exists. Without an ER-desk entry the bed and ICU
+            # figures are illustrative only (shown as simulated, never scored).
             occupancy = 0.55 + self._deterministic_float(hid, "avail") * 0.35
             beds_available = max(0, int(beds_total * (1.0 - occupancy)))
             icu_available = max(0, int(icu_total * (1.0 - occupancy)))
+            availability_provenance = "simulated"
+            reported = self._reported_beds.get(curated_id) if curated_id else None
+            if reported is not None:
+                beds_available = min(reported, beds_total)
+                availability_provenance = "operator-reported"
 
             # An ER on divert is genuinely removed from emergency routing -
             # not merely annotated - which is what the terminal promises.
@@ -450,7 +461,7 @@ class HospitalIntelligenceAgent:
                 "specialists": specialists,
                 "capabilities": caps,
                 "capability_provenance": capability_provenance,
-                "availability_provenance": "simulated",
+                "availability_provenance": availability_provenance,
                 "note": note,
             })
 
@@ -533,6 +544,14 @@ class HospitalIntelligenceAgent:
             if needle and needle in entry["name"].lower():
                 return key
         return None
+
+    def set_reported_beds(self, key: str, beds_available: int | None) -> None:
+        """Record (or clear, with None) the available beds an ER desk entered."""
+        if beds_available is None:
+            self._reported_beds.pop(key, None)
+        else:
+            self._reported_beds[key] = beds_available
+        self._fetch_cache.clear()
 
     def set_divert(self, identifier: str, on_divert: bool) -> str | None:
         """Put a facility on or off divert. Returns the curated key, or None."""
@@ -630,7 +649,13 @@ class HospitalIntelligenceAgent:
                 hosp["lat"], hosp["lng"]
             )
 
-            bed_score = (hosp["beds_available"] / hosp["beds_total"] if hosp["beds_total"] > 0 else 0.0)
+            # Only a bed count an ER desk actually entered may move the ranking.
+            # Otherwise every hospital gets the same neutral value, so generated
+            # figures cannot decide the recommendation.
+            if hosp.get("availability_provenance") == "operator-reported" and hosp["beds_total"] > 0:
+                bed_score = hosp["beds_available"] / hosp["beds_total"]
+            else:
+                bed_score = _NEUTRAL_BED_SCORE
 
             scores: dict[str, float] = {
                 "travel_time": _travel_time_score(dist),

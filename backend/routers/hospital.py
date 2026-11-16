@@ -53,6 +53,8 @@ def restore_capacity() -> None:
     overrides = load_collection("hospital_capacity", {}, database=persistence_path())
     for key, override in overrides.items():
         hospital_agent.set_divert(key, on_divert=not override["icu_available"])
+        if override.get("beds_available") is not None:
+            hospital_agent.set_reported_beds(key, override["beds_available"])
 
 
 def _details(key: str) -> dict:
@@ -157,5 +159,7 @@ async def update_hospital_resources(hospital_id: str, update: HospitalResourceUp
     overrides[key] = {**overrides.get(key, {}), **update.model_dump(exclude_unset=True)}
     save_collection("hospital_capacity", overrides, database=persistence_path())
     hospital_agent.set_divert(key, on_divert=not update.icu_available)
+    if "beds_available" in update.model_fields_set:
+        hospital_agent.set_reported_beds(key, update.beds_available)
     logger.info("Operator capacity override for %s: accepting=%s", log_safe(key), log_safe(update.icu_available))
     return {"status": "updated", **_details(key), "diverted_facilities": sorted(hospital_agent.diverted)}

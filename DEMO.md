@@ -63,8 +63,18 @@ Pulls Bengaluru's drivable network from OpenStreetMap and writes a compact
 
 ### Reset to a clean slate
 
+Clearing incidents needs the operator token even in demo mode, so the
+simplest clean slate is a fresh data directory:
+
 ```bash
-curl -s -X POST http://127.0.0.1:8000/api/incidents/clear && curl -s -X POST http://127.0.0.1:8000/api/city/clear
+RAPIDGRID_DATA_DIR=$(mktemp -d) python -m uvicorn main:app --port 8000
+```
+
+With `RAPIDGRID_OPERATOR_TOKEN` set you can clear in place instead:
+
+```bash
+curl -s -X POST -H "Authorization: Bearer $RAPIDGRID_OPERATOR_TOKEN" http://127.0.0.1:8000/api/incidents/clear
+curl -s -X POST http://127.0.0.1:8000/api/city/clear
 ```
 
 ### Open four browser tabs
@@ -163,6 +173,9 @@ print('nearest ER :', r['alternative']['total_minutes'], 'min | within target:',
 ```
 
 > `Drove 11.0 min further to reach primary angioplasty 48 min sooner.`
+>
+> This is an **illustrative estimate** from fixed timing assumptions, not a
+> measured outcome. Say so when you show it.
 > `PCI centre : 60.7 min (within target)`  ·  `nearest ER : 109.1 min (misses the 90 min target by 19)`
 
 **d) Approve and dispatch.** The status flips to `EN ROUTE` and the call
@@ -461,8 +474,9 @@ no amount of graceful degradation helps.
 
 1. The nearest hospital is often the wrong one — a cardiac call needs a cath
    lab, not proximity.
-2. We drove 11 minutes further and reached treatment 48 minutes sooner, because
-   the nearer hospital would have had to transfer the patient onward.
+2. In the illustrative estimate, driving 11 minutes further reaches treatment
+   about 48 minutes sooner, because the nearer hospital would have had to
+   transfer the patient onward. The figure is modelled, not measured.
 3. Close one road and a different ambulance across the corridor gets slower —
    traffic displaces, it does not evaporate.
 4. When live routing fails, it falls back to a real A* router over 112,725
