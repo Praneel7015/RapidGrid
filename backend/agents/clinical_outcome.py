@@ -40,6 +40,10 @@ class Pathway:
     in_hospital_minutes: float
     transfer_penalty_minutes: float
     guideline: str
+    # Where the guideline's clock starts: "call", "first_contact" (crew reaches
+    # the patient) or "door" (arrival at the first hospital). The target is
+    # compared with that interval, not with the whole call-to-treatment total.
+    target_from: str = "call"
 
 
 PATHWAYS: dict[str, Pathway] = {
@@ -54,6 +58,7 @@ PATHWAYS: dict[str, Pathway] = {
         in_hospital_minutes=32.0,
         transfer_penalty_minutes=52.0,
         guideline="First medical contact to balloon under 90 min",
+        target_from="first_contact",
     ),
     "stroke": Pathway(
         key="stroke",
@@ -66,6 +71,7 @@ PATHWAYS: dict[str, Pathway] = {
         in_hospital_minutes=38.0,
         transfer_penalty_minutes=55.0,
         guideline="Door-to-needle under 60 min; window 4.5 h from onset",
+        target_from="door",
     ),
     "trauma": Pathway(
         key="trauma",
@@ -103,6 +109,8 @@ class OutcomeEstimate:
     in_hospital_minutes: float
     transfer_minutes: float
     total_minutes: float
+    # The part of the total the guideline target applies to (see target_from).
+    target_interval_minutes: float
 
     within_target: bool
     margin_minutes: float
@@ -184,6 +192,10 @@ def estimate(
         + transfer
     )
 
+    from_door = in_hospital + transfer
+    from_first_contact = ON_SCENE_MINUTES + to_hospital + from_door
+    interval = {"door": from_door, "first_contact": from_first_contact}.get(pathway.target_from, total)
+
     notes: list[str] = []
     if requires_transfer:
         notes.append(
@@ -195,10 +207,10 @@ def estimate(
         notes.append(
             f"{pathway.intervention.capitalize()} available on site — no secondary transfer."
         )
-    if total > pathway.target_minutes:
+    if interval > pathway.target_minutes:
         notes.append(
             f"Exceeds the {pathway.target_minutes:.0f} min target by "
-            f"{total - pathway.target_minutes:.0f} min."
+            f"{interval - pathway.target_minutes:.0f} min."
         )
 
     return OutcomeEstimate(
@@ -215,8 +227,9 @@ def estimate(
         in_hospital_minutes=round(in_hospital, 1),
         transfer_minutes=round(transfer, 1),
         total_minutes=round(total, 1),
-        within_target=total <= pathway.target_minutes,
-        margin_minutes=round(pathway.target_minutes - total, 1),
+        target_interval_minutes=round(interval, 1),
+        within_target=interval <= pathway.target_minutes,
+        margin_minutes=round(pathway.target_minutes - interval, 1),
         requires_transfer=requires_transfer,
         capability_score=round(capability, 3),
         hospital_name=_name_of(hospital),

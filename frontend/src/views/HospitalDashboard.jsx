@@ -104,8 +104,12 @@ export default function HospitalDashboard() {
       if (!res.ok) throw new Error(typeof data.detail === 'string' ? data.detail : `Capacity update failed (HTTP ${res.status})`);
       setIcuOpen(data.icu_available != null ? data.icu_available > 0 : open);
       setBedsStored(data.beds_available ?? null);
-      setBedsInput(data.beds_available != null ? String(data.beds_available) : '');
-      bedsEditing.current = false;
+      // Only a bed save replaces the draft; an accepting/divert change must not
+      // discard a bed figure the operator is still typing.
+      if ('beds_available' in body) {
+        setBedsInput(data.beds_available != null ? String(data.beds_available) : '');
+        bedsEditing.current = false;
+      }
     } catch (err) {
       setCapacityError(err.message || 'Capacity was not saved. Try again.');
     } finally {
@@ -123,7 +127,7 @@ export default function HospitalDashboard() {
       setCapacityError('Enter a whole number of beds, or leave it empty.');
       return;
     }
-    patchResources({ icu_available: icuOpen ?? true, beds_available: beds }, icuOpen ?? true);
+    patchResources({ beds_available: beds }, icuOpen);
   };
 
   const critical = incoming.filter((c) => (c.severity ?? 0) >= 0.8).length;

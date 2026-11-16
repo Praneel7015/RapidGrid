@@ -51,14 +51,25 @@ unit's drive to the patient, so it is not a measured or clinically validated
 outcome. Its point is the shape: a hospital that cannot deliver the
 intervention costs a whole second journey.
 
+Example with an 8-minute drive to the patient (the in-app card leaves this
+leg out, because the plan does not know the dispatching unit yet):
+
 ```
-                          PCI CENTRE      NEAREST ER
-  drive to hospital             16.0             5.0
-  in-hospital workup            27.2            34.6
-  secondary transfer             0.0            52.0
-  TOTAL to balloon (est.)       60.7           109.1
-  within 90 min target          True           False
+                                  PCI CENTRE      NEAREST ER
+  dispatch and turnout                   2.5             2.5
+  drive to patient (example)             8.0             8.0
+  on scene                               7.0             7.0
+  drive to hospital                     16.0             5.0
+  in-hospital workup                    27.2            34.6
+  secondary transfer                     0.0            52.0
+  TOTAL call to balloon (est.)          60.7           109.1
+  first contact to balloon              50.2            98.6
+  within 90 min of first contact        True           False
 ```
+
+Each target is checked against the interval its guideline defines: first
+medical contact to balloon for cardiac, hospital door to needle for stroke,
+and the whole first hour for trauma.
 
 ### Keeps working when the internet does not
 

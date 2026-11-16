@@ -221,6 +221,21 @@ class TestClinicalOutcome:
         assert e.within_target
         assert e.target_minutes == 90
 
+    def test_targets_apply_to_the_interval_each_guideline_defines(self):
+        stroke = {"name": "Stroke unit", "capabilities": {"neurology": 1.0}}
+        e = estimate("stroke", stroke, 0, 20 * 60)
+        # Door to needle is the in-hospital time, well under 60 min, although
+        # the whole call-to-needle estimate is over an hour.
+        assert e.total_minutes > 60
+        assert e.target_interval_minutes == pytest.approx(e.in_hospital_minutes, abs=0.1)
+        assert e.within_target
+        pci = {"name": "PCI centre", "capabilities": {"cardiology": 1.0}}
+        c = estimate("cardiac", pci, 30 * 60, 16 * 60)
+        assert c.target_interval_minutes == pytest.approx(
+            c.on_scene_minutes + c.to_hospital_minutes + c.in_hospital_minutes, abs=0.2)
+        trauma = estimate("trauma", {"name": "T", "capabilities": {"trauma_centre": 1.0}}, 10 * 60, 10 * 60)
+        assert trauma.target_interval_minutes == trauma.total_minutes
+
     def test_unknown_pathway_returns_none(self):
         """Better to say nothing than invent a clinical target."""
         assert estimate("general", {"name": "x", "capabilities": {}}, 60, 60) is None
