@@ -39,7 +39,7 @@ from pathlib import Path
 
 from logsafe import log_safe
 import storage
-from storage import data_path, load_collection
+from storage import data_path, load_collection, save_collection
 
 _LEGACY_DB_FILE = Path(__file__).parent.parent / "data" / "incidents_db.json"
 DB_FILE = _LEGACY_DB_FILE
@@ -119,11 +119,17 @@ def _legacy_records(database: Path):
     return json.loads(legacy.read_text(encoding="utf-8")) if legacy.exists() else None
 
 
+_MIGRATED_MARKER = "migration:incident_rows"
+
+
 def load_db():
     database = persistence_path()
     data = [json.loads(payload) for payload in storage.load_incident_payloads(database=database)]
-    if not data:
-        # One-time migration; the legacy snapshot and JSON stay in place for rollback.
+    migrated = load_collection(_MIGRATED_MARKER, False, database=database)
+    if not data and not migrated:
+        # One-time migration; the legacy snapshot and JSON stay in place for
+        # rollback. The marker stops them coming back once incidents have been
+        # cleared or pruned.
         data = _legacy_records(database) or []
     if not isinstance(data, list) or any(not isinstance(i, dict) or not i.get("incident_id") for i in data):
         raise RuntimeError("Stored incidents must be a list of records with an incident_id")
@@ -136,6 +142,8 @@ def load_db():
             incident["status"] = "failed"
             incident["error"] = "Processing was interrupted by a server restart. Please submit again."
     save_db()
+    if not migrated:
+        save_collection(_MIGRATED_MARKER, True, database=database)
 
 
 def prune_finished() -> list[str]:
@@ -387,7 +395,12 @@ async def report_incident(payload: IncidentReportPayload, response: Response):
     async with _INCIDENTS_LOCK:
         ACTIVE_INCIDENTS.append(incident)
         await commit(incident)  # on failure the record is removed and the caller gets an error
-        removed = await asyncio.to_thread(prune_finished)
+        try:
+            removed = await asyncio.to_thread(prune_finished)
+        except Exception:
+            # Housekeeping only: the report is stored and must still be processed.
+            logger.exception("Pruning finished incidents failed")
+            removed = []
     if removed:
         from routers.chat import manager
         manager.forget(removed)
