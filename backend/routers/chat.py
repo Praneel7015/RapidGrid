@@ -5,7 +5,10 @@ from typing import Dict, List, Literal, Set
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException
 from pydantic import BaseModel, Field
 from datetime import datetime, timezone
-from storage import load_collection, save_collection, delete_collections
+import asyncio
+
+import storage
+from storage import load_collection
 from routers.incident import ACTIVE_INCIDENTS, persistence_path
 
 router = APIRouter(prefix="/api/chat", tags=["Realtime Emergency Chat"])
@@ -28,18 +31,34 @@ class ConnectionManager:
 
     def history(self, incident_id: str) -> List[Dict]:
         if incident_id not in self.chat_history:
-            self.chat_history[incident_id] = load_collection("chat:" + incident_id, [], database=persistence_path())
+            database = persistence_path()
+            messages = storage.load_chat(incident_id, database=database)
+            if not messages:
+                # Histories written before messages had their own rows.
+                legacy = load_collection("chat:" + incident_id, None, database=database)
+                if legacy:
+                    storage.append_chat(incident_id, legacy, database=database)
+                    messages = list(legacy)
+            self.chat_history[incident_id] = messages
         return self.chat_history[incident_id]
 
     def clear_history(self) -> None:
-        delete_collections("chat:", database=persistence_path())
+        database = persistence_path()
+        storage.clear_chat(database=database)
+        storage.delete_collections("chat:", database=database)
         self.chat_history.clear()
+
+    def forget(self, incident_ids) -> None:
+        """Drop cached history for incidents that were pruned (their rows are already gone)."""
+        for incident_id in incident_ids:
+            self.chat_history.pop(incident_id, None)
+            self.active_connections.pop(incident_id, None)
 
     async def broadcast(self, incident_id: str, message_data: Dict):
         history = self.history(incident_id)
-        updated = [*history, message_data]
-        save_collection("chat:" + incident_id, updated, database=persistence_path())
-        self.chat_history[incident_id] = updated
+        # One row per message, written off the event loop, before anyone sees it.
+        await asyncio.to_thread(storage.append_chat, incident_id, [message_data], database=persistence_path())
+        history.append(message_data)
 
         if incident_id in self.active_connections:
             dead_sockets = set()

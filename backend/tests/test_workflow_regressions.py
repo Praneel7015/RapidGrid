@@ -19,6 +19,7 @@ from main import app
 from models.schemas import Coordinate
 from routers import chat, driver, hospital, incident
 from agents.hospital_intelligence import hospital_agent
+import storage
 from storage import load_collection, save_collection
 
 
@@ -207,7 +208,8 @@ def test_legacy_migration_and_interrupted_report_recovery(client):
     incident.load_db()
     assert incident.ACTIVE_INCIDENTS[0]["status"] == "failed"
     assert "restart" in incident.ACTIVE_INCIDENTS[0]["error"]
-    assert load_collection("incidents", database=incident.persistence_path())[0]["status"] == "failed"
+    stored = [json.loads(p) for p in storage.load_incident_payloads(database=incident.persistence_path())]
+    assert stored[0]["status"] == "failed"
     assert incident.DB_FILE.exists()  # Migration preserves rollback source.
 
 
@@ -564,7 +566,7 @@ def test_chat_socket_closes_when_its_incident_is_cleared(client):
         with pytest.raises(WebSocketDisconnect):
             ws.receive_json()
     assert chat.manager.chat_history.get("INC-review", []) == []  # nothing was stored
-    assert load_collection("chat:INC-review", None, database=incident.persistence_path()) is None
+    assert storage.load_chat("INC-review", database=incident.persistence_path()) == []
 
 
 def test_reroute_response_describes_the_new_destination(client, mocked_route):
@@ -600,3 +602,112 @@ def test_reroute_response_carries_the_new_er_number(client, mocked_route):
     report["action_plan"]["all_hospitals"].append(other)
     body = client.post("/api/driver/change_hospital", json={"incident_id": "INC-review", "hospital_name": other["name"]}).json()
     assert body["hospital_phone"] == "+91 80 2502 4444" == body["citizen_view"]["hospital_phone"]
+
+
+# --- Row-level persistence -------------------------------------------------------
+
+def _stored(incident_id="INC-review"):
+    rows = [json.loads(p) for p in storage.load_incident_payloads(database=incident.persistence_path())]
+    return next((r for r in rows if r["incident_id"] == incident_id), None)
+
+
+def test_a_change_writes_only_its_own_incident(client, mocked_route, monkeypatch):
+    seed()
+    seed(incident_id="INC-other")
+    incident.save_db()
+    writes = []
+    real = storage.write_incident
+    monkeypatch.setattr(storage, "write_incident", lambda incident_id, payload, **kw: (writes.append(incident_id), real(incident_id, payload, **kw))[1])
+    monkeypatch.setattr(storage, "replace_incidents", lambda *a, **kw: pytest.fail("a single change rewrote every incident"))
+    assert client.post("/api/incidents/INC-review/reject").status_code == 200
+    assert writes == ["INC-review"]
+    assert _stored()["status"] == "failed" and _stored("INC-other")["status"] == "awaiting_dispatcher_approval"
+
+
+def test_failed_write_leaves_memory_matching_disk_and_a_retry_works(client, mocked_route, monkeypatch):
+    report = seed()
+    incident.save_db()
+    body = {"dispatcher_id": "reviewer", "approved_hospital": "blr-007", "approved_route": "r"}
+    real = storage.write_incident
+
+    def broken(*args, **kwargs):
+        raise OSError("disk is read-only")
+    monkeypatch.setattr(storage, "write_incident", broken)
+    failing = TestClient(app, raise_server_exceptions=False)
+    assert failing.post("/api/incidents/INC-review/approve", json=body).status_code == 500
+    # Nothing moved: memory still says what disk says, and the call can be retried.
+    assert report["status"] == "awaiting_dispatcher_approval"
+    assert "dispatcher_id" not in report and "unit_statuses" not in report
+    assert client.get("/api/incidents/INC-review").json()["status"] == "awaiting_dispatcher_approval"
+    assert _stored()["status"] == "awaiting_dispatcher_approval"
+
+    monkeypatch.setattr(storage, "write_incident", real)
+    assert client.post("/api/incidents/INC-review/approve", json=body).status_code == 200
+    assert _stored()["status"] == "dispatched"
+
+
+def test_report_that_cannot_be_stored_is_not_left_processing(client, monkeypatch):
+    pipeline = AsyncMock()
+    monkeypatch.setattr(incident, "run_pipeline", pipeline)
+
+    def broken(*args, **kwargs):
+        raise OSError("disk full")
+    monkeypatch.setattr(storage, "write_incident", broken)
+    failing = TestClient(app, raise_server_exceptions=False)
+    assert failing.post("/api/incidents", json=REPORT).status_code == 500
+    assert incident.ACTIVE_INCIDENTS == []
+    pipeline.assert_not_called()
+
+
+def test_finished_calls_beyond_the_limit_are_pruned_with_their_chat(client, monkeypatch):
+    monkeypatch.setattr(incident, "run_pipeline", AsyncMock())
+    monkeypatch.setattr(incident, "KEEP_FINISHED", 2)
+    for n in range(4):
+        seed("completed" if n % 2 else "failed", incident_id=f"INC-old-{n}")
+    seed("dispatched", incident_id="INC-live")
+    incident.save_db()
+    message = {"incident_id": "INC-old-0", "sender_role": "citizen", "sender_name": "Review", "message": "old"}
+    assert client.post("/api/chat/INC-old-0/send", json=message).status_code == 200
+
+    assert client.post("/api/incidents", json=REPORT).status_code == 202
+    kept = [i["incident_id"] for i in incident.ACTIVE_INCIDENTS]
+    assert "INC-old-0" not in kept and "INC-old-1" not in kept       # oldest finished calls go
+    assert {"INC-old-2", "INC-old-3", "INC-live"} <= set(kept)        # active calls are never pruned
+    assert _stored("INC-old-0") is None
+    assert storage.load_chat("INC-old-0", database=incident.persistence_path()) == []
+    assert "INC-old-0" not in chat.manager.chat_history
+
+
+def test_earlier_single_snapshot_is_migrated_to_rows(client):
+    database = incident.persistence_path()
+    save_collection("incidents", [{"incident_id": "INC-legacy", "status": "dispatched"}], database=database)
+    save_collection("chat:INC-legacy", [{"id": "m1", "message": "from the old layout"}], database=database)
+    incident.load_db()
+    assert incident.ACTIVE_INCIDENTS[0]["incident_id"] == "INC-legacy"
+    assert _stored("INC-legacy")["status"] == "dispatched"
+    assert load_collection("incidents", database=database) is not None   # kept for rollback
+    assert chat.manager.history("INC-legacy")[0]["message"] == "from the old layout"
+    assert len(storage.load_chat("INC-legacy", database=database)) == 1
+
+
+def test_state_and_chat_reload_from_rows_after_a_restart(client, mocked_route):
+    seed("dispatched", unit_assignments={"primary": "drv-7"})
+    incident.save_db()
+    message = {"incident_id": "INC-review", "sender_role": "driver", "sender_name": "Unit 7", "message": "en route"}
+    for _ in range(3):
+        assert client.post("/api/chat/INC-review/send", json=message).status_code == 200
+    incident.ACTIVE_INCIDENTS.clear()
+    incident._PERSISTED.clear()
+    chat.manager.chat_history.clear()
+    storage.close_all()            # as a new process would start
+    incident.load_db()
+    assert incident.ACTIVE_INCIDENTS[0]["unit_assignments"] == {"primary": "drv-7"}
+    assert len(chat.manager.history("INC-review")) == 3
+
+
+def test_malformed_stored_record_stops_startup_instead_of_serving_500s(client):
+    storage.write_incident("x", json.dumps({"status": "dispatched"}), database=incident.persistence_path())
+    with pytest.raises(RuntimeError):
+        incident.load_db()
+    storage.delete_incidents(["x"], database=incident.persistence_path())
+    incident.load_db()

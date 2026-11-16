@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 from models.schemas import Coordinate, RouteRequest
 from routers.incident import (
-    ACTIVE_INCIDENTS, _INCIDENTS_LOCK, required_units, route_agent, save_db, unit_statuses,
+    ACTIVE_INCIDENTS, _INCIDENTS_LOCK, commit, required_units, route_agent, unit_statuses,
 )
 
 router = APIRouter(prefix="/api/driver", tags=["Driver Queue"])
@@ -121,7 +121,7 @@ async def claim_dispatch(payload: ClaimPayload):
             raise HTTPException(status_code=409, detail="This unit has already completed its assignment")
         _claim(incident, payload.driver_id, payload.unit_type)
         # Claiming again must never rewind a case already being transported.
-        save_db()
+        await commit(incident)
         return {"status": "claimed", "incident_id": payload.incident_id, "driver_id": payload.driver_id,
                 "unit_type": payload.unit_type, "unit_assignments": incident["unit_assignments"],
                 "unit_statuses": unit_statuses(incident)}
@@ -166,7 +166,7 @@ async def arrived_pickup(payload: ClaimPayload):
         incident.update({"driver_stage": "hospital", "status": "patient_picked_up", "citizen_view": view,
                          "unit_statuses": states})
         _claim(incident, payload.driver_id, payload.unit_type)
-        save_db()
+        await commit(incident)
         from routers.hospital import destination_on_divert
         return {"status": "patient_picked_up", "citizen_view": view, "unit_statuses": states,
                 "unit_assignments": incident["unit_assignments"],
@@ -207,7 +207,7 @@ async def change_hospital(payload: HospitalChangePayload):
                      "message": f"Rerouted by driver to {hospital['name']}."})
         incident.update({"hospital_name": hospital["name"], "approved_hospital_id": canonical or hospital.get("hospital_id"),
                          "hospital_phone": view["hospital_phone"], "citizen_view": view})
-        save_db()
+        await commit(incident)
         from routers.hospital import destination_on_divert
         return {"status": "rerouted", "citizen_view": view, "hospital_name": hospital["name"],
                 "hospital_phone": view["hospital_phone"],

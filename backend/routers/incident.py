@@ -4,6 +4,7 @@ Matches the event-driven async flow described in the trace.
 """
 from __future__ import annotations
 
+import os
 import uuid
 import asyncio
 import logging
@@ -37,10 +38,21 @@ import json
 from pathlib import Path
 
 from logsafe import log_safe
-from storage import data_path, load_collection, save_collection
+import storage
+from storage import data_path, load_collection
 
 _LEGACY_DB_FILE = Path(__file__).parent.parent / "data" / "incidents_db.json"
 DB_FILE = _LEGACY_DB_FILE
+
+# Finished calls (completed or failed) beyond this many are dropped, oldest
+# first, so polls and memory stay bounded however long the service runs.
+KEEP_FINISHED = int(os.environ.get("RAPIDGRID_KEEP_FINISHED", "100"))
+_FINISHED = {"completed", "failed"}
+
+# incident_id -> the JSON last written successfully. A failed write restores the
+# in-memory record from here, so memory never runs ahead of disk.
+_PERSISTED: Dict[str, str] = {}
+_PIPELINE_TASKS: set = set()
 
 
 def persistence_path() -> Path:
@@ -48,20 +60,73 @@ def persistence_path() -> Path:
     return DB_FILE.with_suffix(".sqlite3") if DB_FILE != _LEGACY_DB_FILE else data_path()
 
 
-def save_db():
-    # Let write failures surface instead of claiming an unpersisted transition
-    # succeeded. SQLite commits the snapshot atomically.
-    save_collection("incidents", ACTIVE_INCIDENTS, database=persistence_path())
+def _dump(incident: dict) -> str:
+    return json.dumps(incident, ensure_ascii=False)
+
+
+def _restore(incident: dict) -> None:
+    """Put an incident back to its last stored state after a failed write."""
+    stored = _PERSISTED.get(incident.get("incident_id"))
+    if stored is None:
+        # Never stored: it must not linger in memory as if it had been accepted.
+        ACTIVE_INCIDENTS[:] = [i for i in ACTIVE_INCIDENTS if i is not incident]
+        return
+    incident.clear()
+    incident.update(json.loads(stored))
+
+
+async def commit(incident: dict) -> None:
+    """Store one changed incident off the event loop; on failure undo the change.
+
+    Call it while holding _INCIDENTS_LOCK, after mutating ``incident``. If the
+    write fails the record is restored and the error propagates, so the client
+    sees a failure and state that matches what is on disk.
+    """
+    payload = _dump(incident)
+    database = persistence_path()
+    try:
+        await asyncio.to_thread(storage.write_incident, incident["incident_id"], payload, database=database)
+    except Exception:
+        _restore(incident)
+        raise
+    _PERSISTED[incident["incident_id"]] = payload
+
+
+def save_db(incident: Optional[dict] = None):
+    """Synchronous write: one incident, or with no argument the whole set.
+
+    Request handlers use ``commit``. This remains for startup, bulk clear and
+    the pipeline's failure marker, which run outside a request's await chain.
+    """
+    database = persistence_path()
+    if incident is not None:
+        payload = _dump(incident)
+        storage.write_incident(incident["incident_id"], payload, database=database)
+        _PERSISTED[incident["incident_id"]] = payload
+        return
+    payloads = {i["incident_id"]: _dump(i) for i in ACTIVE_INCIDENTS}
+    storage.replace_incidents(payloads, database=database)
+    _PERSISTED.clear()
+    _PERSISTED.update(payloads)
+
+
+def _legacy_records(database: Path):
+    """Records from the earlier single-snapshot layouts, or None if there are none."""
+    snapshot = load_collection("incidents", None, database=database)
+    if snapshot is not None:
+        return snapshot
+    legacy = DB_FILE if DB_FILE != _LEGACY_DB_FILE else database.parent / "incidents_db.json"
+    return json.loads(legacy.read_text(encoding="utf-8")) if legacy.exists() else None
 
 
 def load_db():
-    data = load_collection("incidents", None, database=persistence_path())
-    if data is None:
-        # One-time migration; the legacy JSON remains available for rollback.
-        legacy = DB_FILE if DB_FILE != _LEGACY_DB_FILE else persistence_path().parent / "incidents_db.json"
-        data = json.loads(legacy.read_text(encoding="utf-8")) if legacy.exists() else []
-    if not isinstance(data, list):
-        raise RuntimeError("Stored incidents must be a list")
+    database = persistence_path()
+    data = [json.loads(payload) for payload in storage.load_incident_payloads(database=database)]
+    if not data:
+        # One-time migration; the legacy snapshot and JSON stay in place for rollback.
+        data = _legacy_records(database) or []
+    if not isinstance(data, list) or any(not isinstance(i, dict) or not i.get("incident_id") for i in data):
+        raise RuntimeError("Stored incidents must be a list of records with an incident_id")
     ACTIVE_INCIDENTS.clear()
     ACTIVE_INCIDENTS.extend(data)
     # An in-process task cannot survive a restart. Fail interrupted reports
@@ -71,6 +136,22 @@ def load_db():
             incident["status"] = "failed"
             incident["error"] = "Processing was interrupted by a server restart. Please submit again."
     save_db()
+
+
+def prune_finished() -> list[str]:
+    """Drop the oldest finished calls beyond KEEP_FINISHED. Returns the removed ids."""
+    finished = [i for i in ACTIVE_INCIDENTS if i.get("status") in _FINISHED]
+    excess = finished[: max(0, len(finished) - KEEP_FINISHED)]
+    if not excess:
+        return []
+    removed = [i["incident_id"] for i in excess]
+    storage.delete_incidents(removed, database=persistence_path())
+    gone = set(removed)
+    ACTIVE_INCIDENTS[:] = [i for i in ACTIVE_INCIDENTS if i["incident_id"] not in gone]
+    for incident_id in removed:
+        _PERSISTED.pop(incident_id, None)
+    return removed
+
 
 load_db()
 
@@ -153,16 +234,14 @@ def _hospital_phone(name: str | None) -> str | None:
 
 
 def _mark_failed(incident_id: str, exc: Exception) -> None:
-    # NOTE: This is called from an async except-block; it does NOT acquire
-    # _INCIDENTS_LOCK because doing so from a sync function inside an async
-    # task would require run_coroutine_threadsafe. The caller (run_pipeline)
-    # is the only writer at this point — the task already owns the logical
-    # "pipeline slot" for this incident_id — so direct mutation is safe here.
+    # Synchronous on purpose: with no await inside, nothing else on the event
+    # loop can run between the status check and the write, so it needs no lock.
+    # It only ever changes a record that is still "processing".
     for inc in ACTIVE_INCIDENTS:
         if inc["incident_id"] == incident_id and inc.get("status") == "processing":
             inc["status"] = "failed"
             inc["error"] = str(exc) or "Pipeline failed"
-            save_db()
+            save_db(inc)
             break
 
 
@@ -273,7 +352,7 @@ async def run_pipeline(incident_id: str, payload: IncidentReportPayload):
                     inc["citizen_view"] = new_citizen_view
                     inc["status"] = "awaiting_dispatcher_approval"
                     found = True
-                    save_db()
+                    await commit(inc)
                     break
             if not found:
                 logger.warning("Pipeline: incident %s no longer present after fusion step — aborting", incident_id)
@@ -307,10 +386,18 @@ async def report_incident(payload: IncidentReportPayload, response: Response):
     }
     async with _INCIDENTS_LOCK:
         ACTIVE_INCIDENTS.append(incident)
-        save_db()
+        await commit(incident)  # on failure the record is removed and the caller gets an error
+        removed = await asyncio.to_thread(prune_finished)
+    if removed:
+        from routers.chat import manager
+        manager.forget(removed)
     
     # Start background processing pipeline
-    asyncio.create_task(run_pipeline(incident_id, payload))
+    # Keep a reference: the event loop holds tasks weakly, and a collected task
+    # would leave the report in "processing" for good.
+    task = asyncio.create_task(run_pipeline(incident_id, payload))
+    _PIPELINE_TASKS.add(task)
+    task.add_done_callback(_PIPELINE_TASKS.discard)
     
     response.status_code = status.HTTP_202_ACCEPTED
     return {
@@ -389,7 +476,7 @@ async def approve_incident(incident_id: str, payload: ApprovePayload):
                     "hospital_phone": view["hospital_phone"], "citizen_view": view})
         inc["unit_statuses"] = {unit: "dispatched" for unit in required_units(inc)}
         view["unit_statuses"] = inc["unit_statuses"]
-        save_db()
+        await commit(inc)
         logger.info("PLAN_APPROVED for %s by %s: hospital=%s",
                     log_safe(incident_id), log_safe(payload.dispatcher_id), log_safe(target["name"]))
         return inc
@@ -412,7 +499,7 @@ async def reject_incident(incident_id: str, dispatcher_id: str = Query(default="
                 if "citizen_view" in inc:
                     inc["citizen_view"]["status"] = "failed"
                     inc["citizen_view"]["message"] = "Your request could not be dispatched. Please call 112."
-                save_db()
+                await commit(inc)
                 logger.info("REJECTED %s by %s", log_safe(incident_id), log_safe(dispatcher_id))
                 return {"status": "rejected", "incident_id": incident_id}
     raise HTTPException(status_code=404, detail="Incident not found")
@@ -458,7 +545,7 @@ async def incident_arrived(incident_id: str, unit_type: str = "primary"):
             if "citizen_view" in inc:
                 inc["citizen_view"]["unit_statuses"] = states
                 inc["citizen_view"]["status"] = inc["status"]
-            save_db()
+            await commit(inc)
             return {"status": "arrived", "unit_type": unit_type, "unit_statuses": states, "incident_status": inc["status"]}
     raise HTTPException(status_code=404, detail="Incident not found")
 
@@ -491,6 +578,6 @@ async def request_ambulance_backup(incident_id: str):
             if "citizen_view" in inc:
                 inc["citizen_view"]["include_ambulance_backup"] = True
                 inc["citizen_view"]["unit_statuses"] = inc["unit_statuses"]
-            save_db()
+            await commit(inc)
             return {"status": "ambulance_requested", "incident_id": incident_id}
     raise HTTPException(status_code=404, detail="Incident not found")
