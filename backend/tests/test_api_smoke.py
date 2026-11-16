@@ -56,6 +56,7 @@ def test_health_reports_status_and_routing(client):
 
 def test_chat_send_and_history_have_message_ids(client):
     inc_id = "INC-test"
+    incident_router.ACTIVE_INCIDENTS.append({"incident_id": inc_id, "status": "processing"})
     send = client.post(
         f"/api/chat/{inc_id}/send",
         json={
@@ -79,6 +80,7 @@ def test_chat_send_and_history_have_message_ids(client):
 
 
 def test_chat_rejects_empty_message(client):
+    incident_router.ACTIVE_INCIDENTS.append({"incident_id": "INC-empty", "status": "processing"})
     res = client.post(
         "/api/chat/INC-empty/send",
         json={

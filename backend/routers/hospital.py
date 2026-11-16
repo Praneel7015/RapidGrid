@@ -38,6 +38,16 @@ def _resolve(identifier: str) -> str | None:
     return None
 
 
+def destination_on_divert(incident: dict) -> bool:
+    """True when the hospital this case is heading to has stopped accepting."""
+    assigned = incident.get("approved_hospital_id")
+    key = _resolve(str(assigned)) if assigned else None
+    if key is None:
+        name = (incident.get("citizen_view") or {}).get("hospital_name")
+        key = _resolve(name) if name else None
+    return key is not None and key in hospital_agent.diverted
+
+
 def restore_capacity() -> None:
     """Reapply persisted diversion overrides during application startup."""
     overrides = load_collection("hospital_capacity", {}, database=persistence_path())
@@ -109,6 +119,7 @@ def _incoming(hospital_id: str) -> list[dict]:
             "assigned_driver": (incident.get("unit_assignments") or {}).get(medical_unit) or (incident.get("assigned_driver") if medical_unit == "primary" else None),
             "citizen_phone": incident.get("citizen_phone"),
             "unit_phone": incident.get("unit_phone") or view.get("unit_phone"),
+            "destination_on_divert": destination_on_divert(incident),
         })
     return incoming
 

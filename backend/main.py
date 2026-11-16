@@ -30,7 +30,9 @@ from datetime import datetime, timezone
 
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -58,6 +60,9 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 logger = logging.getLogger("geoagentic")
+# httpx logs every request URL at INFO; the weather URL carries the API key.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 
 # ---------------------------------------------------------------------------
@@ -162,6 +167,17 @@ app.add_middleware(
 )
 app.add_middleware(ShowcaseAccessMiddleware)
 
+@app.exception_handler(RequestValidationError)
+async def validation_error(request: Request, exc: RequestValidationError):
+    # The default handler echoes the rejected input, which cannot be encoded
+    # when it is NaN or Infinity and turned a 422 into a 500.
+    errors = [
+        {"loc": list(e.get("loc", ())), "msg": str(e.get("msg", "Invalid value")), "type": str(e.get("type", "value_error"))}
+        for e in exc.errors()
+    ]
+    return JSONResponse(status_code=422, content={"detail": errors})
+
+
 # Mount routers
 app.include_router(session_router)
 app.include_router(traffic.router)
@@ -240,19 +256,26 @@ async def liveness():
 from fastapi import WebSocket, WebSocketDisconnect
 @app.websocket("/ws/chat/{incident_id}")
 async def websocket_chat_endpoint(websocket: WebSocket, incident_id: str):
+    if not chat.incident_exists(incident_id):
+        await websocket.close(code=1008)
+        return
     await chat.manager.connect(websocket, incident_id)
     try:
         while True:
-            data = await websocket.receive_text()
+            try:
+                data = await websocket.receive_text()
+            except KeyError:
+                continue  # a binary frame; this channel carries text only
             try:
                 payload = json.loads(data)
-                body = (payload.get("message") or "").strip()
-                if not body:
+                body = str(payload.get("message") or "").strip()
+                role = payload.get("sender_role", "citizen")
+                if not body or len(body) > chat.MAX_MESSAGE_CHARS or role not in chat.CHAT_ROLES:
                     continue
                 msg_data = chat._build_message(
                     incident_id,
-                    payload.get("sender_role", "citizen"),
-                    payload.get("sender_name", "Anonymous"),
+                    role,
+                    str(payload.get("sender_name") or "Anonymous")[: chat.MAX_NAME_CHARS],
                     body,
                 )
                 await chat.manager.broadcast(incident_id, msg_data)

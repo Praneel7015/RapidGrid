@@ -80,6 +80,8 @@ async def _route(origin: dict, destination: dict) -> dict:
 @router.get("/active")
 async def get_active_dispatches():
     # A driver must not act on a report before a dispatcher approves it.
+    from routers.hospital import destination_on_divert
+
     active = []
     for incident in ACTIVE_INCIDENTS:
         if incident.get("status") not in {"dispatched", "patient_picked_up"}:
@@ -102,6 +104,8 @@ async def get_active_dispatches():
             "hospital": hospital,
             "citizen_view": view,
             "action_plan": plan,
+            # The destination may stop accepting after approval; the driver must see it.
+            "destination_on_divert": destination_on_divert(incident),
         })
     return {"dispatches": list(reversed(active))}
 
@@ -163,8 +167,10 @@ async def arrived_pickup(payload: ClaimPayload):
                          "unit_statuses": states})
         _claim(incident, payload.driver_id, payload.unit_type)
         save_db()
+        from routers.hospital import destination_on_divert
         return {"status": "patient_picked_up", "citizen_view": view, "unit_statuses": states,
-                "unit_assignments": incident["unit_assignments"]}
+                "unit_assignments": incident["unit_assignments"],
+                "destination_on_divert": destination_on_divert(incident)}
 
 
 @router.post("/change_hospital")

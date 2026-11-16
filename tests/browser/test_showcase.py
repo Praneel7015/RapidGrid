@@ -327,3 +327,55 @@ def test_mobile_portals_fit_viewport(context, server, route):
         dimensions = page.evaluate("({width:innerWidth, document:document.documentElement.scrollWidth})")
         assert dimensions["document"] <= dimensions["width"], dimensions
         page.wait_for_timeout(250)
+
+
+def test_ranked_destination_click_needs_explicit_confirmation(context, server):
+    unlock(context, server)
+    created = context.request.post(server + "/api/incidents", data={
+        "citizen_text": "Test scenario: chest pain near Hebbal.", "citizen_name": "Browser confirm test",
+        "citizen_phone": "TEST-CONFIRM-ONLY", "location": {"lat": 13.035, "lng": 77.597},
+    })
+    assert created.status == 202, created.text()
+    incident_id = created.json()["incident_id"]
+    plan = poll_incident(context, server, incident_id, "awaiting_dispatcher_approval")["action_plan"]
+    target = plan["all_hospitals"][-1]["name"]
+
+    page = context.new_page()
+    approvals = []
+    page.on("request", lambda r: approvals.append(r.url) if r.url.endswith("/approve") else None)
+    page.goto(server + "/dispatcher")
+    page.get_by_role("button").filter(has_text=incident_id).first.click()
+    page.get_by_role("button").filter(has_text=target).last.click()
+    expect(page.get_by_role("button", name="Confirm dispatch", exact=True)).to_be_visible()
+    page.wait_for_timeout(600)
+    assert approvals == []  # selecting a row must not dispatch
+    assert context.request.get(server + f"/api/incidents/{incident_id}").json()["status"] == "awaiting_dispatcher_approval"
+
+    page.get_by_role("button", name="Cancel", exact=True).click()
+    expect(page.get_by_role("button", name="Confirm dispatch", exact=True)).to_have_count(0)
+    page.get_by_role("button").filter(has_text=target).last.click()
+    page.get_by_role("button", name="Confirm dispatch", exact=True).click()
+    dispatched = poll_incident(context, server, incident_id, "dispatched")
+    assert dispatched["citizen_view"]["hospital_name"] == target
+    assert len(approvals) == 1
+
+
+def test_report_without_a_location_fix_needs_the_caller_to_confirm_the_fallback(browser, server):
+    # No geolocation permission: the browser denies the request.
+    ctx = browser.new_context(service_workers="block", viewport={"width": 390, "height": 844})
+    try:
+        unlock(ctx, server)
+        page = ctx.new_page()
+        posted = []
+        page.on("request", lambda r: posted.append(r.post_data_json) if r.method == "POST" and r.url.endswith("/api/incidents") else None)
+        page.goto(server + "/citizen")
+        page.get_by_role("button", name="SOS").click()
+        page.locator("textarea").fill("Test scenario: fall at home.")
+        send = page.get_by_role("button", name="Send emergency report", exact=True)
+        expect(page.get_by_text("We could not get your location", exact=False)).to_be_visible(timeout=15000)
+        expect(send).to_be_disabled()
+        assert posted == []
+        page.get_by_role("checkbox").check()
+        expect(send).to_be_enabled()
+    finally:
+        ctx.close()

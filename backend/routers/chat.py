@@ -1,12 +1,12 @@
 # Real-time WebSocket Emergency Chat Router
 from __future__ import annotations
 import uuid
-from typing import Dict, List, Set
+from typing import Dict, List, Literal, Set
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from datetime import datetime, timezone
 from storage import load_collection, save_collection, delete_collections
-from routers.incident import persistence_path
+from routers.incident import ACTIVE_INCIDENTS, persistence_path
 
 router = APIRouter(prefix="/api/chat", tags=["Realtime Emergency Chat"])
 
@@ -53,11 +53,21 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
+CHAT_ROLES = ("citizen", "dispatcher", "driver", "hospital")
+MAX_MESSAGE_CHARS = 2000
+MAX_NAME_CHARS = 80
+
+
+def incident_exists(incident_id: str) -> bool:
+    """A channel exists only for a reported incident, so ids cannot be minted freely."""
+    return any(i.get("incident_id") == incident_id for i in ACTIVE_INCIDENTS)
+
+
 class ChatMessagePayload(BaseModel):
-    incident_id: str
-    sender_role: str
-    sender_name: str
-    message: str
+    incident_id: str = Field(max_length=100)
+    sender_role: Literal["citizen", "dispatcher", "driver", "hospital"]
+    sender_name: str = Field(min_length=1, max_length=MAX_NAME_CHARS)
+    message: str = Field(max_length=MAX_MESSAGE_CHARS)
 
 def _build_message(incident_id: str, sender_role: str, sender_name: str, message: str) -> Dict:
     return {
@@ -72,6 +82,9 @@ def _build_message(incident_id: str, sender_role: str, sender_name: str, message
 
 @router.get("/{incident_id}/messages")
 async def get_chat_history(incident_id: str):
+    if not incident_exists(incident_id):
+        # Do not cache or store anything for ids that were never reported.
+        return {"messages": []}
     history = manager.history(incident_id)
     return {"messages": history}
 
@@ -79,6 +92,8 @@ async def get_chat_history(incident_id: str):
 async def send_chat_message(incident_id: str, payload: ChatMessagePayload):
     if payload.incident_id != incident_id:
         raise HTTPException(status_code=400, detail="Message incident does not match channel")
+    if not incident_exists(incident_id):
+        raise HTTPException(status_code=404, detail="Incident not found")
     body = (payload.message or "").strip()
     if not body:
         raise HTTPException(status_code=400, detail="Message cannot be empty")

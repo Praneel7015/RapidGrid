@@ -43,6 +43,9 @@ export default function DispatcherDashboard() {
   const failures = useRef(0);
   const autoAttempted = useRef(new Set());
   const [actionError, setActionError] = useState(null);
+  // A ranked row is only selected by a click; dispatch needs a second, explicit confirm.
+  const [pendingHospital, setPendingHospital] = useState(null);
+  useEffect(() => { setPendingHospital(null); }, [selectedId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -498,13 +501,16 @@ export default function DispatcherDashboard() {
                     const chosen = view.hospital_name
                       ? view.hospital_name === h.name
                       : i === 0;
+                    const awaiting = selected.status === 'awaiting_dispatcher_approval';
+                    const pending = awaiting && pendingHospital === (h.hospital_id ?? h.name);
                     return (
+                      <React.Fragment key={h.hospital_id ?? i}>
                       <button
-                        key={h.hospital_id ?? i}
-                        onClick={() => approve(h)}
-                        disabled={busy}
+                        onClick={() => setPendingHospital(pending ? null : (h.hospital_id ?? h.name))}
+                        disabled={busy || !awaiting}
+                        aria-expanded={pending}
                         className={`block w-full border-b border-rule/70 px-4 py-3 text-left transition-colors last:border-0 ${
-                          chosen ? 'bg-signal-wash' : 'hover:bg-paper-hover'
+                          chosen ? 'bg-signal-wash' : awaiting ? 'hover:bg-paper-hover' : ''
                         }`}
                       >
                         <div className="flex items-start justify-between gap-2">
@@ -532,6 +538,22 @@ export default function DispatcherDashboard() {
                           </span>
                         </div>
                       </button>
+                      {pending && (
+                        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-rule/70 bg-paper-sunk px-4 py-2.5">
+                          <span className="text-[12px] leading-snug text-text">
+                            Dispatch to <strong>{h.name}</strong>?
+                          </span>
+                          <span className="flex gap-2">
+                            <Button variant="quiet" onClick={() => setPendingHospital(null)} disabled={busy}>
+                              Cancel
+                            </Button>
+                            <Button onClick={() => { setPendingHospital(null); approve(h); }} disabled={busy}>
+                              Confirm dispatch
+                            </Button>
+                          </span>
+                        </div>
+                      )}
+                      </React.Fragment>
                     );
                   })}
                 </div>

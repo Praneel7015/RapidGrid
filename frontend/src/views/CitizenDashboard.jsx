@@ -43,6 +43,9 @@ export default function CitizenDashboard() {
   const [usedVoice, setUsedVoice] = useState(false);
   const [coords, setCoords] = useState(null);
   const [locationLabel, setLocationLabel] = useState('Locating you…');
+  // pending | gps | fallback. A fallback is never sent unless the caller confirms it.
+  const [locationSource, setLocationSource] = useState('pending');
+  const [fallbackConfirmed, setFallbackConfirmed] = useState(false);
   const [error, setError] = useState(null);
   const [step, setStep] = useState(0);
 
@@ -66,13 +69,15 @@ export default function CitizenDashboard() {
   useEffect(() => {
     if (!navigator.geolocation) {
       setCoords(FALLBACK_LOCATION);
-      setLocationLabel('Using Bengaluru city centre — GPS unavailable');
+      setLocationSource('fallback');
+      setLocationLabel('Bengaluru city centre — GPS unavailable');
       return;
     }
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         if (!mounted.current) return;
         setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        setLocationSource('gps');
         setLocationLabel(
           `${pos.coords.latitude.toFixed(4)}°N, ${pos.coords.longitude.toFixed(4)}°E`,
         );
@@ -80,7 +85,8 @@ export default function CitizenDashboard() {
       () => {
         if (!mounted.current) return;
         setCoords(FALLBACK_LOCATION);
-        setLocationLabel('Using Bengaluru city centre — location not shared');
+        setLocationSource('fallback');
+        setLocationLabel('Bengaluru city centre — your location was not shared');
       },
       { timeout: 8000 },
     );
@@ -173,7 +179,7 @@ export default function CitizenDashboard() {
           citizen_name: citizenInfo?.name ?? 'Anonymous',
           citizen_phone: citizenInfo?.phone ?? 'Unregistered',
           vehicle_required: service,
-          location: coords ?? FALLBACK_LOCATION,
+          location: coords,
           input_modality: voice ? 'voice' : 'text',
           timestamp: new Date().toISOString(),
         }),
@@ -333,8 +339,29 @@ export default function CitizenDashboard() {
           </div>
         )}
 
-        <Button onClick={sendSOS} disabled={sending} size="lg" className="mt-5 w-full">
-          {stage === 'failed' ? 'Try again' : 'Send emergency report'}
+        {locationSource === 'fallback' && (
+          <label className="mt-3 flex items-start gap-2.5 rounded-sm border border-signal-edge bg-signal-wash px-3 py-2.5">
+            <input
+              type="checkbox"
+              className="mt-0.5 h-4 w-4 shrink-0"
+              checked={fallbackConfirmed}
+              onChange={(e) => setFallbackConfirmed(e.target.checked)}
+            />
+            <span className="text-[12px] leading-relaxed text-text">
+              We could not get your location. Help would be sent to <strong>Bengaluru city
+              centre</strong>, not to you. Tick this only if that is where you are; otherwise
+              call 112.
+            </span>
+          </label>
+        )}
+
+        <Button
+          onClick={sendSOS}
+          disabled={sending || !coords || (locationSource === 'fallback' && !fallbackConfirmed)}
+          size="lg"
+          className="mt-5 w-full"
+        >
+          {!coords ? 'Finding your location…' : stage === 'failed' ? 'Try again' : 'Send emergency report'}
         </Button>
 
         <a

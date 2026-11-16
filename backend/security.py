@@ -20,7 +20,10 @@ from starlette.responses import JSONResponse
 
 COOKIE_NAME = "rapidgrid_operator"
 SESSION_SECONDS = 8 * 60 * 60
-_BULK_ACTIONS = {"/api/incidents/clear", "/api/city/clear"}
+# Clearing incidents destroys case records, so it needs operator access even in
+# the synthetic demo. Clearing the city model only undoes closures that any
+# demo visitor can already draw, so the demo keeps it open.
+_BULK_ACTIONS = {"/api/incidents/clear"}
 
 
 def mode() -> str:

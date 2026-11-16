@@ -8,9 +8,9 @@ import uuid
 import asyncio
 import logging
 import re
-from typing import List, Dict, Any, Optional
-from fastapi import APIRouter, Response, status, HTTPException
-from pydantic import BaseModel
+from typing import List, Dict, Any, Literal, Optional
+from fastapi import APIRouter, Query, Response, status, HTTPException
+from pydantic import BaseModel, Field
 
 from models.schemas import (
     Coordinate,
@@ -75,20 +75,40 @@ def load_db():
 load_db()
 
 
+VehicleType = Literal["Ambulance", "Medical", "Fire Engine", "Police Cruiser", "Disaster Rescue"]
+
+# The offline road graph covers this box; a small margin admits callers on its
+# edge. Reports from elsewhere cannot be routed, so they are refused up front
+# instead of reaching the dispatcher as a plan with no route.
+_AREA_MARGIN_DEG = 0.05
+
+
+def _service_area() -> dict:
+    from agents.local_router import local_router
+    box = (local_router.meta or {}).get("bbox") or {"south": 12.8, "west": 77.45, "north": 13.1, "east": 77.78}
+    return {"south": box["south"] - _AREA_MARGIN_DEG, "north": box["north"] + _AREA_MARGIN_DEG,
+            "west": box["west"] - _AREA_MARGIN_DEG, "east": box["east"] + _AREA_MARGIN_DEG}
+
+
+def in_service_area(lat: float, lng: float) -> bool:
+    box = _service_area()
+    return box["south"] <= lat <= box["north"] and box["west"] <= lng <= box["east"]
+
+
 class IncidentReportPayload(BaseModel):
-    citizen_text: str
-    citizen_name: Optional[str] = None
-    citizen_phone: Optional[str] = None
-    vehicle_required: Optional[str] = "Ambulance"
+    citizen_text: str = Field(min_length=1, max_length=2000)
+    citizen_name: Optional[str] = Field(default=None, max_length=100)
+    citizen_phone: Optional[str] = Field(default=None, max_length=32)
+    vehicle_required: Optional[VehicleType] = "Ambulance"
     include_ambulance_backup: Optional[bool] = False
     location: Coordinate
-    input_modality: str = "text"
-    timestamp: Optional[str] = None
+    input_modality: str = Field(default="text", max_length=32)
+    timestamp: Optional[str] = Field(default=None, max_length=64)
 
 class ApprovePayload(BaseModel):
-    dispatcher_id: str
-    approved_hospital: str
-    approved_route: str
+    dispatcher_id: str = Field(min_length=1, max_length=100)
+    approved_hospital: str = Field(min_length=1, max_length=200)
+    approved_route: str = Field(max_length=200)
 
 # Demo click-to-call numbers (no live hospital/unit directory feed).
 DEMO_HOSPITAL_PHONES = {
@@ -254,6 +274,13 @@ async def run_pipeline(incident_id: str, payload: IncidentReportPayload):
 @router.post("")
 async def report_incident(payload: IncidentReportPayload, response: Response):
     """Step 1 - Citizen raises emergency. Returns 202 immediately."""
+    if not payload.citizen_text.strip():
+        raise HTTPException(status_code=422, detail="Describe the emergency")
+    if not in_service_area(payload.location.lat, payload.location.lng):
+        raise HTTPException(
+            status_code=422,
+            detail="That location is outside the Bengaluru area this service covers. Call 112.",
+        )
     incident_id = f"INC-{uuid.uuid4().hex}"
     
     incident = {
@@ -359,7 +386,7 @@ async def approve_incident(incident_id: str, payload: ApprovePayload):
 
 
 @router.post("/{incident_id}/reject")
-async def reject_incident(incident_id: str, dispatcher_id: str = "DISPATCHER-01"):
+async def reject_incident(incident_id: str, dispatcher_id: str = Query(default="DISPATCHER-01", min_length=1, max_length=100)):
     """Dispatcher rejects an incident plan — sets status to 'rejected' so it leaves the approval queue."""
     async with _INCIDENTS_LOCK:
         for inc in ACTIVE_INCIDENTS:

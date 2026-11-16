@@ -91,7 +91,8 @@ def test_demo_allows_synthetic_views_but_not_bulk_wipes(client, monkeypatch):
     assert client.get("/api/session").json()["authenticated"] is True
     assert client.get("/api/incidents/").status_code == 200
     assert client.post("/api/incidents/clear").status_code == 401
-    assert client.post("/api/city/clear").status_code == 401
+    # The city model holds only demo closures, so the demo may reset it.
+    assert client.post("/api/city/clear").status_code == 200
 
 
 def test_bearer_authentication_for_cli(client):
