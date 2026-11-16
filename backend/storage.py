@@ -128,6 +128,8 @@ def delete_incidents(incident_ids: Iterable[str], *, database: Path | None = Non
     with _connection(database) as connection:
         connection.executemany("DELETE FROM incidents WHERE incident_id = ?", ids)
         connection.executemany("DELETE FROM chat_messages WHERE incident_id = ?", ids)
+        # The pre-row chat layout too, so a later load cannot re-import it.
+        connection.executemany("DELETE FROM collections WHERE name = ?", [("chat:" + i,) for (i,) in ids])
 
 
 def replace_incidents(payloads: dict[str, str], *, database: Path | None = None) -> None:
