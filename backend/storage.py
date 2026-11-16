@@ -155,6 +155,30 @@ def append_chat(incident_id: str, messages: Iterable[dict], *, database: Path | 
         connection.executemany("INSERT INTO chat_messages (incident_id, payload) VALUES (?, ?)", rows)
 
 
+def load_chat_migrating(incident_id: str, *, database: Path | None = None) -> list[dict]:
+    """Chat rows for an incident, importing a pre-row history once if there are none.
+
+    The emptiness check and the import run in one transaction under the
+    storage lock, so concurrent first loads cannot import the same history twice.
+    """
+    with _connection(database) as connection:
+        rows = connection.execute(
+            "SELECT payload FROM chat_messages WHERE incident_id = ? ORDER BY id", (incident_id,)
+        ).fetchall()
+        if rows:
+            return [json.loads(row[0]) for row in rows]
+        legacy = connection.execute(
+            "SELECT payload FROM collections WHERE name = ?", ("chat:" + incident_id,)
+        ).fetchone()
+        messages = json.loads(legacy[0]) if legacy else []
+        if messages:
+            connection.executemany(
+                "INSERT INTO chat_messages (incident_id, payload) VALUES (?, ?)",
+                [(incident_id, json.dumps(m, ensure_ascii=False)) for m in messages],
+            )
+        return messages
+
+
 def clear_chat(*, database: Path | None = None) -> None:
     with _connection(database) as connection:
         connection.execute("DELETE FROM chat_messages")

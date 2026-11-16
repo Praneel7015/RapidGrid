@@ -8,7 +8,6 @@ from datetime import datetime, timezone
 import asyncio
 
 import storage
-from storage import load_collection
 from routers.incident import ACTIVE_INCIDENTS, persistence_path
 
 router = APIRouter(prefix="/api/chat", tags=["Realtime Emergency Chat"])
@@ -22,7 +21,7 @@ class ConnectionManager:
         await websocket.accept()
         if incident_id not in self.active_connections:
             self.active_connections[incident_id] = set()
-        self.history(incident_id)
+        await self.load(incident_id)
         self.active_connections[incident_id].add(websocket)
 
     def disconnect(self, websocket: WebSocket, incident_id: str):
@@ -30,16 +29,19 @@ class ConnectionManager:
             self.active_connections[incident_id].discard(websocket)
 
     def history(self, incident_id: str) -> List[Dict]:
+        """Cached history; on a miss, read it synchronously (tests and startup only)."""
         if incident_id not in self.chat_history:
-            database = persistence_path()
-            messages = storage.load_chat(incident_id, database=database)
-            if not messages:
-                # Histories written before messages had their own rows.
-                legacy = load_collection("chat:" + incident_id, None, database=database)
-                if legacy:
-                    storage.append_chat(incident_id, legacy, database=database)
-                    messages = list(legacy)
-            self.chat_history[incident_id] = messages
+            self.chat_history[incident_id] = storage.load_chat_migrating(incident_id, database=persistence_path())
+        return self.chat_history[incident_id]
+
+    async def load(self, incident_id: str) -> List[Dict]:
+        """Cached history; on a miss, read it off the event loop."""
+        if incident_id not in self.chat_history:
+            messages = await asyncio.to_thread(
+                storage.load_chat_migrating, incident_id, database=persistence_path()
+            )
+            # Another request may have filled the cache while this one waited.
+            self.chat_history.setdefault(incident_id, messages)
         return self.chat_history[incident_id]
 
     def clear_history(self) -> None:
@@ -55,7 +57,7 @@ class ConnectionManager:
             self.active_connections.pop(incident_id, None)
 
     async def broadcast(self, incident_id: str, message_data: Dict):
-        history = self.history(incident_id)
+        history = await self.load(incident_id)
         # One row per message, written off the event loop, before anyone sees it.
         await asyncio.to_thread(storage.append_chat, incident_id, [message_data], database=persistence_path())
         history.append(message_data)
@@ -104,7 +106,7 @@ async def get_chat_history(incident_id: str):
     if not incident_exists(incident_id):
         # Do not cache or store anything for ids that were never reported.
         return {"messages": []}
-    history = manager.history(incident_id)
+    history = await manager.load(incident_id)
     return {"messages": history}
 
 @router.post("/{incident_id}/send")

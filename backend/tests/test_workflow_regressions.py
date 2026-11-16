@@ -402,6 +402,9 @@ def test_websocket_failure_log_line_cannot_be_forged_by_incident_id(client, capl
     seed(incident_id="INC-x\nERROR forged")  # a channel exists only for a stored incident
     with client.websocket_connect("/ws/chat/INC-x%0AERROR%20forged") as ws:
         ws.send_text("not json")
+        # Frames are handled in order: once this echo arrives, the bad one was processed.
+        ws.send_json({"message": "after", "sender_role": "citizen", "sender_name": "Review"})
+        assert ws.receive_json()["message"] == "after"
     lines = [r.getMessage() for r in caplog.records if r.getMessage().startswith("WebSocket chat message failed")]
     assert len(lines) == 1
     assert "\n" not in lines[0] and "forged" in lines[0]
@@ -711,3 +714,36 @@ def test_malformed_stored_record_stops_startup_instead_of_serving_500s(client):
         incident.load_db()
     storage.delete_incidents(["x"], database=incident.persistence_path())
     incident.load_db()
+
+
+def test_cleared_incidents_do_not_come_back_from_the_old_snapshot(client):
+    database = incident.persistence_path()
+    save_collection("incidents", [{"incident_id": "INC-legacy", "status": "dispatched"}], database=database)
+    incident.load_db()                       # migrates once
+    assert [i["incident_id"] for i in incident.ACTIVE_INCIDENTS] == ["INC-legacy"]
+    incident.ACTIVE_INCIDENTS.clear()
+    incident.save_db()                       # e.g. an operator cleared incidents
+    storage.close_all()
+    incident.load_db()                       # restart
+    assert incident.ACTIVE_INCIDENTS == []
+
+
+def test_legacy_chat_is_imported_once_even_if_loaded_twice(client):
+    database = incident.persistence_path()
+    save_collection("chat:INC-old", [{"id": "m1", "message": "old"}], database=database)
+    first = storage.load_chat_migrating("INC-old", database=database)
+    second = storage.load_chat_migrating("INC-old", database=database)
+    assert first == second and len(storage.load_chat("INC-old", database=database)) == 1
+
+
+def test_a_pruning_failure_does_not_lose_the_report(client, monkeypatch):
+    pipeline = AsyncMock()
+    monkeypatch.setattr(incident, "run_pipeline", pipeline)
+
+    def broken():
+        raise OSError("disk hiccup")
+    monkeypatch.setattr(incident, "prune_finished", broken)
+    response = client.post("/api/incidents", json=REPORT)
+    assert response.status_code == 202
+    assert _stored(response.json()["incident_id"])["status"] == "processing"
+    pipeline.assert_called_once()
