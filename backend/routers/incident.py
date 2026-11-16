@@ -4,6 +4,7 @@ Matches the event-driven async flow described in the trace.
 """
 from __future__ import annotations
 
+import copy
 import os
 import uuid
 import asyncio
@@ -241,16 +242,26 @@ def _hospital_phone(name: str | None) -> str | None:
     return None
 
 
-def _mark_failed(incident_id: str, exc: Exception) -> None:
-    # Synchronous on purpose: with no await inside, nothing else on the event
-    # loop can run between the status check and the write, so it needs no lock.
-    # It only ever changes a record that is still "processing".
-    for inc in ACTIVE_INCIDENTS:
-        if inc["incident_id"] == incident_id and inc.get("status") == "processing":
-            inc["status"] = "failed"
-            inc["error"] = str(exc) or "Pipeline failed"
-            save_db(inc)
-            break
+async def _mark_failed(incident_id: str, exc: Exception) -> None:
+    # Takes the lock so it decides after any pending write (for example a
+    # rejection) has committed or been rolled back. Only a record that is
+    # still "processing" is changed.
+    async with _INCIDENTS_LOCK:
+        for inc in ACTIVE_INCIDENTS:
+            if inc["incident_id"] == incident_id and inc.get("status") == "processing":
+                inc["status"] = "failed"
+                inc["error"] = str(exc) or "Pipeline failed"
+                try:
+                    await commit(inc)
+                except Exception:
+                    logger.exception("Could not store the failure of %s", log_safe(incident_id))
+                break
+
+
+def snapshot(value):
+    """A deep copy taken under _INCIDENTS_LOCK, so a response never carries a
+    change whose write is still pending or later rolled back."""
+    return copy.deepcopy(value)
 
 
 async def run_pipeline(incident_id: str, payload: IncidentReportPayload):
@@ -366,7 +377,7 @@ async def run_pipeline(incident_id: str, payload: IncidentReportPayload):
                 logger.warning("Pipeline: incident %s no longer present after fusion step — aborting", incident_id)
     except Exception as exc:
         logger.exception("Pipeline failed for %s", incident_id)
-        _mark_failed(incident_id, exc)
+        await _mark_failed(incident_id, exc)
 
 @router.post("")
 async def report_incident(payload: IncidentReportPayload, response: Response):
@@ -422,22 +433,20 @@ async def report_incident(payload: IncidentReportPayload, response: Response):
 @router.get("/{incident_id}")
 async def get_incident(incident_id: str):
     """Step 3 - Citizen screen polls."""
-    for inc in ACTIVE_INCIDENTS:
-        if inc["incident_id"] == incident_id:
-            return inc
+    async with _INCIDENTS_LOCK:  # waits for any write in progress to commit or roll back
+        for inc in ACTIVE_INCIDENTS:
+            if inc["incident_id"] == incident_id:
+                return snapshot(inc)
     raise HTTPException(status_code=404, detail="Incident not found")
 
 @router.get("/")
 async def get_all_incidents():
     """For Dispatcher to see all active incidents."""
-    # Ensure they have severity for sorting.
-    # Acquire the lock because we mutate incident dicts in-place — a concurrent
-    # run_pipeline task could be doing the same thing simultaneously.
     async with _INCIDENTS_LOCK:
-        for inc in ACTIVE_INCIDENTS:
-            if "severity" not in inc:
-                inc["severity"] = 0.5
-        return {"incidents": list(ACTIVE_INCIDENTS)}
+        incidents = snapshot(ACTIVE_INCIDENTS)
+    for inc in incidents:
+        inc.setdefault("severity", 0.5)  # the dispatcher queue sorts by it
+    return {"incidents": incidents}
 
 @router.post("/{incident_id}/approve")
 async def approve_incident(incident_id: str, payload: ApprovePayload):

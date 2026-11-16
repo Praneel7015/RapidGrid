@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 from models.schemas import Coordinate, RouteRequest
 from routers.incident import (
-    ACTIVE_INCIDENTS, _INCIDENTS_LOCK, commit, required_units, route_agent, unit_statuses,
+    ACTIVE_INCIDENTS, _INCIDENTS_LOCK, commit, required_units, route_agent, snapshot, unit_statuses,
 )
 
 router = APIRouter(prefix="/api/driver", tags=["Driver Queue"])
@@ -82,6 +82,11 @@ async def get_active_dispatches():
     # A driver must not act on a report before a dispatcher approves it.
     from routers.hospital import destination_on_divert
 
+    async with _INCIDENTS_LOCK:
+        return {"dispatches": snapshot(_active_dispatches(destination_on_divert))}
+
+
+def _active_dispatches(destination_on_divert) -> list[dict]:
     active = []
     for incident in ACTIVE_INCIDENTS:
         if incident.get("status") not in {"dispatched", "patient_picked_up"}:
@@ -107,7 +112,7 @@ async def get_active_dispatches():
             # The destination may stop accepting after approval; the driver must see it.
             "destination_on_divert": destination_on_divert(incident),
         })
-    return {"dispatches": list(reversed(active))}
+    return list(reversed(active))
 
 
 @router.post("/claim")

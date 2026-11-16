@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 from agents.hospital_intelligence import NoHospitalCandidatesError, hospital_agent
 from models.schemas import HospitalRankingResponse, HospitalRequest
-from routers.incident import ACTIVE_INCIDENTS, persistence_path, unit_statuses
+from routers.incident import ACTIVE_INCIDENTS, _INCIDENTS_LOCK, persistence_path, snapshot, unit_statuses
 from logsafe import log_safe
 from storage import load_collection, save_collection
 
@@ -126,13 +126,15 @@ def _incoming(hospital_id: str) -> list[dict]:
 
 @router.get("/incoming/all")
 async def get_all_incoming_cases():
-    return {"incoming": _incoming("all")}
+    async with _INCIDENTS_LOCK:
+        return {"incoming": snapshot(_incoming("all"))}
 
 
 @router.get("/{hospital_id}/incoming")
 async def get_incoming_cases(hospital_id: str, name: str | None = None):
     # Names in the query string never broaden the requested facility scope.
-    return {"incoming": _incoming(hospital_id)}
+    async with _INCIDENTS_LOCK:
+        return {"incoming": snapshot(_incoming(hospital_id))}
 
 
 @router.get("/{hospital_id}")

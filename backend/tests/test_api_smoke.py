@@ -130,8 +130,8 @@ def test_pipeline_failure_marks_incident_failed(client):  # noqa: ARG001
     )
     # save_db() writes to the temp DB_FILE (redirected by _reset_disk_db),
     # so no real patch needed — but we keep one to avoid unnecessary I/O.
-    with patch.object(incident_router, "save_db"):
-        incident_router._mark_failed("INC-fail", RuntimeError("fusion exploded"))
+    import asyncio
+    asyncio.run(incident_router._mark_failed("INC-fail", RuntimeError("fusion exploded")))
     inc = incident_router.ACTIVE_INCIDENTS[0]
     assert inc["status"] == "failed"
     assert "fusion exploded" in inc["error"]

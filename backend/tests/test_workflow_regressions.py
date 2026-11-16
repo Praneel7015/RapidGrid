@@ -747,3 +747,68 @@ def test_a_pruning_failure_does_not_lose_the_report(client, monkeypatch):
     assert response.status_code == 202
     assert _stored(response.json()["incident_id"])["status"] == "processing"
     pipeline.assert_called_once()
+
+
+def test_a_poll_never_shows_a_change_whose_write_then_fails(client, mocked_route, monkeypatch):
+    import time
+    # A fresh lock: asyncio binds a lock to the first event loop that waits on it.
+    monkeypatch.setattr(incident, "_INCIDENTS_LOCK", asyncio.Lock())
+    seed()
+    incident.save_db()
+
+    def slow_failing_write(*args, **kwargs):
+        time.sleep(0.3)
+        raise OSError("disk is read-only")
+    monkeypatch.setattr(storage, "write_incident", slow_failing_write)
+    body = incident.ApprovePayload(dispatcher_id="reviewer", approved_hospital="blr-007", approved_route="r")
+
+    async def race():
+        approval = asyncio.create_task(incident.approve_incident("INC-review", body))
+        await asyncio.sleep(0.1)                      # approval is now waiting on its write
+        polled = await incident.get_incident("INC-review")
+        listed = await incident.get_all_incidents()
+        with pytest.raises(OSError):
+            await approval
+        return polled, listed
+
+    polled, listed = asyncio.run(race())
+    assert polled["status"] == "awaiting_dispatcher_approval"
+    assert listed["incidents"][0]["status"] == "awaiting_dispatcher_approval"
+
+
+def test_pipeline_failure_waits_for_a_pending_rejection(client, monkeypatch):
+    import time
+    # A fresh lock: asyncio binds a lock to the first event loop that waits on it.
+    monkeypatch.setattr(incident, "_INCIDENTS_LOCK", asyncio.Lock())
+    report = seed("processing")
+    incident.save_db()
+    real = storage.write_incident
+    calls = {"n": 0}
+
+    def write(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:          # the rejection's write: slow, then fails
+            time.sleep(0.3)
+            raise OSError("disk hiccup")
+        return real(*args, **kwargs)
+    monkeypatch.setattr(storage, "write_incident", write)
+
+    async def race():
+        rejection = asyncio.create_task(incident.reject_incident("INC-review", dispatcher_id="d1"))
+        await asyncio.sleep(0.1)
+        await incident._mark_failed("INC-review", RuntimeError("pipeline broke"))
+        with pytest.raises(OSError):
+            await rejection
+
+    asyncio.run(race())
+    # The rejection rolled back, then the pipeline failure was recorded.
+    assert report["status"] == "failed" and "pipeline broke" in report["error"]
+    assert _stored()["status"] == "failed"
+
+
+def test_pruned_incident_legacy_chat_is_not_reimported(client):
+    database = incident.persistence_path()
+    save_collection("chat:INC-gone", [{"id": "m1", "message": "old"}], database=database)
+    storage.write_incident("INC-gone", json.dumps({"incident_id": "INC-gone", "status": "completed"}), database=database)
+    storage.delete_incidents(["INC-gone"], database=database)
+    assert storage.load_chat_migrating("INC-gone", database=database) == []
