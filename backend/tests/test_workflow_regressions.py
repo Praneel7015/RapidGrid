@@ -812,3 +812,46 @@ def test_pruned_incident_legacy_chat_is_not_reimported(client):
     storage.write_incident("INC-gone", json.dumps({"incident_id": "INC-gone", "status": "completed"}), database=database)
     storage.delete_incidents(["INC-gone"], database=database)
     assert storage.load_chat_migrating("INC-gone", database=database) == []
+
+
+def test_failure_marker_retries_until_the_write_succeeds(client, monkeypatch):
+    monkeypatch.setattr(incident, "_INCIDENTS_LOCK", asyncio.Lock())
+    monkeypatch.setattr(incident, "_FAIL_RETRY_DELAYS", (0.01,))
+    report = seed("processing")
+    incident.save_db()
+    real = storage.write_incident
+    calls = {"n": 0}
+
+    def flaky(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] <= 2:
+            raise OSError("disk hiccup")
+        return real(*args, **kwargs)
+    monkeypatch.setattr(storage, "write_incident", flaky)
+    asyncio.run(incident._mark_failed("INC-review", RuntimeError("pipeline broke")))
+    assert calls["n"] == 3
+    assert report["status"] == "failed" and _stored()["status"] == "failed"
+
+
+def test_triage_result_survives_a_rolled_back_rejection(client, monkeypatch):
+    from types import SimpleNamespace
+    monkeypatch.setattr(incident, "_INCIDENTS_LOCK", asyncio.Lock())
+    report = seed("processing")
+    for key in ("emergency_type", "severity", "details"):
+        report.pop(key, None)
+    incident.save_db()
+    triage = SimpleNamespace(incident_report=SimpleNamespace(
+        incident_type=SimpleNamespace(value="cardiac"), severity_estimate=0.9, extracted_details="chest pain"))
+    monkeypatch.setattr(incident.accessibility_agent, "process_input", AsyncMock(return_value=triage))
+
+    async def stop_after_triage(*args, **kwargs):
+        raise RuntimeError("stop here")  # fusion is not under test
+    monkeypatch.setattr(incident.fusion_engine, "fuse", stop_after_triage)
+    payload = incident.IncidentReportPayload(citizen_text="Chest pain", location={"lat": 13.035, "lng": 77.597})
+    monkeypatch.setattr(incident, "_mark_failed", AsyncMock())  # keep the record "processing"
+    asyncio.run(incident.run_pipeline("INC-review", payload))
+    stored = _stored()
+    assert stored["emergency_type"] == "cardiac" and stored["severity"] == 0.9
+    # A rollback now restores to a baseline that includes the triage result.
+    incident._restore(report)
+    assert report["emergency_type"] == "cardiac"

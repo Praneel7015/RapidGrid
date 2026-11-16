@@ -242,20 +242,35 @@ def _hospital_phone(name: str | None) -> str | None:
     return None
 
 
+# Waits between attempts to store a pipeline failure. The last value repeats.
+_FAIL_RETRY_DELAYS = (1.0, 2.0, 5.0, 10.0, 30.0, 60.0)
+
+
 async def _mark_failed(incident_id: str, exc: Exception) -> None:
-    # Takes the lock so it decides after any pending write (for example a
-    # rejection) has committed or been rolled back. Only a record that is
-    # still "processing" is changed.
-    async with _INCIDENTS_LOCK:
-        for inc in ACTIVE_INCIDENTS:
-            if inc["incident_id"] == incident_id and inc.get("status") == "processing":
-                inc["status"] = "failed"
-                inc["error"] = str(exc) or "Pipeline failed"
-                try:
-                    await commit(inc)
-                except Exception:
-                    logger.exception("Could not store the failure of %s", log_safe(incident_id))
-                break
+    """Record a pipeline failure, retrying until the write succeeds.
+
+    Each attempt takes the lock, so it decides after any pending write (for
+    example a rejection) has committed or been rolled back, and only a record
+    still "processing" is changed. No other task would finish the report, so a
+    failed write is retried with backoff rather than left "processing"; a
+    restart also marks it failed.
+    """
+    attempt = 0
+    while True:
+        async with _INCIDENTS_LOCK:
+            inc = next((i for i in ACTIVE_INCIDENTS if i["incident_id"] == incident_id), None)
+            if inc is None or inc.get("status") != "processing":
+                return
+            inc["status"] = "failed"
+            inc["error"] = str(exc) or "Pipeline failed"
+            try:
+                await commit(inc)
+                return
+            except Exception:
+                logger.exception("Could not store the failure of %s; will retry", log_safe(incident_id))
+        delay = _FAIL_RETRY_DELAYS[min(attempt, len(_FAIL_RETRY_DELAYS) - 1)]
+        attempt += 1
+        await asyncio.sleep(delay)
 
 
 def snapshot(value):
@@ -286,6 +301,8 @@ async def run_pipeline(incident_id: str, payload: IncidentReportPayload):
                     inc["details"] = access_res.incident_report.extracted_details
                     inc["input_modality"] = modality.value
                     found = True
+                    # Store now, so a later rollback cannot drop the triage result.
+                    await commit(inc)
                     break
             # If the incident was cleared/deleted before this point, abort cleanly
             # instead of silently doing nothing (which previously left no failure
