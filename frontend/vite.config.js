@@ -74,7 +74,8 @@ const pwa = VitePWA({
       },
       {
         // Map tiles the user has already viewed, kept for a week.
-        urlPattern: ({ url }) => url.hostname.endsWith('tile.openstreetmap.org'),
+        // Exact host: the map loads tiles only from tile.openstreetmap.org.
+        urlPattern: ({ url }) => url.origin === 'https://tile.openstreetmap.org',
         handler: 'CacheFirst',
         options: {
           cacheName: 'map-tiles',
