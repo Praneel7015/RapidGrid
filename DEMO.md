@@ -402,7 +402,7 @@ live in front of the judges.
 **Hospital** — `GET /api/hospital/{id}/incoming` · `PATCH /api/hospital/{id}/resources`
 **Chat** — `GET /api/chat/{id}/messages` · `POST /api/chat/{id}/send` · `WS /ws/chat/{id}`
 **City model** — `GET /api/city/state` · `POST /api/city/close` · `POST /api/city/conditions` · `GET /api/city/overlay` · `GET /api/city/explain/{edge}` · `POST /api/city/clear`
-**Agents** — `POST /api/fusion/combine` · `POST /api/hospital/rank` · `POST /api/route/compute` · `POST /api/traffic/analyse` · `POST /api/accessibility/report`
+**Agents** — `POST /api/fusion/combine` · `POST /api/hospital/rank` · `POST /api/route/compute`
 **Platform** — `GET /health` · `GET /docs`
 
 ---

@@ -204,7 +204,7 @@ def test_startup_without_offline_graph_still_registers_prediction(monkeypatch):
     monkeypatch.setattr(main.traffic_agent, "load_network", lambda: None)
     monkeypatch.setattr(main.traffic_agent, "publish_snapshot", AsyncMock())
     with patch.object(main.prediction_agent, "register_on_bus") as register:
-        for agent in (main.route_agent, main.communication_agent, main.coordinator_agent, main.learning_agent):
+        for agent in (main.route_agent,):
             monkeypatch.setattr(agent, "register_on_bus", lambda: None)
 
         async def start():

@@ -131,12 +131,10 @@ plain pipeline:
 | Plan | `decision_fusion.py` | Packages the top-ranked hospital, the route and an explanation. Its five weighted factors describe the plan; they do not change which hospital is chosen. |
 | City model | `city_state.py` | Hour, weather and drawn closures, applied to the offline graph. Also the source of the traffic factor shown in the plan. |
 
-Other modules are supporting or placeholder: `clinical_outcome.py`
-(illustrative estimate), `prediction.py` (weather adjustment when a key is
-set), `communication.py` (**simulated** notifications; nothing is sent),
-`coordinator.py` and `learning.py` (**stubs**), `traffic_intelligence.py`
-(a six-segment sample file, no longer used in decisions). They are connected
-by an in-process event bus (`bus/event_bus.py`).
+Supporting modules: `clinical_outcome.py` (illustrative estimate) and
+`prediction.py` (weather adjustment when a key is set).
+`traffic_intelligence.py` still loads a six-segment sample network at startup
+for the route module's legacy tier; it is not used in decisions.
 
 ---
 
@@ -233,15 +231,12 @@ RapidGrid/
 │   │   ├── accessibility.py             # Multi-modal input normalisation
 │   │   ├── city_state.py                # Structural causal model of the city
 │   │   ├── clinical_outcome.py          # Time-to-treatment estimation
-│   │   ├── communication.py             # Multi-channel dispatch
-│   │   ├── coordinator.py               # Incident classification
-│   │   ├── decision_fusion.py           # 5-factor fusion + counterfactual
+│   │   ├── decision_fusion.py           # Plan assembly + explanation
 │   │   ├── hospital_intelligence.py     # Two-stage ranking, specialty gate
-│   │   ├── learning.py                  # Stub
 │   │   ├── local_router.py              # A* over the OpenStreetMap graph
 │   │   ├── prediction.py                # ETA + weather adjustment
 │   │   ├── route_optimization.py        # 3-tier routing + quota cache
-│   │   ├── traffic_intelligence.py      # Segment congestion
+│   │   ├── traffic_intelligence.py      # Sample network (startup only)
 │   │   └── triage.py                    # Weighted-keyword classifier
 │   ├── bus/event_bus.py                 # Async in-process pub/sub
 │   ├── models/schemas.py                # Pydantic contracts
@@ -405,10 +400,9 @@ Interactive docs at `http://localhost:8000/docs`.
 `WS /ws/chat/{id}` — one channel per incident, shared by all roles.
 WebSocket delivers; HTTP is the durable write path and the fallback.
 
-**Agents** `POST /api/fusion/combine` · `POST /api/route/compute` ·
-`POST /api/traffic/analyse` · `POST /api/accessibility/report` ·
-`POST /api/coordinator/coordinate` · `POST /api/communication/dispatch` ·
-`POST /api/learning/dispatch_decision`
+**Inspection** `POST /api/fusion/combine` · `POST /api/route/compute` ·
+`POST /api/hospital/rank` — run one pipeline step on its own, for the demo
+script and debugging.
 
 **Platform** `GET /health` — routing tier status, quota telemetry and city-model
 state · `GET /health/live` — process liveness for the host's health check.
