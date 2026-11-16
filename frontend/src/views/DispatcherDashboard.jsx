@@ -143,6 +143,9 @@ export default function DispatcherDashboard() {
     pendingHospital?.incidentId === selected.incident_id &&
     pendingHospital.source === source &&
     pendingHospital.key === hospitalKey(h);
+  // While another hospital awaits confirmation, the one-click approve of the
+  // recommended hospital is disabled so the two cannot be confused.
+  const choicePending = Boolean(selected) && pendingHospital?.incidentId === selected.incident_id;
   const choose = (h, source) =>
     setPendingHospital(
       isPending(h, source) ? null : { incidentId: selected.incident_id, key: hospitalKey(h), source },
@@ -438,7 +441,12 @@ export default function DispatcherDashboard() {
 
               <div className="flex flex-wrap gap-2">
                 {!autoDispatch && selected.status === 'awaiting_dispatcher_approval' && (
-                  <Button onClick={() => approve()} disabled={busy || !plan} className="flex-1">
+                  <Button
+                    onClick={() => approve()}
+                    disabled={busy || !plan || choicePending}
+                    title={choicePending ? 'Confirm or cancel the hospital you selected first' : undefined}
+                    className="flex-1"
+                  >
                     <Check size={15} />
                     {busy ? 'Dispatching…' : 'Approve and dispatch'}
                   </Button>

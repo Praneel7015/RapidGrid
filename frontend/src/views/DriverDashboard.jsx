@@ -226,7 +226,7 @@ export default function DriverDashboard() {
       </button>
 
       {actionError && <p role="alert" className="rounded-sm border border-critical bg-critical-wash p-3 text-sm text-critical">{actionError}</p>}
-      {active?.destination_on_divert && (
+      {active?.destination_on_divert && !sceneResponse && (
         <p role="alert" className="rounded-sm border border-critical bg-critical-wash p-3 text-sm text-critical">
           <strong>{active.hospital_name ?? 'The destination hospital'}</strong> has stopped accepting
           patients. Choose another hospital once the patient is on board.

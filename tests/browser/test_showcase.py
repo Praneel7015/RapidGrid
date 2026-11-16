@@ -349,10 +349,13 @@ def test_ranked_destination_click_needs_explicit_confirmation(context, server):
     expect(page.get_by_role("button", name="Confirm dispatch", exact=True)).to_be_visible()
     page.wait_for_timeout(600)
     assert approvals == []  # selecting a row must not dispatch
+    # The one-click approve would send to the recommended hospital, not this one.
+    expect(page.get_by_role("button", name="Approve and dispatch", exact=True)).to_be_disabled()
     assert context.request.get(server + f"/api/incidents/{incident_id}").json()["status"] == "awaiting_dispatcher_approval"
 
     page.get_by_role("button", name="Cancel", exact=True).click()
     expect(page.get_by_role("button", name="Confirm dispatch", exact=True)).to_have_count(0)
+    expect(page.get_by_role("button", name="Approve and dispatch", exact=True)).to_be_enabled()
     page.get_by_role("button").filter(has_text=target).last.click()
     page.get_by_role("button", name="Confirm dispatch", exact=True).click()
     dispatched = poll_incident(context, server, incident_id, "dispatched")
