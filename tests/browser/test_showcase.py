@@ -313,6 +313,37 @@ def test_hospital_capacity_rejects_failure_and_restores_state(context, server):
     expect(accepting).to_have_attribute("aria-pressed", "true")
 
 
+def test_hospital_reported_beds_reach_the_ranking(context, server):
+    unlock(context, server)
+    page = context.new_page()
+    page.goto(server + "/hospital")
+    page.evaluate("sessionStorage.setItem('geoagentic_hosp', JSON.stringify({id:'blr-007',name:'Aster CMI Hospital (Hebbal)'}))")
+    page.reload()
+    beds = page.get_by_label("Available beds")
+    expect(beds).to_be_enabled()
+    expect(page.get_by_text("No bed figure reported", exact=False)).to_be_visible()
+    beds.fill("0")
+    with page.expect_response(lambda r: r.request.method == "PATCH" and r.url.endswith("/api/hospital/blr-007/resources")) as saved:
+        page.get_by_role("button", name="Save", exact=True).click()
+    assert saved.value.status == 200 and saved.value.json()["beds_available"] == 0
+    expect(page.get_by_text("Ranking uses your reported 0 available beds.")).to_be_visible()
+    page.reload()
+    expect(beds).to_have_value("0")  # stored on the server, not just in the page
+
+    def bed_score(name):
+        ranked = context.request.post(server + "/api/hospital/rank", data={
+            "incident_location": {"lat": 13.035, "lng": 77.597}, "emergency_type": "cardiac",
+        }).json()["ranked_hospitals"]
+        entry = next(h for h in ranked if h["name"] == name)
+        return next(b["raw_score"] for b in entry["score_breakdown"] if b["factor"] == "Bed availability")
+
+    assert bed_score("Aster CMI Hospital (Hebbal)") == 0.0
+    beds.fill("")
+    page.get_by_role("button", name="Save", exact=True).click()
+    expect(page.get_by_text("No bed figure reported", exact=False)).to_be_visible()
+    assert bed_score("Aster CMI Hospital (Hebbal)") == 0.5
+
+
 @pytest.mark.parametrize("route", ["/", "/citizen", "/dispatcher", "/driver", "/hospital"])
 def test_mobile_portals_fit_viewport(context, server, route):
     unlock(context, server)

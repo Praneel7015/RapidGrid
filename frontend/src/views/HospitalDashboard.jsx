@@ -41,6 +41,12 @@ export default function HospitalDashboard() {
   // Bumped when a capacity toggle starts and settles, so a poll that began
   // before the toggle cannot put the old value back after the PATCH completes.
   const capacityGen = React.useRef(0);
+  // Available beds as entered by this ER desk. The only bed figure that
+  // affects hospital ranking; empty means "not reported".
+  const [bedsInput, setBedsInput] = useState('');
+  const [bedsStored, setBedsStored] = useState(null);
+  const [bedsTotal, setBedsTotal] = useState(null);
+  const bedsEditing = React.useRef(false);
   const [openThread, setOpenThread] = useState(null);
   const [conn, setConn] = useState('ok');
 
@@ -64,7 +70,12 @@ export default function HospitalDashboard() {
             const hRes = await fetch(`/api/hospital/${id}`);
             if (hRes.ok) {
               const hData = await hRes.json();
-              if (!cancelled && !capacityRequest.current && gen === capacityGen.current) setIcuOpen(hData.icu_available > 0);
+              if (!cancelled && !capacityRequest.current && gen === capacityGen.current) {
+                setIcuOpen(hData.icu_available > 0);
+                setBedsStored(hData.beds_available ?? null);
+                setBedsTotal(hData.beds_total ?? null);
+                if (!bedsEditing.current) setBedsInput(hData.beds_available != null ? String(hData.beds_available) : '');
+              }
             }
           } catch { /* non-critical — keep UI value */ }
         }
@@ -77,7 +88,7 @@ export default function HospitalDashboard() {
     return () => { cancelled = true; clearInterval(timer); };
   }, [hospitalInfo]);
 
-  const setCapacity = async (open) => {
+  const patchResources = async (body, open) => {
     if (capacityRequest.current || !hospitalInfo?.id || hospitalInfo.id === 'all') return;
     capacityRequest.current = true;
     capacityGen.current += 1;
@@ -87,11 +98,14 @@ export default function HospitalDashboard() {
       const res = await fetch(`/api/hospital/${hospitalInfo.id}/resources`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ icu_available: open }),
+        body: JSON.stringify(body),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(typeof data.detail === 'string' ? data.detail : `Capacity update failed (HTTP ${res.status})`);
       setIcuOpen(data.icu_available != null ? data.icu_available > 0 : open);
+      setBedsStored(data.beds_available ?? null);
+      setBedsInput(data.beds_available != null ? String(data.beds_available) : '');
+      bedsEditing.current = false;
     } catch (err) {
       setCapacityError(err.message || 'Capacity was not saved. Try again.');
     } finally {
@@ -99,6 +113,17 @@ export default function HospitalDashboard() {
       capacityGen.current += 1;
       setSaving(false);
     }
+  };
+  const setCapacity = (open) => patchResources({ icu_available: open }, open);
+  const saveBeds = (event) => {
+    event.preventDefault();
+    const text = bedsInput.trim();
+    const beds = text === '' ? null : Number(text);
+    if (beds !== null && (!Number.isInteger(beds) || beds < 0)) {
+      setCapacityError('Enter a whole number of beds, or leave it empty.');
+      return;
+    }
+    patchResources({ icu_available: icuOpen ?? true, beds_available: beds }, icuOpen ?? true);
   };
 
   const critical = incoming.filter((c) => (c.severity ?? 0) >= 0.8).length;
@@ -156,6 +181,32 @@ export default function HospitalDashboard() {
                 </button>
               </div>
             </div>
+            <form
+              onSubmit={saveBeds}
+              className="flex flex-wrap items-center gap-2 rounded-sm border border-rule-ink bg-ink-raised px-3 py-2"
+            >
+              <label htmlFor="beds-available" className="eyebrow eyebrow-ink">Available beds</label>
+              <input
+                id="beds-available"
+                type="number"
+                min="0"
+                max={bedsTotal ?? undefined}
+                inputMode="numeric"
+                value={bedsInput}
+                placeholder="not reported"
+                onChange={(e) => { bedsEditing.current = true; setBedsInput(e.target.value); }}
+                disabled={saving || !hospitalInfo?.id || hospitalInfo.id === 'all'}
+                className="w-24 rounded-xs border border-rule-ink bg-transparent px-2 py-1.5 font-mono text-[13px] text-on-ink placeholder:text-on-ink-muted"
+              />
+              {bedsTotal != null && <span className="t-micro text-on-ink-muted">of {bedsTotal}</span>}
+              <button
+                type="submit"
+                disabled={saving || !hospitalInfo?.id || hospitalInfo.id === 'all'}
+                className="tap rounded-xs border border-rule-ink px-3 py-2 t-tag text-on-ink lg:px-2.5 lg:py-1"
+              >
+                Save
+              </button>
+            </form>
           </div>
         </div>
         {icuOpen === false && (
@@ -168,6 +219,13 @@ export default function HospitalDashboard() {
       </Panel>
 
       {(!hospitalInfo?.id || hospitalInfo.id === 'all') && <p className="text-xs text-text-muted">Select a specific facility from the portal sign-in to change capacity.</p>}
+      {hospitalInfo?.id && hospitalInfo.id !== 'all' && (
+        <p className="text-xs text-text-muted">
+          {bedsStored != null
+            ? `Ranking uses your reported ${bedsStored} available beds.`
+            : 'No bed figure reported: ranking treats bed availability as unknown for this hospital. Leave empty if you do not know.'}
+        </p>
+      )}
       {saving && <p role="status" className="text-xs text-text-muted">Saving capacity…</p>}
       {capacityError && <p role="alert" className="text-sm text-critical">{capacityError}</p>}
       <Panel>
