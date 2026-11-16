@@ -15,7 +15,8 @@ system can say exactly why it drove past it.
 ### Start the stack
 
 ```bash
-cd backend && ./venv/Scripts/python.exe -m uvicorn main:app --reload --port 8000
+cd backend && ./venv/bin/python -m uvicorn main:app --reload --port 8000
+# Windows: cd backend; .\venv\Scripts\python.exe -m uvicorn main:app --reload --port 8000
 ```
 
 ```bash
@@ -68,7 +69,8 @@ simplest clean slate is a fresh data directory. Stop the running server
 first (it holds port 8000), then from `backend/`:
 
 ```bash
-RAPIDGRID_DATA_DIR=$(mktemp -d) python -m uvicorn main:app --port 8000
+RAPIDGRID_DATA_DIR=$(mktemp -d) ./venv/bin/python -m uvicorn main:app --port 8000
+# Windows (PowerShell): $env:RAPIDGRID_DATA_DIR = (New-Item -ItemType Directory "$env:TEMP\rg-$(Get-Random)").FullName; .\venv\Scripts\python.exe -m uvicorn main:app --port 8000
 ```
 
 With `RAPIDGRID_OPERATOR_TOKEN` set you can clear in place instead. The
@@ -153,7 +155,8 @@ counterfactual: the system states which hospital it rejected and why.
 
 **c) Time to definitive treatment.** The stacked bar breaks the clock into
 dispatch → drive to patient → on scene → transport → in-hospital workup →
-secondary transfer, against the 90-minute door-to-balloon target.
+secondary transfer. The 90-minute target is checked from first medical
+contact (the crew reaching the patient), not from the hospital door.
 
 **Say this:** minutes on the road are a proxy. The outcome is time to
 treatment. A nearer hospital without a cath lab does not cost a few minutes —
