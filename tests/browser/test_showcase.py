@@ -338,6 +338,13 @@ def test_hospital_reported_beds_reach_the_ranking(context, server):
         return next(b["raw_score"] for b in entry["score_breakdown"] if b["factor"] == "Bed availability")
 
     assert bed_score("Aster CMI Hospital (Hebbal)") == 0.0
+    # An accepting/divert change keeps an unsaved bed figure in the field.
+    beds.fill("7")
+    page.get_by_role("button", name="On divert", exact=True).click()
+    expect(page.get_by_role("button", name="On divert", exact=True)).to_have_attribute("aria-pressed", "true")
+    expect(beds).to_have_value("7")
+    page.get_by_role("button", name="Accepting", exact=True).click()
+    expect(page.get_by_role("button", name="Accepting", exact=True)).to_have_attribute("aria-pressed", "true")
     beds.fill("")
     page.get_by_role("button", name="Save", exact=True).click()
     expect(page.get_by_text("No bed figure reported", exact=False)).to_be_visible()

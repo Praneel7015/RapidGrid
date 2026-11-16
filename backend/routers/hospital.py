@@ -18,7 +18,8 @@ router = APIRouter(prefix="/api/hospital", tags=["Hospital Intelligence"])
 
 class HospitalResourceUpdate(BaseModel):
     """Legacy icu_available toggle controls whether a facility accepts new cases."""
-    icu_available: bool
+    # Omitted or null leaves the accepting/divert state unchanged.
+    icu_available: bool | None = None
     beds_available: int | None = Field(default=None, ge=0)
     note: str | None = Field(default=None, max_length=500)
 
@@ -52,7 +53,8 @@ def restore_capacity() -> None:
     """Reapply persisted diversion overrides during application startup."""
     overrides = load_collection("hospital_capacity", {}, database=persistence_path())
     for key, override in overrides.items():
-        hospital_agent.set_divert(key, on_divert=not override["icu_available"])
+        if override.get("icu_available") is not None:
+            hospital_agent.set_divert(key, on_divert=not override["icu_available"])
         if override.get("beds_available") is not None:
             hospital_agent.set_reported_beds(key, override["beds_available"])
 
@@ -156,9 +158,13 @@ async def update_hospital_resources(hospital_id: str, update: HospitalResourceUp
     if update.beds_available is not None and total is not None and update.beds_available > total:
         raise HTTPException(status_code=422, detail="Available beds cannot exceed total beds")
     overrides = load_collection("hospital_capacity", {}, database=persistence_path())
-    overrides[key] = {**overrides.get(key, {}), **update.model_dump(exclude_unset=True)}
+    changes = update.model_dump(exclude_unset=True)
+    if changes.get("icu_available") is None:
+        changes.pop("icu_available", None)
+    overrides[key] = {**overrides.get(key, {}), **changes}
     save_collection("hospital_capacity", overrides, database=persistence_path())
-    hospital_agent.set_divert(key, on_divert=not update.icu_available)
+    if update.icu_available is not None:
+        hospital_agent.set_divert(key, on_divert=not update.icu_available)
     if "beds_available" in update.model_fields_set:
         hospital_agent.set_reported_beds(key, update.beds_available)
     logger.info("Operator capacity override for %s: accepting=%s", log_safe(key), log_safe(update.icu_available))

@@ -64,17 +64,20 @@ Pulls Bengaluru's drivable network from OpenStreetMap and writes a compact
 ### Reset to a clean slate
 
 Clearing incidents needs the operator token even in demo mode, so the
-simplest clean slate is a fresh data directory:
+simplest clean slate is a fresh data directory. Stop the running server
+first (it holds port 8000), then from `backend/`:
 
 ```bash
 RAPIDGRID_DATA_DIR=$(mktemp -d) python -m uvicorn main:app --port 8000
 ```
 
-With `RAPIDGRID_OPERATOR_TOKEN` set you can clear in place instead:
+With `RAPIDGRID_OPERATOR_TOKEN` set you can clear in place instead. The
+token is needed for both requests in operator mode; in demo mode the city
+reset works without it.
 
 ```bash
 curl -s -X POST -H "Authorization: Bearer $RAPIDGRID_OPERATOR_TOKEN" http://127.0.0.1:8000/api/incidents/clear
-curl -s -X POST http://127.0.0.1:8000/api/city/clear
+curl -s -X POST -H "Authorization: Bearer $RAPIDGRID_OPERATOR_TOKEN" http://127.0.0.1:8000/api/city/clear
 ```
 
 ### Open four browser tabs
@@ -176,7 +179,10 @@ print('nearest ER :', r['alternative']['total_minutes'], 'min | within target:',
 >
 > This is an **illustrative estimate** from fixed timing assumptions, not a
 > measured outcome. Say so when you show it.
-> `PCI centre : 60.7 min (within target)`  ·  `nearest ER : 109.1 min (misses the 90 min target by 19)`
+> `PCI centre : 60.7 min | within target: True`  ·  `nearest ER : 109.1 min | within target: False`
+>
+> Totals run from the call. The 90-minute target is checked from first medical
+> contact (50.2 and 98.6 min), so the nearest ER misses it by about 9 minutes.
 
 **d) Approve and dispatch.** The status flips to `EN ROUTE` and the call
 propagates to the driver and hospital tabs.

@@ -132,17 +132,23 @@ class DecisionFusionEngine:
         # There is no live traffic feed. The factor comes from the city model
         # the routes are computed on (hour, weather, drawn closures), so it
         # changes when those change. It is modelled, and says so.
-        city = city_state.snapshot() if city_state.ready else {}
-        peak = float(city.get("peak_factor", 0.0))
-        weather_drag = max(0.0, float(city.get("weather_multiplier", 1.0)) - 1.0)
-        total_closures = int(city.get("closed_segments", 0))
-        total_incidents = int(city.get("incident_segments", 0))
-        avg_congestion = min(1.0, 0.4 * peak + weather_drag + 0.01 * (total_closures + total_incidents))
-        traffic_score = round(1.0 - avg_congestion, 3)
-        traffic_confidence = 0.5  # modelled conditions, not observed traffic
-        traffic_context = {
-            "hour": city.get("hour"), "weather": city.get("weather", "Clear"),
-        }
+        if city_state.ready:
+            city = city_state.snapshot()
+            peak = float(city.get("peak_factor", 0.0))
+            weather_drag = max(0.0, float(city.get("weather_multiplier", 1.0)) - 1.0)
+            total_closures = int(city.get("closed_segments", 0))
+            total_incidents = int(city.get("incident_segments", 0))
+            avg_congestion = min(1.0, 0.4 * peak + weather_drag + 0.01 * (total_closures + total_incidents))
+            traffic_score = round(1.0 - avg_congestion, 3)
+            traffic_confidence = 0.5  # modelled conditions, not observed traffic
+            traffic_context = {"available": True, "hour": city.get("hour"), "weather": city.get("weather", "Clear")}
+        else:
+            # No road graph, so no city model: say so rather than report clear roads.
+            total_closures = total_incidents = 0
+            avg_congestion = 0.5
+            traffic_score = 0.5  # neutral, not favourable
+            traffic_confidence = 0.0
+            traffic_context = {"available": False}
 
         logger.info(
             "Traffic: avg_congestion=%.3f, score=%.3f, incidents=%d, closures=%d",
@@ -255,7 +261,7 @@ class DecisionFusionEngine:
                 "label": "Traffic Conditions",
                 "weight": weights["traffic"],
                 "score": traffic_score,
-                "agent": "city_model",
+                "agent": "city_model" if traffic_context.get("available") else "unavailable",
                 "confidence": traffic_confidence,
             },
             {
@@ -445,13 +451,19 @@ class DecisionFusionEngine:
 
         # Traffic conditions
         context = traffic_context or {}
-        hour = context.get("hour")
-        when = f"{hour:02d}:00" if isinstance(hour, int) else "unknown hour"
-        parts.append(
-            f"TRAFFIC (modelled, no live feed): {when}, {context.get('weather', 'Clear')}, "
-            f"{total_closures} closed and {total_incidents} obstructed road segment(s). "
-            f"Score {traffic_score:.2f}/1.00."
-        )
+        if context.get("available"):
+            hour = context.get("hour")
+            when = f"{hour:02d}:00" if isinstance(hour, int) else "unknown hour"
+            parts.append(
+                f"TRAFFIC (modelled, no live feed): {when}, {context.get('weather', 'Clear')}, "
+                f"{total_closures} closed and {total_incidents} obstructed road segment(s). "
+                f"Score {traffic_score:.2f}/1.00."
+            )
+        else:
+            parts.append(
+                "TRAFFIC: city conditions unavailable (no road graph loaded); "
+                "neutral score used."
+            )
 
         # Counterfactual: why the runner-up lost.
         #

@@ -926,3 +926,33 @@ def test_traffic_factor_follows_the_city_model(client, monkeypatch):
             city_state.set_hour(hour)
     assert traffic(busy)["score"] < traffic(calm)["score"]
     assert "modelled" in calm.explanation and "1 active incident" not in calm.explanation
+
+
+def test_saving_beds_does_not_change_divert_state(client):
+    hospital_agent.set_divert("blr-007", True)
+    client.patch("/api/hospital/blr-007/resources", json={"icu_available": False})
+    response = client.patch("/api/hospital/blr-007/resources", json={"beds_available": 4})
+    assert response.status_code == 200
+    assert response.json()["on_divert"] is True and response.json()["beds_available"] == 4
+    assert "blr-007" in hospital_agent.diverted
+    # A bed-only override on a hospital never toggled restores cleanly at startup.
+    assert client.patch("/api/hospital/blr-001/resources", json={"beds_available": 9}).status_code == 200
+    hospital.restore_capacity()
+    assert "blr-001" not in hospital_agent.diverted
+
+
+def test_traffic_factor_is_neutral_and_labelled_when_the_city_model_is_absent(client, monkeypatch):
+    from agents.city_state import city_state
+    from agents.decision_fusion import fusion_engine
+    from models.schemas import EmergencyType, FusionRequest
+
+    async def no_network(*args, **kwargs):
+        raise httpx.ConnectError("offline in tests")
+    monkeypatch.setattr(httpx.AsyncClient, "get", no_network)
+    monkeypatch.setattr(type(city_state), "ready", property(lambda self: False))
+    plan = asyncio.run(fusion_engine.fuse(FusionRequest(
+        incident_id="INC-t", incident_location={"lat": 13.035, "lng": 77.597},
+        emergency_type=EmergencyType.CARDIAC, severity=0.8, vehicle_location={"lat": 13.035, "lng": 77.597})))
+    traffic = next(f for f in plan.factor_breakdown if f.factor == "Traffic Conditions")
+    assert traffic.score == 0.5
+    assert "unavailable" in plan.explanation and "Clear" not in plan.explanation
