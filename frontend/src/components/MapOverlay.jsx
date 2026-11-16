@@ -100,7 +100,9 @@ export default function MapOverlay({
     const userEvents = ['wheel', 'touchstart', 'dblclick', 'keydown'];
     userEvents.forEach((name) => container.addEventListener(name, onInteract, { passive: true }));
     const zoomButtons = container.querySelector('.leaflet-control-zoom');
-    zoomButtons?.addEventListener('click', onInteract);
+    // Capture phase: Leaflet stops propagation on the +/- anchors, so a
+    // bubbling listener here never sees those clicks.
+    zoomButtons?.addEventListener('click', onInteract, true);
     map.current.on('dragstart', onInteract);
 
     // A map created inside a container that is hidden or still being sized
@@ -112,7 +114,7 @@ export default function MapOverlay({
 
     return () => {
       userEvents.forEach((name) => container.removeEventListener(name, onInteract));
-      zoomButtons?.removeEventListener('click', onInteract);
+      zoomButtons?.removeEventListener('click', onInteract, true);
       cancelAnimationFrame(raf);
       observer.disconnect();
       if (map.current) {
@@ -126,12 +128,9 @@ export default function MapOverlay({
   // When the incident itself changes (new route, hospital divert), reset the
   // fit guard so the new route is automatically framed. The route geometry is
   // part of the key: a reroute between the same pins must be reframed too.
-  const lineKey = (coords) => {
-    if (!coords?.length) return '';
-    const first = coords[0];
-    const last = coords[coords.length - 1];
-    return `${coords.length}:${first.lat},${first.lng}:${last.lat},${last.lng}`;
-  };
+  // Every point counts, in either accepted shape, so a detour that keeps the
+  // same endpoints still changes the key.
+  const lineKey = (coords) => toLatLngs(coords).map(([lat, lng]) => `${lat},${lng}`).join(';');
   const routeKey = [
     origin?.lat, origin?.lng,
     hospital?.lat, hospital?.lng,

@@ -457,3 +457,41 @@ def test_report_without_a_location_fix_needs_the_caller_to_confirm_the_fallback(
         expect(send).to_be_enabled()
     finally:
         ctx.close()
+
+
+def test_zoom_button_click_survives_dispatcher_refresh(context, server):
+    # Leaflet stops propagation on the +/- anchors. If the map misses that
+    # click, the next 2 s incident refresh refits and undoes the user's zoom.
+    unlock(context, server)
+    created = context.request.post(server + "/api/incidents", data={
+        "citizen_text": "Test scenario: chest pain near Hebbal.",
+        "citizen_name": "Zoom browser test", "citizen_phone": "TEST-ZOOM-ONLY",
+        "location": {"lat": 13.035, "lng": 77.597},
+    })
+    assert created.status == 202
+    incident_id = created.json()["incident_id"]
+    poll_incident(context, server, incident_id, "awaiting_dispatcher_approval")
+
+    page = context.new_page()
+    page.route("https://tile.openstreetmap.org/**", lambda route: route.abort())
+    page.goto(server + "/dispatcher")
+    page.get_by_role("button").filter(has_text=incident_id).first.click()
+
+    def zoom():
+        return page.evaluate("""() => {
+          const levels = [...document.querySelectorAll('img.leaflet-tile')]
+            .map((img) => Number((img.getAttribute('src') || '').split('/').at(-3)))
+            .filter(Number.isFinite);
+          return levels.length ? Math.max(...levels) : null;
+        }""")
+
+    page.wait_for_function("document.querySelectorAll('img.leaflet-tile').length > 0")
+    page.wait_for_timeout(2500)  # first fit and its tiles settle
+    fitted = zoom()
+    assert fitted is not None
+    page.locator(".leaflet-control-zoom-in").click()
+    page.wait_for_timeout(1000)
+    assert zoom() == fitted + 1
+    # Two refresh cycles of the incident list.
+    page.wait_for_timeout(5000)
+    assert zoom() == fitted + 1
