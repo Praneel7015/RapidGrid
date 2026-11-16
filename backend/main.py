@@ -1,19 +1,10 @@
 """
-GeoAgentic — FastAPI Application Entry Point.
+RapidGrid — FastAPI application entry point.
 
-Starts the backend server with:
-  - /health endpoint (required by technology-stack.md conventions)
-  - Traffic Intelligence router (/api/traffic/*)
-  - Route Optimization router (/api/route/*)
-  - Hospital Intelligence router (/api/hospital/*)
-  - Decision Fusion Engine router (/api/fusion/*)
-  - Prediction Agent router (/api/prediction/*)
-  - Accessibility Agent router (/api/accessibility/*)
-  - Communication Agent router (/api/communication/*)
-  - Emergency Coordinator router (/api/coordinator/*)
-  - Learning Agent router (/api/learning/*)
-  - Event bus initialisation and agent registration on startup
-  - CORS middleware for frontend development
+Serves the dispatch API (/api/incidents, /api/driver, /api/hospital,
+/api/chat, /api/city), decision-inspection endpoints (/api/route/compute,
+/api/fusion/combine, /api/hospital/rank), health checks, the chat WebSocket
+and, when built, the React frontend from the same origin.
 
 Run with:
   uvicorn main:app --reload --port 8000
@@ -21,7 +12,6 @@ Run with:
 
 from __future__ import annotations
 
-# Uvicorn Reload Trigger
 import json
 import logging
 import os
@@ -39,16 +29,12 @@ from fastapi.staticfiles import StaticFiles
 from security import ShowcaseAccessMiddleware, allowed_origins, router as session_router
 from logsafe import log_safe
 
-from agents.accessibility import accessibility_agent
-from agents.communication import communication_agent
-from agents.coordinator import coordinator_agent
-from agents.learning import learning_agent
 from agents.city_state import city_state
 from agents.local_router import local_router
 from agents.prediction import prediction_agent
 from agents.route_optimization import route_agent
 from agents.traffic_intelligence import traffic_agent
-from routers import chat, accessibility, city, communication, coordinator, fusion, hospital, learning, prediction, routing, traffic, incident, driver
+from routers import chat, city, fusion, hospital, routing, incident, driver
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -129,9 +115,6 @@ async def lifespan(app: FastAPI):
     # 3. Register agents on the event bus
     route_agent.register_on_bus()
     prediction_agent.register_on_bus()
-    communication_agent.register_on_bus()
-    coordinator_agent.register_on_bus()
-    learning_agent.register_on_bus()
 
     # 4. Publish initial traffic snapshot
     await traffic_agent.publish_snapshot()
@@ -180,15 +163,9 @@ async def validation_error(request: Request, exc: RequestValidationError):
 
 # Mount routers
 app.include_router(session_router)
-app.include_router(traffic.router)
 app.include_router(routing.router)
 app.include_router(hospital.router)
 app.include_router(fusion.router)
-app.include_router(prediction.router)
-app.include_router(accessibility.router)
-app.include_router(communication.router)
-app.include_router(coordinator.router)
-app.include_router(learning.router)
 app.include_router(incident.router)
 app.include_router(driver.router)
 app.include_router(chat.router)
@@ -233,17 +210,8 @@ async def health():
             "offline_graph_available": offline,
             **telemetry,
         },
-        "agents": {
-            "traffic_intelligence": "active",
-            "route_optimization": "active",
-            "hospital_intelligence": "active",
-            "decision_fusion_engine": "active",
-            "prediction_agent": "active",
-            "accessibility_agent": "active",
-            "communication_agent": "active",
-            "emergency_coordinator": "active",
-            "learning_agent": "stub_active",
-        },
+        # The pipeline: triage -> hospital ranking -> routing -> plan.
+        "pipeline": ["triage", "hospital_ranking", "routing", "plan"],
     }
 
 
@@ -330,10 +298,3 @@ if _FRONTEND_DIST.is_dir():
         if found is not None:
             return FileResponse(found)
         return FileResponse(_FRONTEND_DIST / "index.html")
-
-
-# Touch for per-unit tracking reload
-# Reload for include_ambulance_backup schema update
-# Touch for 2-Phase Hub Routing reload
-# Reload for 2-stage driver hospital rerouting endpoints
-# Reload for driver active backup filter update
