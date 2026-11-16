@@ -587,7 +587,14 @@ class HospitalIntelligenceAgent:
                     "Excluded %d non-receiving facilities for %s emergency",
                     excluded, log_safe(etype),
                 )
-            hospitals = eligible or hospitals
+            if not eligible:
+                # Every candidate is on divert or not an emergency department.
+                # Recommending one anyway only produced a plan that approval
+                # then refused for each hospital.
+                raise NoHospitalCandidatesError(
+                    f"No hospital is currently accepting patients for a {etype} emergency"
+                )
+            hospitals = eligible
 
         # Specialty-centre bypass gate (see _CAPABILITY_GATE).
         gate = _CAPABILITY_GATE.get(etype)

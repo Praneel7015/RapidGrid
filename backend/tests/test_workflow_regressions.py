@@ -31,11 +31,13 @@ def client(tmp_path, monkeypatch):
     chat.manager.chat_history.clear()
     chat.manager.active_connections.clear()
     hospital_agent._on_divert.clear()
+    hospital_agent._fetch_cache.clear()  # cached rankings remember divert state
     yield TestClient(app)
     incident.ACTIVE_INCIDENTS.clear()
     chat.manager.chat_history.clear()
     chat.manager.active_connections.clear()
     hospital_agent._on_divert.clear()
+    hospital_agent._fetch_cache.clear()
     hospital_agent._on_divert.update(previous)
 
 
@@ -194,7 +196,7 @@ def test_diverted_hospital_cannot_be_approved(client, mocked_route):
 
 def test_new_incident_uses_full_unique_id(client, monkeypatch):
     monkeypatch.setattr(incident, "run_pipeline", AsyncMock())
-    response = client.post("/api/incidents", json={"citizen_text": "demo", "location": {"lat": 13.0, "lng": 77.0}})
+    response = client.post("/api/incidents", json={"citizen_text": "demo", "location": {"lat": 13.0, "lng": 77.6}})
     assert response.status_code == 202
     assert len(response.json()["incident_id"].removeprefix("INC-")) == 32
 
@@ -209,6 +211,7 @@ def test_legacy_migration_and_interrupted_report_recovery(client):
 
 
 def test_chat_history_survives_new_connection_and_process_cache_reset(client):
+    seed()
     message = {"incident_id": "INC-review", "sender_role": "dispatcher", "sender_name": "Review", "message": "Demo message"}
     assert client.post("/api/chat/INC-review/send", json=message).status_code == 200
     class Socket:
@@ -393,6 +396,7 @@ def test_approve_log_line_cannot_be_forged_by_dispatcher_id(client, mocked_route
 
 def test_websocket_failure_log_line_cannot_be_forged_by_incident_id(client, caplog):
     caplog.set_level(logging.ERROR)
+    seed(incident_id="INC-x\nERROR forged")  # a channel exists only for a stored incident
     with client.websocket_connect("/ws/chat/INC-x%0AERROR%20forged") as ws:
         ws.send_text("not json")
     lines = [r.getMessage() for r in caplog.records if r.getMessage().startswith("WebSocket chat message failed")]
@@ -410,3 +414,136 @@ def test_terminal_incident_cannot_be_approved(client, status):
     assert response.status_code == 409
     assert report["status"] == status
     assert "assigned_driver" not in report
+
+
+# --- Audit fixes: input bounds, service area, city model, diversion, chat -------
+
+REPORT = {"citizen_text": "Chest pain", "location": {"lat": 13.035, "lng": 77.597}}
+
+
+@pytest.mark.parametrize("change", [
+    {"citizen_text": "x" * 2001},
+    {"citizen_text": "   "},
+    {"citizen_name": "n" * 101},
+    {"citizen_phone": "9" * 33},
+    {"vehicle_required": "Helicopter"},
+    {"location": {"lat": 28.6139, "lng": 77.2090}},   # Delhi
+    {"location": {"lat": 0, "lng": 0}},
+    {"location": {"lat": -33.87, "lng": 151.21}},     # Sydney
+])
+def test_report_rejects_unbounded_or_out_of_area_input(client, monkeypatch, change):
+    monkeypatch.setattr(incident, "run_pipeline", AsyncMock())
+    response = client.post("/api/incidents", json={**REPORT, **change})
+    assert response.status_code == 422
+    assert incident.ACTIVE_INCIDENTS == []
+
+
+@pytest.mark.parametrize("value", ["NaN", "Infinity", "-Infinity"])
+def test_non_finite_coordinates_are_422_not_500(client, value):
+    body = '{"citizen_text": "Chest pain", "location": {"lat": %s, "lng": 77.6}}' % value
+    response = client.post("/api/incidents", content=body, headers={"Content-Type": "application/json"})
+    assert response.status_code == 422
+
+
+def test_report_inside_the_service_area_is_accepted(client, monkeypatch):
+    monkeypatch.setattr(incident, "run_pipeline", AsyncMock())
+    assert client.post("/api/incidents", json=REPORT).status_code == 202
+
+
+def test_approve_and_reject_bound_the_dispatcher_id(client, mocked_route):
+    seed()
+    long_id = {"dispatcher_id": "d" * 101, "approved_hospital": "blr-007", "approved_route": "r"}
+    assert client.post("/api/incidents/INC-review/approve", json=long_id).status_code == 422
+    assert client.post("/api/incidents/INC-review/approve", json={**long_id, "dispatcher_id": ""}).status_code == 422
+    assert client.post("/api/incidents/INC-review/reject", params={"dispatcher_id": "d" * 101}).status_code == 422
+    assert incident.ACTIVE_INCIDENTS[0]["status"] == "awaiting_dispatcher_approval"
+
+
+@pytest.mark.parametrize("edge_ids", [[999999999], [-1]])
+@pytest.mark.parametrize("path", ["/api/city/incident", "/api/city/close"])
+def test_unknown_road_segment_is_refused_and_leaves_the_city_model_working(client, path, edge_ids):
+    from agents.city_state import city_state
+    with client:  # run startup so the road graph is attached
+        try:
+            assert client.post(path, json={"edge_ids": edge_ids}).status_code == 422
+            assert client.get("/api/city/overlay").status_code == 200
+            assert client.get("/api/city/state").status_code == 200
+        finally:
+            city_state.clear()
+
+
+def test_demo_can_reset_the_city_without_an_operator_token(client, monkeypatch):
+    monkeypatch.delenv("RAPIDGRID_OPERATOR_TOKEN", raising=False)
+    assert client.post("/api/city/clear").status_code == 200
+    # Case records stay protected even in the demo.
+    assert client.post("/api/incidents/clear").status_code == 503
+
+
+def test_divert_after_approval_is_shown_to_driver_and_er(client, mocked_route):
+    seed("dispatched", approved_hospital_id="blr-007")
+    assert client.get("/api/driver/active").json()["dispatches"][0]["destination_on_divert"] is False
+    hospital_agent.set_divert("blr-007", True)
+    assert client.get("/api/driver/active").json()["dispatches"][0]["destination_on_divert"] is True
+    assert client.get("/api/hospital/blr-007/incoming").json()["incoming"][0]["destination_on_divert"] is True
+    # The patient is still picked up; the driver is told to choose another hospital.
+    pickup = client.post("/api/driver/arrived_pickup", json={"incident_id": "INC-review", "driver_id": "drv-1"})
+    assert pickup.status_code == 200
+    assert pickup.json()["destination_on_divert"] is True
+
+
+def test_all_hospitals_on_divert_fails_the_report_with_a_reason(client):
+    for key in hospital_agent._load_capabilities():
+        hospital_agent.set_divert(key, True)
+    report = seed("processing")
+    payload = incident.IncidentReportPayload(
+        citizen_text="Chest pain and cannot breathe", location={"lat": 13.035, "lng": 77.597},
+    )
+    asyncio.run(incident.run_pipeline(report["incident_id"], payload))
+    assert report["status"] == "failed"
+    assert "No hospital is currently accepting patients" in report["error"]
+
+
+def test_offline_route_does_not_label_the_plan_live(client, monkeypatch):
+    monkeypatch.setattr(incident.route_agent, "api_key", "")
+    report = seed("processing")
+    payload = incident.IncidentReportPayload(
+        citizen_text="Chest pain and cannot breathe", location={"lat": 13.035, "lng": 77.597},
+    )
+    with client:
+        asyncio.run(incident.run_pipeline(report["incident_id"], payload))
+    assert report["status"] == "awaiting_dispatcher_approval", report.get("error")
+    assert report["action_plan"]["data_freshness"] != "live"
+
+
+def test_chat_needs_a_reported_incident_and_bounded_fields(client):
+    message = {"incident_id": "INC-ghost", "sender_role": "citizen", "sender_name": "Review", "message": "hello"}
+    assert client.post("/api/chat/INC-ghost/send", json=message).status_code == 404
+    assert client.get("/api/chat/INC-ghost/messages").json() == {"messages": []}
+    assert "INC-ghost" not in chat.manager.chat_history
+    seed()
+    ok = {**message, "incident_id": "INC-review"}
+    assert client.post("/api/chat/INC-review/send", json=ok).status_code == 200
+    assert client.post("/api/chat/INC-review/send", json={**ok, "sender_role": "system"}).status_code == 422
+    assert client.post("/api/chat/INC-review/send", json={**ok, "message": "m" * 2001}).status_code == 422
+    assert client.post("/api/chat/INC-review/send", json={**ok, "sender_name": "n" * 81}).status_code == 422
+    assert len(chat.manager.history("INC-review")) == 1
+
+
+def test_chat_socket_refuses_unknown_incident_and_survives_bad_frames(client):
+    from starlette.websockets import WebSocketDisconnect
+    with pytest.raises(WebSocketDisconnect):
+        with client.websocket_connect("/ws/chat/INC-ghost"):
+            pass
+    seed()
+    with client.websocket_connect("/ws/chat/INC-review") as ws:
+        ws.send_bytes(b"\x00\x01")                                  # binary frame is ignored
+        ws.send_json({"message": "spoof", "sender_role": "system"})  # unknown role is dropped
+        ws.send_json({"message": "m" * 2001, "sender_role": "citizen"})
+        ws.send_json({"message": "still here", "sender_role": "citizen", "sender_name": "Review"})
+        assert ws.receive_json()["message"] == "still here"
+    assert [m["message"] for m in chat.manager.history("INC-review")] == ["still here"]
+
+
+def test_provider_request_urls_are_not_logged():
+    # httpx logs full request URLs at INFO; the weather URL carries the API key.
+    assert logging.getLogger("httpx").getEffectiveLevel() >= logging.WARNING

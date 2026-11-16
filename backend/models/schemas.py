@@ -77,8 +77,8 @@ class AgentName(str, Enum):
 
 class Coordinate(BaseModel):
     """A geographic point — [lat, lng], NOT GeoJSON [lng, lat]."""
-    lat: float = Field(..., ge=-90, le=90)
-    lng: float = Field(..., ge=-180, le=180)
+    lat: float = Field(..., ge=-90, le=90, allow_inf_nan=False)
+    lng: float = Field(..., ge=-180, le=180, allow_inf_nan=False)
 
 
 # ---------------------------------------------------------------------------

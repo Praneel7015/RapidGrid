@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from agents.city_state import city_state
 from agents.local_router import local_router
@@ -23,9 +23,18 @@ router = APIRouter(prefix="/api/city", tags=["City State"])
 
 
 class ClosureRequest(BaseModel):
-    road: str | None = None
-    edge_ids: list[int] | None = None
-    label: str | None = None
+    road: str | None = Field(default=None, max_length=120)
+    edge_ids: list[int] | None = Field(default=None, max_length=500)
+    label: str | None = Field(default=None, max_length=120)
+
+
+def _checked_edges(edge_ids: list[int]) -> list[int]:
+    """Reject ids outside the loaded graph before they reach the city model."""
+    total = len(local_router.edge_to)
+    bad = [e for e in edge_ids if not 0 <= e < total]
+    if bad:
+        raise HTTPException(status_code=422, detail=f"Unknown road segment id: {bad[0]}")
+    return edge_ids
 
 
 class ConditionsRequest(BaseModel):
@@ -93,7 +102,7 @@ async def close_road(payload: ClosureRequest):
             detail=f"No road segments matched '{payload.road}'. Try a fuller name.",
         )
 
-    result = city_state.close_road(edge_ids, label=label)
+    result = city_state.close_road(_checked_edges(edge_ids), label=label)
     return {**result, "label": label, "state": city_state.snapshot()}
 
 
@@ -107,7 +116,7 @@ async def report_incident(payload: ClosureRequest):
         edge_ids = city_state.find_edges_on_road(payload.road, limit=40)
     if not edge_ids:
         raise HTTPException(status_code=404, detail="No matching road segments.")
-    result = city_state.report_incident(edge_ids, label=payload.label or "Incident")
+    result = city_state.report_incident(_checked_edges(edge_ids), label=payload.label or "Incident")
     return {**result, "state": city_state.snapshot()}
 
 

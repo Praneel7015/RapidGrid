@@ -365,8 +365,10 @@ class DecisionFusionEngine:
             overall_confidence=min(overall_confidence, 1.0),
             emergency_type=request.emergency_type,
             severity=request.severity,
+            # The plan is only as current as its route: an offline-graph route
+            # is "cached", and only a provider route is "live".
             data_freshness=(
-                DataFreshness.CACHED if route_failed else DataFreshness.LIVE
+                DataFreshness.STALE if route_failed else route_result.data_freshness
             ),
             all_hospitals=hospital_result.ranked_hospitals,
             alternate_routes=route_result.alternate_routes,
