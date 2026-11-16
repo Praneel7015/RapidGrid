@@ -254,6 +254,7 @@ export default function DispatcherDashboard() {
             <Stat
               ink
               label="Peak severity"
+              modelled
               value={peakSeverity ? `${fmt.pct(peakSeverity)}%` : '--'}
               tone={peakSeverity >= 0.8 ? 'critical' : 'default'}
               sub={peakSeverity ? severityBand(peakSeverity).label : 'No active calls'}
@@ -416,12 +417,14 @@ export default function DispatcherDashboard() {
                     label="Hub to patient"
                     value={view.phase1_eta_minutes ?? '--'}
                     unit="min"
+                    modelled
                     sub={view.phase1_hub?.name}
                   />
                   <Stat
                     label="Patient to ER"
                     value={view.eta_minutes ?? '--'}
                     unit="min"
+                    modelled
                     tone="signal"
                     sub={view.hospital_name}
                   />

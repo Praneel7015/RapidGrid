@@ -154,6 +154,7 @@ export default function HospitalDashboard() {
               value={Number.isFinite(soonest) ? soonest : '--'}
               unit="min"
               tone="signal"
+              modelled
             />
           </div>
 

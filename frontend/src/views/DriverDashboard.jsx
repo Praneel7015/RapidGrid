@@ -252,6 +252,7 @@ export default function DriverDashboard() {
               value={stage === 'pickup' ? (view.phase1_eta_minutes ?? '--') : (view.eta_minutes ?? '--')}
               unit="min"
               tone="signal"
+              modelled
             />
             {stage === 'transport' && (
               <Stat ink label="Distance" value={fmt.km(view.distance_meters)} unit="km" />

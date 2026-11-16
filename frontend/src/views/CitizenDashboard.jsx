@@ -463,12 +463,14 @@ export default function CitizenDashboard() {
               value={view.phase1_eta_minutes ?? '--'}
               unit="min"
               tone="signal"
+              modelled
               sub={view.phase1_hub?.name}
             />
             <Stat
               label="Then to hospital"
               value={view.eta_minutes ?? '--'}
               unit="min"
+              modelled
               sub={`${fmt.km(view.distance_meters)} km`}
             />
           </div>
