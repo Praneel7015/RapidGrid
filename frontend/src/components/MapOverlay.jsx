@@ -92,9 +92,15 @@ export default function MapOverlay({
     L.control.zoom({ position: 'bottomright' }).addTo(map.current);
     layers.current = L.layerGroup().addTo(map.current);
 
-    // Mark user interaction so we stop overriding their zoom/pan.
+    // Mark user interaction so we stop overriding their zoom/pan. Only input
+    // events count: 'zoomstart' also fires for our own fitBounds, which made
+    // the first automatic fit look like a user zoom.
     const onInteract = () => { userInteracted.current = true; };
-    map.current.on('zoomstart', onInteract);
+    const container = map.current.getContainer();
+    const userEvents = ['wheel', 'touchstart', 'dblclick', 'keydown'];
+    userEvents.forEach((name) => container.addEventListener(name, onInteract, { passive: true }));
+    const zoomButtons = container.querySelector('.leaflet-control-zoom');
+    zoomButtons?.addEventListener('click', onInteract);
     map.current.on('dragstart', onInteract);
 
     // A map created inside a container that is hidden or still being sized
@@ -105,6 +111,8 @@ export default function MapOverlay({
     observer.observe(holder.current);
 
     return () => {
+      userEvents.forEach((name) => container.removeEventListener(name, onInteract));
+      zoomButtons?.removeEventListener('click', onInteract);
       cancelAnimationFrame(raf);
       observer.disconnect();
       if (map.current) {
@@ -116,11 +124,19 @@ export default function MapOverlay({
   }, []);
 
   // When the incident itself changes (new route, hospital divert), reset the
-  // fit guard so the new route is automatically framed.
+  // fit guard so the new route is automatically framed. The route geometry is
+  // part of the key: a reroute between the same pins must be reframed too.
+  const lineKey = (coords) => {
+    if (!coords?.length) return '';
+    const first = coords[0];
+    const last = coords[coords.length - 1];
+    return `${coords.length}:${first.lat},${first.lng}:${last.lat},${last.lng}`;
+  };
   const routeKey = [
     origin?.lat, origin?.lng,
     hospital?.lat, hospital?.lng,
     hub?.lat, hub?.lng,
+    lineKey(routeCoordinates), lineKey(phase1Coordinates),
   ].join(',');
   const prevRouteKey = useRef(routeKey);
   useEffect(() => {
