@@ -455,7 +455,8 @@ class DecisionFusionEngine:
             hour = context.get("hour")
             when = f"{hour:02d}:00" if isinstance(hour, int) else "unknown hour"
             parts.append(
-                f"TRAFFIC (modelled, no live feed): {when}, {context.get('weather', 'Clear')}, "
+                # "TRAFFIC:" must stay intact: the rationale panel splits on it.
+                f"TRAFFIC: Modelled, no live feed. {when}, {context.get('weather', 'Clear')}, "
                 f"{total_closures} closed and {total_incidents} obstructed road segment(s). "
                 f"Score {traffic_score:.2f}/1.00."
             )

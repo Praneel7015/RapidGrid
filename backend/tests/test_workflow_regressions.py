@@ -925,7 +925,12 @@ def test_traffic_factor_follows_the_city_model(client, monkeypatch):
             city_state.set_weather("Clear")
             city_state.set_hour(hour)
     assert traffic(busy)["score"] < traffic(calm)["score"]
-    assert "modelled" in calm.explanation and "1 active incident" not in calm.explanation
+    assert "1 active incident" not in calm.explanation
+    # The rationale panel splits the explanation on "TRAFFIC:"; same pattern as AIRationale.jsx.
+    import re
+    keys = ["ROUTE", "HOSPITAL", "TRAFFIC", "ALTERNATIVE CONSIDERED", "FUSION", "WARNING"]
+    section = re.search(r"TRAFFIC:\s*(.*?)(?=\s(?:%s):|$)" % "|".join(keys), calm.explanation, re.S)
+    assert section and section.group(1).startswith("Modelled, no live feed")
 
 
 def test_saving_beds_does_not_change_divert_state(client):

@@ -5,6 +5,7 @@ use live provider credentials. Run with `pytest tests/browser -q`.
 """
 from pathlib import Path
 import json
+import re
 import os
 import socket
 import subprocess
@@ -181,6 +182,9 @@ def test_report_refresh_dispatch_chat_pickup_refresh_and_handover(context, serve
     dispatcher = context.new_page()
     dispatcher.goto(server + "/dispatcher")
     dispatcher.get_by_role("button").filter(has_text=incident_id).first.click()
+    # The rationale panel's Traffic section renders only if "TRAFFIC:" parses.
+    traffic = dispatcher.locator("div").filter(has=dispatcher.locator(".eyebrow", has_text=re.compile(r"^Traffic$"))).last
+    expect(traffic).to_contain_text("Modelled, no live feed")
     dispatcher.get_by_role("button", name="Approve and dispatch", exact=True).click()
     poll_incident(context, server, incident_id, "dispatched")
 
