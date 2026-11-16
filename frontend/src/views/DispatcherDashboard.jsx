@@ -150,6 +150,12 @@ export default function DispatcherDashboard() {
     setPendingHospital(
       isPending(h, source) ? null : { incidentId: selected.incident_id, key: hospitalKey(h), source },
     );
+  // Closing the override list hides its Confirm/Cancel row, so a choice made
+  // there is dropped rather than left pending (which would lock Approve).
+  const toggleOverride = () => {
+    if (showOverride && pendingHospital?.source === 'override') setPendingHospital(null);
+    setShowOverride((v) => !v);
+  };
   const confirmDispatch = (h) => {
     // Re-check at click time: polling may have moved the panel to another call.
     const matches = pendingHospital?.incidentId === selected?.incident_id && pendingHospital?.key === hospitalKey(h);
@@ -459,7 +465,7 @@ export default function DispatcherDashboard() {
                 )}
                 <Button
                   variant="quiet"
-                  onClick={() => setShowOverride((v) => !v)}
+                  onClick={toggleOverride}
                   disabled={!plan}
                   className="flex-1"
                 >
