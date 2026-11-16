@@ -208,4 +208,7 @@ async def change_hospital(payload: HospitalChangePayload):
         incident.update({"hospital_name": hospital["name"], "approved_hospital_id": canonical or hospital.get("hospital_id"),
                          "hospital_phone": view["hospital_phone"], "citizen_view": view})
         save_db()
-        return {"status": "rerouted", "citizen_view": view}
+        from routers.hospital import destination_on_divert
+        return {"status": "rerouted", "citizen_view": view, "hospital_name": hospital["name"],
+                "hospital_phone": view["hospital_phone"],
+                "destination_on_divert": destination_on_divert(incident)}

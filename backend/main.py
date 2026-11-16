@@ -266,6 +266,12 @@ async def websocket_chat_endpoint(websocket: WebSocket, incident_id: str):
                 data = await websocket.receive_text()
             except KeyError:
                 continue  # a binary frame; this channel carries text only
+            if not chat.incident_exists(incident_id):
+                # The incident was cleared while this socket was open; a late
+                # message must not recreate stored history for it.
+                chat.manager.disconnect(websocket, incident_id)
+                await websocket.close(code=1008)
+                return
             try:
                 payload = json.loads(data)
                 body = str(payload.get("message") or "").strip()

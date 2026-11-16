@@ -75,6 +75,7 @@ def load_db():
 load_db()
 
 
+MEDICAL_UNITS = {"Ambulance", "Medical"}
 VehicleType = Literal["Ambulance", "Medical", "Fire Engine", "Police Cruiser", "Disaster Rescue"]
 
 # The offline road graph covers this box; a small margin admits callers on its
@@ -104,6 +105,11 @@ class IncidentReportPayload(BaseModel):
     location: Coordinate
     input_modality: str = Field(default="text", max_length=32)
     timestamp: Optional[str] = Field(default=None, max_length=64)
+
+def wants_backup(payload: IncidentReportPayload) -> bool:
+    """A backup ambulance accompanies a fire, police or rescue unit, never an ambulance."""
+    return bool(payload.include_ambulance_backup) and (payload.vehicle_required or "Ambulance") not in MEDICAL_UNITS
+
 
 class ApprovePayload(BaseModel):
     dispatcher_id: str = Field(min_length=1, max_length=100)
@@ -229,9 +235,13 @@ async def run_pipeline(incident_id: str, payload: IncidentReportPayload):
         # Build the full citizen_view dict before acquiring the lock so the
         # incident is never visible in the partially-written state where
         # action_plan is set but citizen_view is still absent.
+        plan_route = fusion_res.recommended_route
+        route_degraded = plan_route.confidence <= 0 or plan_route.eta <= 0 or len(route_coords) < 2
         new_citizen_view = {
             "message": f"Dispatching from {nearest_hub['name']}. Destination Hospital: {hosp.name}.",
-            "eta_minutes": int(fusion_res.recommended_route.eta // 60),
+            # No usable route means no ETA to show; approval re-routes and refuses if it still fails.
+            "eta_minutes": None if route_degraded else max(1, int(plan_route.eta // 60)),
+            "route_degraded": route_degraded,
             "hospital_name": hosp.name,
             "hospital_location": {"lat": hosp.location.lat, "lng": hosp.location.lng},
             "hospital_phone": hospital_phone,
@@ -246,7 +256,7 @@ async def run_pipeline(incident_id: str, payload: IncidentReportPayload):
             "emergency_type": access_res.incident_report.incident_type.value,
             "severity": access_res.incident_report.severity_estimate,
             "vehicle_required": payload.vehicle_required or "Ambulance",
-            "include_ambulance_backup": bool(payload.include_ambulance_backup),
+            "include_ambulance_backup": wants_backup(payload),
         }
 
         async with _INCIDENTS_LOCK:
@@ -290,7 +300,7 @@ async def report_incident(payload: IncidentReportPayload, response: Response):
         "citizen_name": payload.citizen_name or "Anonymous Citizen",
         "citizen_phone": payload.citizen_phone or "Unregistered",
         "vehicle_required": payload.vehicle_required or "Ambulance",
-        "include_ambulance_backup": bool(payload.include_ambulance_backup),
+        "include_ambulance_backup": wants_backup(payload),
         "input_modality": _resolve_modality(payload.input_modality).value,
         "status": "processing",
         "action_plan": None
@@ -472,6 +482,10 @@ async def request_ambulance_backup(incident_id: str):
                 continue
             if inc.get("status") not in {"awaiting_dispatcher_approval", "dispatched", "patient_picked_up"}:
                 raise HTTPException(status_code=409, detail="Backup can be added only to an active call")
+            if (inc.get("vehicle_required") or "Ambulance") in MEDICAL_UNITS:
+                # No driver can take a second ambulance on a medical call, so it
+                # would be a required unit that can never arrive.
+                raise HTTPException(status_code=409, detail="An ambulance is already the primary unit on this call")
             inc["include_ambulance_backup"] = True
             inc["unit_statuses"] = unit_statuses(inc)
             if "citizen_view" in inc:

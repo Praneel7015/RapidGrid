@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import httpx
 import json
 import logging
 import sys
@@ -491,7 +492,12 @@ def test_divert_after_approval_is_shown_to_driver_and_er(client, mocked_route):
     assert pickup.json()["destination_on_divert"] is True
 
 
-def test_all_hospitals_on_divert_fails_the_report_with_a_reason(client):
+def test_all_hospitals_on_divert_fails_the_report_with_a_reason(client, monkeypatch):
+    # No live Overpass: the catalogue is the curated seed list, so every
+    # candidate has a divert key and the result does not depend on the network.
+    async def no_network(*args, **kwargs):
+        raise httpx.ConnectError("offline in tests")
+    monkeypatch.setattr(httpx.AsyncClient, "get", no_network)
     for key in hospital_agent._load_capabilities():
         hospital_agent.set_divert(key, True)
     report = seed("processing")
@@ -547,3 +553,50 @@ def test_chat_socket_refuses_unknown_incident_and_survives_bad_frames(client):
 def test_provider_request_urls_are_not_logged():
     # httpx logs full request URLs at INFO; the weather URL carries the API key.
     assert logging.getLogger("httpx").getEffectiveLevel() >= logging.WARNING
+
+
+def test_chat_socket_closes_when_its_incident_is_cleared(client):
+    from starlette.websockets import WebSocketDisconnect
+    seed()
+    with client.websocket_connect("/ws/chat/INC-review") as ws:
+        incident.ACTIVE_INCIDENTS.clear()  # an operator cleared incidents meanwhile
+        ws.send_json({"message": "late message", "sender_role": "citizen", "sender_name": "Review"})
+        with pytest.raises(WebSocketDisconnect):
+            ws.receive_json()
+    assert chat.manager.chat_history.get("INC-review", []) == []  # nothing was stored
+    assert load_collection("chat:INC-review", None, database=incident.persistence_path()) is None
+
+
+def test_reroute_response_describes_the_new_destination(client, mocked_route):
+    other = {"hospital_id": "blr-001", "name": "Manipal Hospital (Old Airport Road)",
+             "location": {"lat": 12.9585, "lng": 77.6483}}
+    report = seed("patient_picked_up", approved_hospital_id="blr-007")
+    report["action_plan"]["all_hospitals"].append(other)
+    hospital_agent.set_divert("blr-007", True)
+    assert client.get("/api/driver/active").json()["dispatches"][0]["destination_on_divert"] is True
+    response = client.post("/api/driver/change_hospital", json={"incident_id": "INC-review", "hospital_name": other["name"]})
+    assert response.status_code == 200, response.text
+    assert response.json()["hospital_name"] == other["name"]
+    assert response.json()["destination_on_divert"] is False
+
+
+def test_backup_ambulance_is_only_added_beside_a_non_medical_unit(client, monkeypatch, mocked_route):
+    monkeypatch.setattr(incident, "run_pipeline", AsyncMock())
+    medical = client.post("/api/incidents", json={**REPORT, "include_ambulance_backup": True}).json()["incident_id"]
+    fire = client.post("/api/incidents", json={**REPORT, "vehicle_required": "Fire Engine",
+                                               "include_ambulance_backup": True}).json()["incident_id"]
+    by_id = {i["incident_id"]: i for i in incident.ACTIVE_INCIDENTS}
+    assert by_id[medical]["include_ambulance_backup"] is False
+    assert by_id[fire]["include_ambulance_backup"] is True
+    by_id[medical]["status"] = "dispatched"
+    assert client.post(f"/api/incidents/{medical}/request_ambulance").status_code == 409
+    assert incident.required_units(by_id[medical]) == {"primary"}  # the call can still complete
+
+
+def test_reroute_response_carries_the_new_er_number(client, mocked_route):
+    other = {"hospital_id": "blr-001", "name": "Manipal Hospital (Old Airport Road)",
+             "location": {"lat": 12.9585, "lng": 77.6483}}
+    report = seed("patient_picked_up", hospital_phone="+91 80 4342 0107")
+    report["action_plan"]["all_hospitals"].append(other)
+    body = client.post("/api/driver/change_hospital", json={"incident_id": "INC-review", "hospital_name": other["name"]}).json()
+    assert body["hospital_phone"] == "+91 80 2502 4444" == body["citizen_view"]["hospital_phone"]

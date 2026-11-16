@@ -295,9 +295,9 @@ export default function CitizenDashboard() {
           ))}
         </div>
 
-        <label className="mt-5 block">
+        <div className="mt-5 block">
           <div className="flex items-center justify-between gap-2">
-            <span className="eyebrow">What is happening?</span>
+            <label htmlFor="report-details" className="eyebrow">What is happening?</label>
             <MicButton
               supported={speech.supported}
               listening={speech.listening}
@@ -306,13 +306,14 @@ export default function CitizenDashboard() {
             />
           </div>
           <textarea
+            id="report-details"
             value={speech.listening && speech.interim ? `${details} ${speech.interim}`.trim() : details}
             onChange={(e) => setDetails(e.target.value)}
             rows={4}
             placeholder="Chest pain, difficulty breathing, road accident… or tap the mic"
             className="mt-2 w-full resize-none rounded-sm border border-rule bg-paper p-3 text-[16px] leading-relaxed text-text placeholder:text-text-faint focus:border-signal focus:outline-none lg:text-[14px]"
           />
-          <span className={`mt-2 block t-micro ${speech.error ? 'text-critical' : 'text-text-faint'}`}>
+          <span role="status" className={`mt-2 block t-micro ${speech.error ? 'text-critical' : 'text-text-faint'}`}>
             {speech.error
               ? speech.error
               : speech.phase === 'loading'
@@ -325,7 +326,7 @@ export default function CitizenDashboard() {
                       ? 'Listening… speak clearly.'
                       : 'The more specific you are, the better the hospital match. You can dictate.'}
           </span>
-        </label>
+        </div>
 
         <div className="mt-4 flex items-center gap-2 rounded-sm border border-rule bg-paper-sunk px-3 py-2.5">
           <MapPin size={14} className="shrink-0 text-signal" />

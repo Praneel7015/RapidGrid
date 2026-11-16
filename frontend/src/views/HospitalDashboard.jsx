@@ -222,7 +222,7 @@ export default function HospitalDashboard() {
                       <div className="flex w-full shrink-0 items-center justify-between gap-4 border-t border-rule pt-3 sm:w-auto sm:justify-end sm:border-0 sm:pt-0">
                         <div className="text-right">
                           <div className="eyebrow">Arrives in</div>
-                          <div className="font-mono text-[26px] font-bold leading-none text-signal">
+                          <div className="font-mono text-[26px] font-bold leading-none text-signal-hover">
                             {c.eta_minutes ?? '--'}
                             <span className="ml-1 text-[13px] font-medium opacity-60">min</span>
                           </div>
