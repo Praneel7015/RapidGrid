@@ -509,6 +509,10 @@ class IncidentReport(BaseModel):
     extracted_details: str = Field(
         ..., description="Normalized text describing the incident details."
     )
+    triage_notices: list[str] = Field(
+        default_factory=list,
+        description="Caveats about the classification for the dispatcher (other script, nothing recognised, negated mentions).",
+    )
 
 
 class AccessibilityRequest(BaseModel):

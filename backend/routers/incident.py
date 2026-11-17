@@ -299,6 +299,7 @@ async def run_pipeline(incident_id: str, payload: IncidentReportPayload):
                     inc["emergency_type"] = access_res.incident_report.incident_type.value
                     inc["severity"] = access_res.incident_report.severity_estimate
                     inc["details"] = access_res.incident_report.extracted_details
+                    inc["triage_notices"] = access_res.incident_report.triage_notices
                     inc["input_modality"] = modality.value
                     found = True
                     # Store now, so a later rollback cannot drop the triage result.
