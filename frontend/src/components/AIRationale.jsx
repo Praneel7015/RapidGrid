@@ -197,6 +197,10 @@ function OutcomeCard({ outcome }) {
       <p className="mb-2 t-micro text-text-faint">
         Target {chosen.target_minutes.toFixed(0)} min · {chosen.guideline}
       </p>
+      <p className="mb-2 t-micro leading-relaxed text-text-faint">
+        Illustrative only: fixed timing assumptions plus the modelled road time, excluding the
+        unit&rsquo;s drive to the patient. Not clinical evidence and not a measured outcome.
+      </p>
 
       <div className="divide-y divide-rule/60">
         <Bar entry={chosen} chosen />
@@ -230,7 +234,9 @@ export default function AIRationale({ plan }) {
   // degraded, and the dispatcher must see that rather than a reassuring number.
   const hasConfidence = typeof plan.overall_confidence === 'number';
   const confidence = hasConfidence ? Math.round(plan.overall_confidence * 100) : null;
-  const degraded = plan.data_freshness && plan.data_freshness !== 'live';
+  // Offline-graph routing is a normal mode, shown by the Data chip below. Only
+  // a plan with no usable route is degraded.
+  const degraded = plan.data_freshness === 'stale';
 
   const ranked = plan.all_hospitals ?? [];
 
@@ -257,9 +263,8 @@ export default function AIRationale({ plan }) {
         <div className="flex items-start gap-2 border-b border-signal-edge bg-signal-wash px-4 py-2.5">
           <AlertTriangle size={13} className="mt-px shrink-0 text-signal-hover" />
           <p className="text-[11px] leading-relaxed text-signal-hover">
-            <span className="font-bold uppercase tracking-wide">Degraded data</span> — live routing
-            was unavailable, so this plan used the offline road graph. Verify the ETA before
-            dispatching.
+            <span className="font-bold uppercase tracking-wide">Degraded data</span> — no usable
+            route was found for this plan. Verify the destination and ETA before dispatching.
           </p>
         </div>
       )}

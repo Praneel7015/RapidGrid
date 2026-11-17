@@ -29,8 +29,24 @@ import {
 export default function HospitalDashboard() {
   const { hospitalInfo } = useAuth();
   const [incoming, setIncoming] = useState([]);
-  const [icuOpen, setIcuOpen] = useState(true);
-  const [acknowledged, setAcknowledged] = useState({});
+  const [icuOpen, setIcuOpen] = useState(null);
+  const ackKey = `rapidgrid_ack_${hospitalInfo?.id ?? 'all'}`;
+  const [acknowledged, setAcknowledged] = useState(() => {
+    try { return JSON.parse(sessionStorage.getItem(ackKey)) || {}; } catch { return {}; }
+  });
+  useEffect(() => { sessionStorage.setItem(ackKey, JSON.stringify(acknowledged)); }, [ackKey, acknowledged]);
+  const [saving, setSaving] = useState(false);
+  const [capacityError, setCapacityError] = useState(null);
+  const capacityRequest = React.useRef(false);
+  // Bumped when a capacity toggle starts and settles, so a poll that began
+  // before the toggle cannot put the old value back after the PATCH completes.
+  const capacityGen = React.useRef(0);
+  // Available beds as entered by this ER desk. The only bed figure that
+  // affects hospital ranking; empty means "not reported".
+  const [bedsInput, setBedsInput] = useState('');
+  const [bedsStored, setBedsStored] = useState(null);
+  const [bedsTotal, setBedsTotal] = useState(null);
+  const bedsEditing = React.useRef(false);
   const [openThread, setOpenThread] = useState(null);
   const [conn, setConn] = useState('ok');
 
@@ -50,10 +66,16 @@ export default function HospitalDashboard() {
         // Sync ICU/divert state from backend so refresh doesn't show stale "Accepting".
         if (id !== 'all' && !cancelled) {
           try {
+            const gen = capacityGen.current;
             const hRes = await fetch(`/api/hospital/${id}`);
             if (hRes.ok) {
               const hData = await hRes.json();
-              setIcuOpen(hData.icu_available > 0);
+              if (!cancelled && !capacityRequest.current && gen === capacityGen.current) {
+                setIcuOpen(hData.icu_available > 0);
+                setBedsStored(hData.beds_available ?? null);
+                setBedsTotal(hData.beds_total ?? null);
+                if (!bedsEditing.current) setBedsInput(hData.beds_available != null ? String(hData.beds_available) : '');
+              }
             }
           } catch { /* non-critical — keep UI value */ }
         }
@@ -66,18 +88,46 @@ export default function HospitalDashboard() {
     return () => { cancelled = true; clearInterval(timer); };
   }, [hospitalInfo]);
 
-  const setCapacity = async (open) => {
-    setIcuOpen(open);
+  const patchResources = async (body, open) => {
+    if (capacityRequest.current || !hospitalInfo?.id || hospitalInfo.id === 'all') return;
+    capacityRequest.current = true;
+    capacityGen.current += 1;
+    setSaving(true);
+    setCapacityError(null);
     try {
-      const id = hospitalInfo?.id || 'all';
-      await fetch(`/api/hospital/${id}/resources`, {
+      const res = await fetch(`/api/hospital/${hospitalInfo.id}/resources`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ icu_available: open }),
+        body: JSON.stringify(body),
       });
-    } catch {
-      setConn('down');
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(typeof data.detail === 'string' ? data.detail : `Capacity update failed (HTTP ${res.status})`);
+      setIcuOpen(data.icu_available != null ? data.icu_available > 0 : open);
+      setBedsStored(data.beds_available ?? null);
+      // Only a bed save replaces the draft; an accepting/divert change must not
+      // discard a bed figure the operator is still typing.
+      if ('beds_available' in body) {
+        setBedsInput(data.beds_available != null ? String(data.beds_available) : '');
+        bedsEditing.current = false;
+      }
+    } catch (err) {
+      setCapacityError(err.message || 'Capacity was not saved. Try again.');
+    } finally {
+      capacityRequest.current = false;
+      capacityGen.current += 1;
+      setSaving(false);
     }
+  };
+  const setCapacity = (open) => patchResources({ icu_available: open }, open);
+  const saveBeds = (event) => {
+    event.preventDefault();
+    const text = bedsInput.trim();
+    const beds = text === '' ? null : Number(text);
+    if (beds !== null && (!Number.isInteger(beds) || beds < 0)) {
+      setCapacityError('Enter a whole number of beds, or leave it empty.');
+      return;
+    }
+    patchResources({ beds_available: beds }, icuOpen);
   };
 
   const critical = incoming.filter((c) => (c.severity ?? 0) >= 0.8).length;
@@ -104,17 +154,20 @@ export default function HospitalDashboard() {
               value={Number.isFinite(soonest) ? soonest : '--'}
               unit="min"
               tone="signal"
+              modelled
             />
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <ConnectionState status={conn} />
-            <div className="flex items-center gap-2 rounded-sm border border-rule-ink bg-ink-raised px-3 py-2">
+            <div className="flex flex-wrap items-center gap-2 rounded-sm border border-rule-ink bg-ink-raised px-3 py-2">
               <BedDouble size={14} className="text-on-ink-muted" />
               <span className="eyebrow eyebrow-ink">ICU capacity</span>
               <div className="flex overflow-hidden rounded-xs border border-rule-ink">
                 <button
                   onClick={() => setCapacity(true)}
+                  disabled={saving || icuOpen === null || !hospitalInfo?.id || hospitalInfo.id === 'all'}
+                  aria-pressed={icuOpen === true}
                   className={`tap px-3 py-2.5 t-tag transition-colors lg:px-2.5 lg:py-1 ${
                     icuOpen ? 'bg-signal text-ink' : 'bg-transparent text-on-ink-muted'
                   }`}
@@ -123,17 +176,45 @@ export default function HospitalDashboard() {
                 </button>
                 <button
                   onClick={() => setCapacity(false)}
+                  disabled={saving || icuOpen === null || !hospitalInfo?.id || hospitalInfo.id === 'all'}
+                  aria-pressed={icuOpen === false}
                   className={`tap px-3 py-2.5 t-tag transition-colors lg:px-2.5 lg:py-1 ${
-                    !icuOpen ? 'bg-critical text-white' : 'bg-transparent text-on-ink-muted'
+                    icuOpen === false ? 'bg-critical text-white' : 'bg-transparent text-on-ink-muted'
                   }`}
                 >
                   On divert
                 </button>
               </div>
             </div>
+            <form
+              onSubmit={saveBeds}
+              className="flex flex-wrap items-center gap-2 rounded-sm border border-rule-ink bg-ink-raised px-3 py-2"
+            >
+              <label htmlFor="beds-available" className="eyebrow eyebrow-ink">Available beds</label>
+              <input
+                id="beds-available"
+                type="number"
+                min="0"
+                max={bedsTotal ?? undefined}
+                inputMode="numeric"
+                value={bedsInput}
+                placeholder="not reported"
+                onChange={(e) => { bedsEditing.current = true; setBedsInput(e.target.value); }}
+                disabled={saving || !hospitalInfo?.id || hospitalInfo.id === 'all'}
+                className="w-24 rounded-xs border border-rule-ink bg-transparent px-2 py-1.5 font-mono text-[13px] text-on-ink placeholder:text-on-ink-muted"
+              />
+              {bedsTotal != null && <span className="t-micro text-on-ink-muted">of {bedsTotal}</span>}
+              <button
+                type="submit"
+                disabled={saving || !hospitalInfo?.id || hospitalInfo.id === 'all'}
+                className="tap rounded-xs border border-rule-ink px-3 py-2 t-tag text-on-ink lg:px-2.5 lg:py-1"
+              >
+                Save
+              </button>
+            </form>
           </div>
         </div>
-        {!icuOpen && (
+        {icuOpen === false && (
           <div className="border-t border-rule-ink bg-critical px-5 py-2">
             <p className="t-tag text-white">
               On divert — routing will send new critical cases elsewhere
@@ -142,6 +223,16 @@ export default function HospitalDashboard() {
         )}
       </Panel>
 
+      {(!hospitalInfo?.id || hospitalInfo.id === 'all') && <p className="text-xs text-text-muted">Select a specific facility from the portal sign-in to change capacity.</p>}
+      {hospitalInfo?.id && hospitalInfo.id !== 'all' && (
+        <p className="text-xs text-text-muted">
+          {bedsStored != null
+            ? `Ranking uses your reported ${bedsStored} available beds.`
+            : 'No bed figure reported: ranking treats bed availability as unknown for this hospital. Leave empty if you do not know.'}
+        </p>
+      )}
+      {saving && <p role="status" className="text-xs text-text-muted">Saving capacity…</p>}
+      {capacityError && <p role="alert" className="text-sm text-critical">{capacityError}</p>}
       <Panel>
         <PanelHead
           label={`Inbound · ${incoming.length}`}
@@ -194,14 +285,14 @@ export default function HospitalDashboard() {
                       <div className="flex w-full shrink-0 items-center justify-between gap-4 border-t border-rule pt-3 sm:w-auto sm:justify-end sm:border-0 sm:pt-0">
                         <div className="text-right">
                           <div className="eyebrow">Arrives in</div>
-                          <div className="font-mono text-[26px] font-bold leading-none text-signal">
+                          <div className="font-mono text-[26px] font-bold leading-none text-signal-hover">
                             {c.eta_minutes ?? '--'}
                             <span className="ml-1 text-[13px] font-medium opacity-60">min</span>
                           </div>
                         </div>
                         {ack ? (
                           <span className="inline-flex items-center gap-1.5 rounded-xs border border-ink px-2.5 py-1.5 t-tag text-text">
-                            <Check size={12} /> Bay ready
+                            <Check size={12} /> Acknowledged on this device
                           </span>
                         ) : (
                           <Button
@@ -210,7 +301,7 @@ export default function HospitalDashboard() {
                               setAcknowledged((p) => ({ ...p, [c.incident_id]: true }))
                             }
                           >
-                            Acknowledge
+                            Acknowledge locally
                           </Button>
                         )}
                       </div>

@@ -14,6 +14,7 @@ import httpx
 from typing import Optional
 
 from bus.event_bus import PREDICTION_UPDATE, TRAFFIC_UPDATE, bus
+from logsafe import log_safe
 from models.schemas import (
     DataFreshness,
     Event,
@@ -64,10 +65,11 @@ class PredictionAgent:
         weather_condition = "Clear"
         
         if self.api_key:
-            url = f"https://api.openweathermap.org/data/2.5/weather?lat={dest.lat}&lon={dest.lng}&appid={self.api_key}"
+            url = "https://api.openweathermap.org/data/2.5/weather"
+            params = {"lat": float(dest.lat), "lon": float(dest.lng), "appid": self.api_key}
             try:
                 async with httpx.AsyncClient() as client:
-                    resp = await client.get(url, timeout=5.0)
+                    resp = await client.get(url, params=params, timeout=5.0)
                     if resp.status_code == 200:
                         data = resp.json()
                         weather_array = data.get("weather", [])
@@ -77,9 +79,9 @@ class PredictionAgent:
                             # Apply delay multiplier if it's raining (common in Bengaluru)
                             if weather_condition in ["Rain", "Thunderstorm", "Drizzle"]:
                                 weather_delay_s = route.eta * 0.25 # 25% delay
-                                logger.info(f"Detected Rain in Bengaluru! Adding {weather_delay_s:.0f}s to ETA.")
+                                logger.info("Detected Rain in Bengaluru! Adding %ss to ETA.", log_safe(f"{weather_delay_s:.0f}"))
             except Exception as e:
-                logger.error(f"Weather API failed: {e}")
+                logger.error("Weather API failed: %s", type(e).__name__)
 
         new_eta = route.eta + weather_delay_s
         margin = int(new_eta * 0.1)

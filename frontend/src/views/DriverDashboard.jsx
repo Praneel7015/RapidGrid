@@ -27,8 +27,12 @@ import {
 export default function DriverDashboard() {
   const { driverInfo } = useAuth();
   const [dispatches, setDispatches] = useState([]);
-  const [activeId, setActiveId] = useState(null);
-  const [stage, setStage] = useState('pickup'); // pickup | transport
+  const [activeId, setActiveId] = useState(() => sessionStorage.getItem('rapidgrid_driver_incident'));
+  const [actionError, setActionError] = useState(null);
+  useEffect(() => {
+    if (activeId) sessionStorage.setItem('rapidgrid_driver_incident', activeId);
+    else sessionStorage.removeItem('rapidgrid_driver_incident');
+  }, [activeId]);
   const [conn, setConn] = useState('ok');
   const [busy, setBusy] = useState(false);
 
@@ -40,7 +44,14 @@ export default function DriverDashboard() {
         if (!res.ok) throw new Error();
         const data = await res.json();
         if (!cancelled) {
-          setDispatches(data.dispatches ?? data.active ?? []);
+          const list = data.dispatches ?? data.active ?? [];
+          const vehicle = driverInfo?.vehicleType;
+          setDispatches(list.filter((d) => {
+            const primaryMedical = ['Ambulance', 'Medical'].includes(d.vehicle_required ?? 'Ambulance');
+            const backup = vehicle === 'Ambulance' && !primaryMedical && d.include_ambulance_backup;
+            const matchesProfile = !vehicle || d.vehicle_required === vehicle || (vehicle === 'Ambulance' && primaryMedical) || backup;
+            return matchesProfile && d.unit_statuses?.[backup ? 'ambulance' : 'primary'] !== 'arrived';
+          }));
           setConn('ok');
         }
       } catch {
@@ -50,22 +61,28 @@ export default function DriverDashboard() {
     load();
     const timer = setInterval(load, 2500);
     return () => { cancelled = true; clearInterval(timer); };
-  }, []);
+  }, [driverInfo]);
 
   const active = dispatches.find((d) => d.incident_id === activeId) ?? null;
   const view = active?.citizen_view ?? {};
+  const primaryMedical = ['Ambulance', 'Medical'].includes(active?.vehicle_required ?? 'Ambulance');
+  const unitType = driverInfo?.vehicleType === 'Ambulance' && !primaryMedical && active?.include_ambulance_backup ? 'ambulance' : 'primary';
+  const sceneResponse = !primaryMedical && unitType === 'primary';
+  const stage = (active?.unit_statuses?.[unitType] ?? active?.status) === 'patient_picked_up' ? 'transport' : 'pickup';
 
   const patch = (data) => {
-    if (!data?.citizen_view) return;
+    if (!data) return;
     setDispatches((prev) =>
       prev.map((d) =>
-        d.incident_id === active.incident_id ? { ...d, citizen_view: data.citizen_view } : d,
+        d.incident_id === active.incident_id ? { ...d, ...data, status: data.status === 'rerouted' ? d.status : (data.status ?? d.status) } : d,
       ),
     );
   };
 
   const arriveAtPatient = async () => {
+    if (busy) return;
     setBusy(true);
+    setActionError(null);
     try {
       const res = await fetch('/api/driver/arrived_pickup', {
         method: 'POST',
@@ -73,35 +90,41 @@ export default function DriverDashboard() {
         body: JSON.stringify({
           incident_id: active.incident_id,
           driver_id: driverInfo?.unitId ?? 'drv-11',
+          unit_type: unitType,
         }),
       });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || `Pickup failed (HTTP ${res.status})`);
       patch(await res.json());
-      setStage('transport');
-    } catch {
-      setConn('down');
+    } catch (err) {
+      setActionError(typeof err.message === 'string' ? err.message : 'The action failed. Try again.');
     } finally {
       setBusy(false);
     }
   };
 
   const completeHandover = async () => {
+    if (busy) return;
     setBusy(true);
+    setActionError(null);
     try {
-      await fetch(`/api/incidents/${active.incident_id}/arrived`, {
+      const res = await fetch(`/api/incidents/${active.incident_id}/arrived?unit_type=${unitType}`,  {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || `Handover failed (HTTP ${res.status})`);
+      setDispatches((prev) => prev.filter((d) => d.incident_id !== active.incident_id));
       setActiveId(null);
-      setStage('pickup');
-    } catch {
-      setConn('down');
+    } catch (err) {
+      setActionError(typeof err.message === 'string' ? err.message : 'The action failed. Try again.');
     } finally {
       setBusy(false);
     }
   };
 
   const divertTo = async (hospitalName) => {
+    if (busy) return;
     setBusy(true);
+    setActionError(null);
     try {
       const res = await fetch('/api/driver/change_hospital', {
         method: 'POST',
@@ -111,9 +134,10 @@ export default function DriverDashboard() {
           hospital_name: hospitalName,
         }),
       });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || `Destination change failed (HTTP ${res.status})`);
       patch(await res.json());
-    } catch {
-      setConn('down');
+    } catch (err) {
+      setActionError(typeof err.message === 'string' ? err.message : 'The action failed. Try again.');
     } finally {
       setBusy(false);
     }
@@ -139,7 +163,7 @@ export default function DriverDashboard() {
           <Panel>
             <Empty
               title="No calls assigned"
-              hint="When dispatch approves a plan for your service and hub, it appears here."
+              hint="Approved calls for this demo service profile appear here. Profile filtering is a viewing convenience; shared showcase access covers every role."
             />
           </Panel>
         ) : (
@@ -149,7 +173,7 @@ export default function DriverDashboard() {
                 key={d.incident_id}
                 onClick={() => {
                   setActiveId(d.incident_id);
-                  setStage('pickup');
+                  setActionError(null);
                 }}
                 className="block w-full rounded-md border border-rule bg-paper p-4 text-left transition-colors hover:border-signal"
               >
@@ -167,7 +191,7 @@ export default function DriverDashboard() {
                 </p>
                 <div className="mt-2.5 flex items-center justify-between gap-2">
                   <SeverityTag severity={d.severity ?? 0} />
-                  <span className="t-tag text-signal">
+                  <span className="t-tag text-signal-hover">
                     {d.citizen_view?.phase1_eta_minutes ?? '--'} min out
                   </span>
                 </div>
@@ -181,24 +205,33 @@ export default function DriverDashboard() {
 
   /* ---- Navigating ------------------------------------------------------ */
   const heading =
-    stage === 'pickup'
-      ? { eyebrow: 'Stage 1 of 2', title: 'Drive to the patient' }
+    sceneResponse
+      ? { eyebrow: 'Scene response', title: 'Drive to the incident' }
+      : stage === 'pickup'
+      ? { eyebrow: unitType === 'ambulance' ? 'Backup ambulance · Stage 1 of 2' : 'Stage 1 of 2', title: 'Drive to the patient' }
       : { eyebrow: 'Stage 2 of 2', title: 'Transport to hospital' };
 
   const destination =
     stage === 'pickup'
-      ? { label: 'Patient location', name: active.citizen_name ?? 'Reported location' }
+      ? { label: sceneResponse ? 'Incident location' : 'Patient location', name: active.citizen_name ?? 'Reported location' }
       : { label: 'Receiving ER', name: view.hospital_name ?? 'Destination' };
 
   return (
     <div className="mx-auto w-full max-w-[560px] space-y-3 px-4 py-4 lg:max-w-[880px]">
       <button
-        onClick={() => { setActiveId(null); setStage('pickup'); }}
+        onClick={() => { setActiveId(null); setActionError(null); }}
         className="tap inline-flex items-center gap-1 py-1 t-tag text-text-muted hover:text-text"
       >
         <ChevronLeft size={14} /> All calls
       </button>
 
+      {actionError && <p role="alert" className="rounded-sm border border-critical bg-critical-wash p-3 text-sm text-critical">{actionError}</p>}
+      {active?.destination_on_divert && !sceneResponse && (
+        <p role="alert" className="rounded-sm border border-critical bg-critical-wash p-3 text-sm text-critical">
+          <strong>{active.hospital_name ?? 'The destination hospital'}</strong> has stopped accepting
+          patients. Choose another hospital once the patient is on board.
+        </p>
+      )}
       {/* The next instruction, always first. */}
       <Panel ink>
         <div className="px-4 py-4">
@@ -219,6 +252,7 @@ export default function DriverDashboard() {
               value={stage === 'pickup' ? (view.phase1_eta_minutes ?? '--') : (view.eta_minutes ?? '--')}
               unit="min"
               tone="signal"
+              modelled
             />
             {stage === 'transport' && (
               <Stat ink label="Distance" value={fmt.km(view.distance_meters)} unit="km" />
@@ -245,7 +279,11 @@ export default function DriverDashboard() {
         />
       </Panel>
 
-      {stage === 'pickup' ? (
+      {sceneResponse ? (
+        <Button onClick={completeHandover} disabled={busy} size="lg" className="w-full">
+          <Check size={17} />{busy ? 'Confirming…' : 'Unit arrived at incident'}
+        </Button>
+      ) : stage === 'pickup' ? (
         <Button onClick={arriveAtPatient} disabled={busy} size="lg" className="w-full">
           <Check size={17} />
           {busy ? 'Confirming…' : 'I have reached the patient'}
@@ -264,7 +302,7 @@ export default function DriverDashboard() {
       )}
 
       {/* Divert: only meaningful once the patient is aboard. */}
-      {stage === 'transport' && active.action_plan?.all_hospitals?.length > 0 && (
+      {!sceneResponse && stage === 'transport' && active.action_plan?.all_hospitals?.length > 0 && (
         <Panel>
           <PanelHead label="Change destination" />
           <div className="p-2.5">

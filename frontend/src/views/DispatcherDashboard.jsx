@@ -41,6 +41,12 @@ export default function DispatcherDashboard() {
   const [busy, setBusy] = useState(false);
   const [overlay, setOverlay] = useState({ closures: [], congestion: [] });
   const failures = useRef(0);
+  const autoAttempted = useRef(new Set());
+  const [actionError, setActionError] = useState(null);
+  // A ranked row is only selected by a click; dispatch needs a second, explicit confirm.
+  // { incidentId, key, source }: the incident is stored with the choice so a
+  // confirmation opened for one call can never dispatch another.
+  const [pendingHospital, setPendingHospital] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -70,7 +76,8 @@ export default function DispatcherDashboard() {
 
         if (autoDispatch) {
           for (const inc of list) {
-            if (inc.status === 'awaiting_dispatcher_approval' && inc.action_plan) {
+            if (inc.status === 'awaiting_dispatcher_approval' && inc.action_plan && !autoAttempted.current.has(inc.incident_id)) {
+              autoAttempted.current.add(inc.incident_id);
               const res = await fetch(`/api/incidents/${inc.incident_id}/approve`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -82,6 +89,7 @@ export default function DispatcherDashboard() {
                 }),
               }).catch(() => null);
               // Only update local state on success — do NOT retry 409/500 on next tick.
+              if (!res?.ok && !cancelled) setActionError(`Auto-approval failed for ${inc.incident_id}${res ? ` (HTTP ${res.status})` : ''}. Review and approve manually.`);
               if (res?.ok) {
                 const updated = await res.json().catch(() => null);
                 if (updated) {
@@ -129,12 +137,40 @@ export default function DispatcherDashboard() {
     return () => clearInterval(timer);
   }, [loadOverlay]);
 
+  const hospitalKey = (h) => h.hospital_id ?? h.name;
+  const isPending = (h, source) =>
+    Boolean(selected) &&
+    pendingHospital?.incidentId === selected.incident_id &&
+    pendingHospital.source === source &&
+    pendingHospital.key === hospitalKey(h);
+  // While another hospital awaits confirmation, the one-click approve of the
+  // recommended hospital is disabled so the two cannot be confused.
+  const choicePending = Boolean(selected) && pendingHospital?.incidentId === selected.incident_id;
+  const choose = (h, source) =>
+    setPendingHospital(
+      isPending(h, source) ? null : { incidentId: selected.incident_id, key: hospitalKey(h), source },
+    );
+  // Closing the override list hides its Confirm/Cancel row, so a choice made
+  // there is dropped rather than left pending (which would lock Approve).
+  const toggleOverride = () => {
+    if (showOverride && pendingHospital?.source === 'override') setPendingHospital(null);
+    setShowOverride((v) => !v);
+  };
+  const confirmDispatch = (h) => {
+    // Re-check at click time: polling may have moved the panel to another call.
+    const matches = pendingHospital?.incidentId === selected?.incident_id && pendingHospital?.key === hospitalKey(h);
+    setPendingHospital(null);
+    if (matches) approve(h);
+  };
+
   const approve = async (hospital = null) => {
     if (!selected?.action_plan) return;
     const chosen = hospital || selected.action_plan.recommended_hospital;
     if (!chosen?.hospital_id) return;
 
+    if (busy) return;
     setBusy(true);
+    setActionError(null);
     try {
       const res = await fetch(`/api/incidents/${selected.incident_id}/approve`, {
         method: 'POST',
@@ -145,6 +181,7 @@ export default function DispatcherDashboard() {
           approved_route: selected.action_plan?.recommended_route?.route_id ?? '',
         }),
       });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || `Approval failed (HTTP ${res.status})`);
       if (res.ok) {
         const updated = await res.json();
         setIncidents((prev) =>
@@ -152,8 +189,8 @@ export default function DispatcherDashboard() {
         );
         setShowOverride(false);
       }
-    } catch {
-      setConn('retry');
+    } catch (err) {
+      setActionError(typeof err.message === 'string' ? err.message : 'Action failed. Try again.');
     } finally {
       setBusy(false);
     }
@@ -161,12 +198,15 @@ export default function DispatcherDashboard() {
 
   const reject = async () => {
     if (!selected?.incident_id) return;
+    if (busy) return;
     setBusy(true);
+    setActionError(null);
     try {
       const res = await fetch(
         `/api/incidents/${selected.incident_id}/reject?dispatcher_id=DISPATCHER-01`,
         { method: 'POST' },
       );
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || `Rejection failed (HTTP ${res.status})`);
       if (res.ok) {
         setSelectedId(null);
         setIncidents((prev) =>
@@ -175,8 +215,8 @@ export default function DispatcherDashboard() {
           ),
         );
       }
-    } catch {
-      setConn('retry');
+    } catch (err) {
+      setActionError(typeof err.message === 'string' ? err.message : 'Action failed. Try again.');
     } finally {
       setBusy(false);
     }
@@ -214,6 +254,7 @@ export default function DispatcherDashboard() {
             <Stat
               ink
               label="Peak severity"
+              modelled
               value={peakSeverity ? `${fmt.pct(peakSeverity)}%` : '--'}
               tone={peakSeverity >= 0.8 ? 'critical' : 'default'}
               sub={peakSeverity ? severityBand(peakSeverity).label : 'No active calls'}
@@ -243,7 +284,8 @@ export default function DispatcherDashboard() {
         </div>
       </Panel>
 
-      <div className="grid flex-1 grid-cols-1 gap-3 md:grid-cols-[240px_minmax(0,1fr)] lg:grid-cols-[270px_minmax(0,1fr)] xl:grid-cols-[290px_minmax(0,1fr)_380px]">
+      {actionError && <p role="alert" className="rounded-sm border border-critical bg-critical-wash p-3 text-sm text-critical">{actionError}</p>}
+      <div className="grid min-w-0 flex-1 grid-cols-1 gap-3 md:grid-cols-[240px_minmax(0,1fr)] lg:grid-cols-[270px_minmax(0,1fr)] xl:grid-cols-[260px_minmax(0,1fr)_340px]">
         {/* ---- Queue ----------------------------------------------------- */}
         <Panel className="flex flex-col overflow-hidden md:max-h-[calc(100vh-150px)]">
           <PanelHead
@@ -308,7 +350,7 @@ export default function DispatcherDashboard() {
 
         {/* ---- Map + actions --------------------------------------------- */}
         {selected ? (
-          <div className="flex min-h-[520px] flex-col gap-3">
+          <div className="flex min-w-0 min-h-[520px] flex-col gap-3">
             <Panel className="flex min-h-0 flex-1 flex-col overflow-hidden">
               <PanelHead
                 label="Tactical map"
@@ -375,12 +417,14 @@ export default function DispatcherDashboard() {
                     label="Hub to patient"
                     value={view.phase1_eta_minutes ?? '--'}
                     unit="min"
+                    modelled
                     sub={view.phase1_hub?.name}
                   />
                   <Stat
                     label="Patient to ER"
                     value={view.eta_minutes ?? '--'}
                     unit="min"
+                    modelled
                     tone="signal"
                     sub={view.hospital_name}
                   />
@@ -406,20 +450,25 @@ export default function DispatcherDashboard() {
 
               <div className="flex flex-wrap gap-2">
                 {!autoDispatch && selected.status === 'awaiting_dispatcher_approval' && (
-                  <Button onClick={() => approve()} disabled={busy || !plan} className="flex-1">
+                  <Button
+                    onClick={() => approve()}
+                    disabled={busy || !plan || choicePending}
+                    title={choicePending ? 'Confirm or cancel the hospital you selected first' : undefined}
+                    className="flex-1"
+                  >
                     <Check size={15} />
                     {busy ? 'Dispatching…' : 'Approve and dispatch'}
                   </Button>
                 )}
                 {!autoDispatch && selected.status === 'awaiting_dispatcher_approval' && (
-                  <Button variant="quiet" onClick={reject} disabled={busy} className="shrink-0 border-error text-error hover:bg-error hover:text-white">
+                  <Button variant="critical" onClick={reject} disabled={busy} className="shrink-0">
                     <X size={15} />
                     Reject
                   </Button>
                 )}
                 <Button
                   variant="quiet"
-                  onClick={() => setShowOverride((v) => !v)}
+                  onClick={toggleOverride}
                   disabled={!plan}
                   className="flex-1"
                 >
@@ -435,8 +484,9 @@ export default function DispatcherDashboard() {
                     {plan.all_hospitals.map((h, i) => (
                       <button
                         key={h.hospital_id ?? i}
-                        onClick={() => approve(h)}
+                        onClick={() => choose(h, 'override')}
                         disabled={busy}
+                        aria-pressed={isPending(h, 'override')}
                         className="rounded-sm border border-rule bg-paper-sunk p-3 text-left transition-colors hover:border-signal hover:bg-signal-wash disabled:opacity-50"
                       >
                         <div className="flex items-start justify-between gap-2">
@@ -460,6 +510,21 @@ export default function DispatcherDashboard() {
                       </button>
                     ))}
                   </div>
+                  {plan.all_hospitals.filter((h) => isPending(h, 'override')).map((h) => (
+                    <div key={h.hospital_id ?? h.name} className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-sm border border-rule bg-paper-sunk px-3 py-2.5">
+                      <span className="text-[12px] leading-snug text-text">
+                        Dispatch to <strong>{h.name}</strong>?
+                      </span>
+                      <span className="flex gap-2">
+                        <Button variant="quiet" onClick={() => setPendingHospital(null)} disabled={busy}>
+                          Cancel
+                        </Button>
+                        <Button onClick={() => confirmDispatch(h)} disabled={busy}>
+                          Confirm dispatch
+                        </Button>
+                      </span>
+                    </div>
+                  ))}
                 </div>
               )}
             </Panel>
@@ -474,7 +539,7 @@ export default function DispatcherDashboard() {
         )}
 
         {/* ---- Rationale -------------------------------------------------- */}
-        <div className="grid content-start gap-3 md:col-span-2 md:grid-cols-2 xl:col-span-1 xl:grid-cols-1 xl:max-h-[calc(100vh-150px)] xl:overflow-y-auto">
+        <div className="grid min-w-0 content-start gap-3 md:col-span-2 md:grid-cols-2 xl:col-span-1 xl:grid-cols-1">
           <CityControls onChange={loadOverlay} />
 
           {plan ? (
@@ -487,13 +552,16 @@ export default function DispatcherDashboard() {
                     const chosen = view.hospital_name
                       ? view.hospital_name === h.name
                       : i === 0;
+                    const awaiting = selected.status === 'awaiting_dispatcher_approval';
+                    const pending = awaiting && isPending(h, 'ranked');
                     return (
+                      <React.Fragment key={h.hospital_id ?? i}>
                       <button
-                        key={h.hospital_id ?? i}
-                        onClick={() => approve(h)}
-                        disabled={busy}
+                        onClick={() => choose(h, 'ranked')}
+                        disabled={busy || !awaiting}
+                        aria-expanded={pending}
                         className={`block w-full border-b border-rule/70 px-4 py-3 text-left transition-colors last:border-0 ${
-                          chosen ? 'bg-signal-wash' : 'hover:bg-paper-hover'
+                          chosen ? 'bg-signal-wash' : awaiting ? 'hover:bg-paper-hover' : ''
                         }`}
                       >
                         <div className="flex items-start justify-between gap-2">
@@ -521,6 +589,22 @@ export default function DispatcherDashboard() {
                           </span>
                         </div>
                       </button>
+                      {pending && (
+                        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-rule/70 bg-paper-sunk px-4 py-2.5">
+                          <span className="text-[12px] leading-snug text-text">
+                            Dispatch to <strong>{h.name}</strong>?
+                          </span>
+                          <span className="flex gap-2">
+                            <Button variant="quiet" onClick={() => setPendingHospital(null)} disabled={busy}>
+                              Cancel
+                            </Button>
+                            <Button onClick={() => confirmDispatch(h)} disabled={busy}>
+                              Confirm dispatch
+                            </Button>
+                          </span>
+                        </div>
+                      )}
+                      </React.Fragment>
                     );
                   })}
                 </div>
@@ -541,6 +625,7 @@ export default function DispatcherDashboard() {
 
           {selected?.incident_id && (
             <LiveEmergencyChat
+              key={selected.incident_id}
               incidentId={selected.incident_id}
               senderRole="dispatcher"
               senderName="Dispatch"

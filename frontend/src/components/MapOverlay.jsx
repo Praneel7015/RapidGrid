@@ -42,6 +42,20 @@ function marker(kind, label) {
   });
 }
 
+// Popup content is built from text nodes, never HTML strings: hospital and
+// road names come from OpenStreetMap and the API, and must not be parsed as
+// markup. Each line is [text] or [text, 'b' | 'i'] for bold or italic.
+function popup(...lines) {
+  const root = document.createElement('div');
+  lines.forEach(([text, style], index) => {
+    if (index > 0) root.appendChild(document.createElement('br'));
+    const node = style ? document.createElement(style) : document.createElement('span');
+    node.textContent = String(text ?? '');
+    root.appendChild(node);
+  });
+  return root;
+}
+
 function toLatLngs(coords) {
   if (!Array.isArray(coords)) return [];
   return coords
@@ -92,9 +106,17 @@ export default function MapOverlay({
     L.control.zoom({ position: 'bottomright' }).addTo(map.current);
     layers.current = L.layerGroup().addTo(map.current);
 
-    // Mark user interaction so we stop overriding their zoom/pan.
+    // Mark user interaction so we stop overriding their zoom/pan. Only input
+    // events count: 'zoomstart' also fires for our own fitBounds, which made
+    // the first automatic fit look like a user zoom.
     const onInteract = () => { userInteracted.current = true; };
-    map.current.on('zoomstart', onInteract);
+    const container = map.current.getContainer();
+    const userEvents = ['wheel', 'touchstart', 'dblclick', 'keydown'];
+    userEvents.forEach((name) => container.addEventListener(name, onInteract, { passive: true }));
+    const zoomButtons = container.querySelector('.leaflet-control-zoom');
+    // Capture phase: Leaflet stops propagation on the +/- anchors, so a
+    // bubbling listener here never sees those clicks.
+    zoomButtons?.addEventListener('click', onInteract, true);
     map.current.on('dragstart', onInteract);
 
     // A map created inside a container that is hidden or still being sized
@@ -105,6 +127,8 @@ export default function MapOverlay({
     observer.observe(holder.current);
 
     return () => {
+      userEvents.forEach((name) => container.removeEventListener(name, onInteract));
+      zoomButtons?.removeEventListener('click', onInteract, true);
       cancelAnimationFrame(raf);
       observer.disconnect();
       if (map.current) {
@@ -116,11 +140,16 @@ export default function MapOverlay({
   }, []);
 
   // When the incident itself changes (new route, hospital divert), reset the
-  // fit guard so the new route is automatically framed.
+  // fit guard so the new route is automatically framed. The route geometry is
+  // part of the key: a reroute between the same pins must be reframed too.
+  // Every point counts, in either accepted shape, so a detour that keeps the
+  // same endpoints still changes the key.
+  const lineKey = (coords) => toLatLngs(coords).map(([lat, lng]) => `${lat},${lng}`).join(';');
   const routeKey = [
     origin?.lat, origin?.lng,
     hospital?.lat, hospital?.lng,
     hub?.lat, hub?.lng,
+    lineKey(routeCoordinates), lineKey(phase1Coordinates),
   ].join(',');
   const prevRouteKey = useRef(routeKey);
   useEffect(() => {
@@ -152,8 +181,11 @@ export default function MapOverlay({
         lineCap: 'round',
       })
         .bindPopup(
-          `<b>${seg.road ?? 'Road'}</b><br>Congestion x${(seg.multiplier ?? 1).toFixed(2)}` +
-            '<br><i>Displaced by a nearby closure (modelled)</i>',
+          popup(
+            [seg.road ?? 'Road', 'b'],
+            [`Congestion x${(seg.multiplier ?? 1).toFixed(2)}`],
+            ['Displaced by a nearby closure (modelled)', 'i'],
+          ),
         )
         .addTo(group);
     });
@@ -169,7 +201,7 @@ export default function MapOverlay({
           dashArray: '2 7',
           lineCap: 'butt',
         })
-          .bindPopup(`<b>Road closed</b><br>${segment.road ?? ''}<br>Excluded from routing`)
+          .bindPopup(popup(['Road closed', 'b'], [segment.road ?? ''], ['Excluded from routing']))
           .addTo(group);
         bounds.push(...pts);
       }
@@ -185,7 +217,7 @@ export default function MapOverlay({
         dashArray: '7 6',
         lineCap: 'round',
       })
-        .bindPopup('<b>Phase 1</b><br>Station hub to patient')
+        .bindPopup(popup(['Phase 1', 'b'], ['Station hub to patient']))
         .addTo(group);
       bounds.push(...p1);
     }
@@ -206,27 +238,22 @@ export default function MapOverlay({
         lineCap: 'round',
         lineJoin: 'round',
       })
-        .bindPopup('<b>Phase 2</b><br>Patient to hospital ER')
+        .bindPopup(popup(['Phase 2', 'b'], ['Patient to hospital ER']))
         .addTo(group);
       bounds.push(...p2);
     }
 
-    const pin = (point, kind, label, popup) => {
+    const pin = (point, kind, label, content) => {
       if (!point || !Number.isFinite(point.lat) || !Number.isFinite(point.lng)) return;
       L.marker([point.lat, point.lng], { icon: marker(kind, label) })
-        .bindPopup(popup)
+        .bindPopup(content)
         .addTo(group);
       bounds.push([point.lat, point.lng]);
     };
 
-    pin(hub, 'hub', 'H', `<b>${hub?.name ?? 'Station hub'}</b><br>Responding unit base`);
-    pin(origin, 'patient', 'P', '<b>Patient location</b>');
-    pin(
-      hospital,
-      'hospital',
-      'ER',
-      `<b>${hospital?.name ?? 'Destination hospital'}</b><br>Receiving ER`,
-    );
+    pin(hub, 'hub', 'H', popup([hub?.name ?? 'Station hub', 'b'], ['Responding unit base']));
+    pin(origin, 'patient', 'P', popup(['Patient location', 'b']));
+    pin(hospital, 'hospital', 'ER', popup([hospital?.name ?? 'Destination hospital', 'b'], ['Receiving ER']));
 
     if (bounds.length >= 2) {
       try {

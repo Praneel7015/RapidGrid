@@ -43,7 +43,7 @@
 
   /* --- Signal: the single accent. Urgency, action, live state. ----------- */
   --color-signal:         oklch(0.78 0.17 72);
-  --color-signal-hover:   oklch(0.72 0.16 68);
+  --color-signal-hover:   oklch(0.52 0.13 62); /* text on paper/wash: >= 5:1 */
   --color-signal-wash:    oklch(0.96 0.04 85);
   --color-signal-edge:    oklch(0.88 0.10 78);
 
@@ -362,13 +362,13 @@
 
 @keyframes rg-ping {
   0%   { transform: scale(0.6); opacity: 0.85; }
-  100% { transform: scale(2.6); opacity: 0; }
+  100% { transform: scale(1.45); opacity: 0; }
 }
 .rg-ping::before {
   content: "";
   position: absolute;
   inset: 0;
-  border-radius: 2px;
+  border-radius: inherit;
   background: currentColor;
   animation: rg-ping 2s cubic-bezier(0, 0, 0.2, 1) infinite;
 }

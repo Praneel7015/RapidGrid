@@ -29,3 +29,7 @@ backend/data/incidents_db.json
 # Python virtualenv
 backend/venv/
 backend/data/.osm_healthcare_cache.json
+backend/data/*.sqlite3
+backend/data/*.sqlite3-*
+.pytest_cache/
+test-results/

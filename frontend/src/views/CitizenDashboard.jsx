@@ -43,6 +43,9 @@ export default function CitizenDashboard() {
   const [usedVoice, setUsedVoice] = useState(false);
   const [coords, setCoords] = useState(null);
   const [locationLabel, setLocationLabel] = useState('Locating you…');
+  // pending | gps | fallback. A fallback is never sent unless the caller confirms it.
+  const [locationSource, setLocationSource] = useState('pending');
+  const [fallbackConfirmed, setFallbackConfirmed] = useState(false);
   const [error, setError] = useState(null);
   const [step, setStep] = useState(0);
 
@@ -53,7 +56,7 @@ export default function CitizenDashboard() {
 
   const speech = useSpeechToText({ lang: 'en-IN' });
   const mounted = useRef(true);
-  useEffect(() => () => { mounted.current = false; }, []);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
 
   useEffect(() => {
     speech.setOnFinal((finalText) => {
@@ -66,13 +69,15 @@ export default function CitizenDashboard() {
   useEffect(() => {
     if (!navigator.geolocation) {
       setCoords(FALLBACK_LOCATION);
-      setLocationLabel('Using Bengaluru city centre — GPS unavailable');
+      setLocationSource('fallback');
+      setLocationLabel('Bengaluru city centre — GPS unavailable');
       return;
     }
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         if (!mounted.current) return;
         setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        setLocationSource('gps');
         setLocationLabel(
           `${pos.coords.latitude.toFixed(4)}°N, ${pos.coords.longitude.toFixed(4)}°E`,
         );
@@ -80,7 +85,8 @@ export default function CitizenDashboard() {
       () => {
         if (!mounted.current) return;
         setCoords(FALLBACK_LOCATION);
-        setLocationLabel('Using Bengaluru city centre — location not shared');
+        setLocationSource('fallback');
+        setLocationLabel('Bengaluru city centre — your location was not shared');
       },
       { timeout: 8000 },
     );
@@ -99,7 +105,7 @@ export default function CitizenDashboard() {
         );
         const latest = mine[mine.length - 1];
         // Only rejoin in-flight work. Failed/completed reports must not trap the home screen.
-        const active = latest && !['failed', 'completed'].includes(latest.status);
+        const active = latest && !['failed', 'completed', 'arrived'].includes(latest.status) ? latest : null;
         if (!cancelled && active?.citizen_view) {
           setIncident(latest);
           setPollUrl(`/api/incidents/${latest.incident_id}`);
@@ -130,18 +136,19 @@ export default function CitizenDashboard() {
     const poll = async () => {
       try {
         const res = await fetch(pollUrl);
-        if (!res.ok) return;
+        if (!res.ok) throw new Error(`Dispatch status unavailable (HTTP ${res.status}). Retrying…`);
         const data = await res.json();
         if (cancelled) return;
         setIncident(data);
+        setError(null);
         if (data.status === 'failed') {
           setError(data.error || 'Dispatch could not complete your report.');
           setStage('failed');
           return;
         }
         if (data.citizen_view) setStage('tracking');
-      } catch {
-        if (!cancelled) setError('Lost connection to dispatch. Retrying…');
+      } catch (err) {
+        if (!cancelled) setError(err.message || 'Lost connection to dispatch. Retrying…');
       }
     };
     poll();
@@ -152,7 +159,12 @@ export default function CitizenDashboard() {
   const sendSOS = async () => {
     if (sending) return; // double-submit guard
     setSending(true);
-    speech.stop();
+    // stop() delivers the final words asynchronously. Collect those words
+    // directly, instead of posting the render's stale draft text.
+    const spoken = await speech.finish();
+    if (!mounted.current) return;
+    const reportText = `${details} ${spoken}`.trim();
+    const voice = usedVoice || Boolean(spoken);
     navigator.vibrate?.([180, 90, 180]);
     setError(null);
     setIncident(null);
@@ -163,12 +175,12 @@ export default function CitizenDashboard() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          citizen_text: details.trim() || `Emergency reported, ${service} requested.`,
+          citizen_text: reportText || `Emergency reported, ${service} requested.`,
           citizen_name: citizenInfo?.name ?? 'Anonymous',
           citizen_phone: citizenInfo?.phone ?? 'Unregistered',
           vehicle_required: service,
-          location: coords ?? FALLBACK_LOCATION,
-          input_modality: usedVoice ? 'voice' : 'text',
+          location: coords,
+          input_modality: voice ? 'voice' : 'text',
           timestamp: new Date().toISOString(),
         }),
       });
@@ -176,7 +188,7 @@ export default function CitizenDashboard() {
       if (res.ok || res.status === 202) {
         setPollUrl(data.poll_url ?? `/api/incidents/${data.incident_id}`);
       } else {
-        setError(data.detail ?? 'Dispatch rejected the report. Try again.');
+        setError(typeof data.detail === 'string' ? data.detail : `Dispatch rejected the report (HTTP ${res.status}). Try again.`);
         setStage('report');
       }
     } catch {
@@ -199,7 +211,7 @@ export default function CitizenDashboard() {
             Need emergency help?
           </h1>
           <p className="mt-1.5 text-[13px] leading-relaxed text-text-muted">
-            Tap SOS to send your location to city dispatch. You can add details next — including by voice.
+            Tap SOS to prepare a demo report. Add details and review your location before sending.
           </p>
         </div>
 
@@ -283,9 +295,9 @@ export default function CitizenDashboard() {
           ))}
         </div>
 
-        <label className="mt-5 block">
+        <div className="mt-5 block">
           <div className="flex items-center justify-between gap-2">
-            <span className="eyebrow">What is happening?</span>
+            <label htmlFor="report-details" className="eyebrow">What is happening?</label>
             <MicButton
               supported={speech.supported}
               listening={speech.listening}
@@ -294,13 +306,14 @@ export default function CitizenDashboard() {
             />
           </div>
           <textarea
+            id="report-details"
             value={speech.listening && speech.interim ? `${details} ${speech.interim}`.trim() : details}
             onChange={(e) => setDetails(e.target.value)}
             rows={4}
             placeholder="Chest pain, difficulty breathing, road accident… or tap the mic"
             className="mt-2 w-full resize-none rounded-sm border border-rule bg-paper p-3 text-[16px] leading-relaxed text-text placeholder:text-text-faint focus:border-signal focus:outline-none lg:text-[14px]"
           />
-          <span className={`mt-2 block t-micro ${speech.error ? 'text-critical' : 'text-text-faint'}`}>
+          <span role="status" className={`mt-2 block t-micro ${speech.error ? 'text-critical' : 'text-text-faint'}`}>
             {speech.error
               ? speech.error
               : speech.phase === 'loading'
@@ -313,7 +326,7 @@ export default function CitizenDashboard() {
                       ? 'Listening… speak clearly.'
                       : 'The more specific you are, the better the hospital match. You can dictate.'}
           </span>
-        </label>
+        </div>
 
         <div className="mt-4 flex items-center gap-2 rounded-sm border border-rule bg-paper-sunk px-3 py-2.5">
           <MapPin size={14} className="shrink-0 text-signal" />
@@ -327,8 +340,29 @@ export default function CitizenDashboard() {
           </div>
         )}
 
-        <Button onClick={sendSOS} disabled={sending} size="lg" className="mt-5 w-full">
-          {stage === 'failed' ? 'Try again' : 'Send emergency report'}
+        {locationSource === 'fallback' && (
+          <label className="mt-3 flex items-start gap-2.5 rounded-sm border border-signal-edge bg-signal-wash px-3 py-2.5">
+            <input
+              type="checkbox"
+              className="mt-0.5 h-4 w-4 shrink-0"
+              checked={fallbackConfirmed}
+              onChange={(e) => setFallbackConfirmed(e.target.checked)}
+            />
+            <span className="text-[12px] leading-relaxed text-text">
+              We could not get your location. Help would be sent to <strong>Bengaluru city
+              centre</strong>, not to you. Tick this only if that is where you are; otherwise
+              call 112.
+            </span>
+          </label>
+        )}
+
+        <Button
+          onClick={sendSOS}
+          disabled={sending || !coords || (locationSource === 'fallback' && !fallbackConfirmed)}
+          size="lg"
+          className="mt-5 w-full"
+        >
+          {!coords ? 'Finding your location…' : stage === 'failed' ? 'Try again' : 'Send emergency report'}
         </Button>
 
         <a
@@ -349,7 +383,9 @@ export default function CitizenDashboard() {
           <h1 className="font-display text-[20px] font-semibold text-text">
             Help is being arranged
           </h1>
-          <p className="mt-1.5 text-[13px] text-text-muted">Stay on this screen.</p>
+          <p className="mt-1.5 text-[13px] text-text-muted">Waiting for dispatch assessment. You can refresh to resume.</p>
+          <p className="mt-2 text-[11px] text-text-faint">Illustrative checklist; the service does not report individual step progress.</p>
+          {error && <p role="status" className="mt-3 text-sm text-critical">{error}</p>}
         </div>
 
         <ol className="space-y-0">
@@ -392,6 +428,7 @@ export default function CitizenDashboard() {
 
   return shell(
     <div className="space-y-3">
+      {error && <p role="status" className="text-sm text-critical">{error}</p>}
       <Panel>
         <PanelHead
           label={`Incident ${incident?.incident_id ?? ''}`}
@@ -399,7 +436,11 @@ export default function CitizenDashboard() {
         />
         <div className="px-4 py-3.5">
           <p className="text-[14px] font-semibold leading-snug text-text">
-            {dispatched
+            {incident?.status === 'completed' || incident?.status === 'arrived'
+              ? 'This response is complete.'
+              : incident?.status === 'patient_picked_up'
+                ? 'Your unit is transporting you to the receiving hospital.'
+                : dispatched
               ? `A ${incident.vehicle_required?.toLowerCase() ?? 'unit'} is on the way to you.`
               : 'Your report is with the city dispatcher for approval.'}
           </p>
@@ -422,12 +463,14 @@ export default function CitizenDashboard() {
               value={view.phase1_eta_minutes ?? '--'}
               unit="min"
               tone="signal"
+              modelled
               sub={view.phase1_hub?.name}
             />
             <Stat
               label="Then to hospital"
               value={view.eta_minutes ?? '--'}
               unit="min"
+              modelled
               sub={`${fmt.km(view.distance_meters)} km`}
             />
           </div>
@@ -468,7 +511,7 @@ export default function CitizenDashboard() {
 
       <button
         onClick={() => {
-          setStage('home');
+          setStage('report');
           setIncident(null);
           setPollUrl(null);
           setDetails('');

@@ -4,6 +4,8 @@ Hospital Intelligence Agent for GeoAgentic (Live Overpass API).
 
 from __future__ import annotations
 
+import asyncio
+
 import json
 import logging
 import math
@@ -15,6 +17,7 @@ from typing import Any
 import httpx
 
 from bus.event_bus import HOSPITAL_RANKED, bus
+from logsafe import log_safe
 from models.schemas import (
     Coordinate,
     DataFreshness,
@@ -26,6 +29,11 @@ from models.schemas import (
 )
 
 logger = logging.getLogger("geoagentic.agent.hospital")
+
+
+class NoHospitalCandidatesError(RuntimeError):
+    """Raised when no hospital is currently available to receive the patient."""
+
 
 AGENT_NAME = "hospital_intelligence"
 
@@ -56,6 +64,24 @@ def _looks_non_emergency(name: str) -> bool:
     """Heuristic screen for facilities that cannot receive an ambulance."""
     lowered = f" {name.lower()} "
     return any(k in lowered for k in _NON_EMERGENCY_KEYWORDS)
+
+
+# An OSM entry is the same place as a curated hospital only within this
+# distance of the curated (OSM-resolved) coordinate.
+OSM_MATCH_RADIUS_M = 1000
+
+_NAME_STOPWORDS = {
+    "hospital", "hospitals", "the", "and", "of", "institute", "medical",
+    "centre", "center", "clinic", "multispeciality", "multi", "speciality",
+    "specialty", "care", "health", "road", "memorial", "college",
+}
+
+
+def _distinctive_tokens(name: str) -> set[str]:
+    cleaned = name.lower()
+    for ch in ",()./-'":
+        cleaned = cleaned.replace(ch, " ")
+    return {t for t in cleaned.split() if t not in _NAME_STOPWORDS and len(t) > 3}
 
 
 def _normalise_name(name: str) -> str:
@@ -92,6 +118,8 @@ _ROAD_ETA_SHORTLIST = 8
 # slow (5-10s). Hospital locations do not change during a demo, so cache the
 # enriched result per coarse location. 3 decimal places ~ 110m.
 _HOSPITAL_CACHE_TTL_S = 900.0
+# Bed-availability score used when no ER desk has reported beds.
+_NEUTRAL_BED_SCORE = 0.5
 _HOSPITAL_CACHE_PRECISION = 2
 
 WEIGHT_TABLES: dict[str, list[tuple[str, float]]] = {
@@ -180,11 +208,13 @@ class HospitalIntelligenceAgent:
     def __init__(self) -> None:
         self._hospitals = []  # Cached list of fetched hospitals
         self._capabilities: dict[str, Any] | None = None
-        self._capabilities_by_name: dict[str, Any] = {}
         self._fetch_cache: dict[tuple, tuple[float, list[dict[str, Any]]]] = {}
         # Facilities an ER desk has put on divert. Keyed by curated id, and
         # applied during enrichment so it survives catalogue cache rebuilds.
         self._on_divert: set[str] = set()
+        # Available beds entered by an ER desk, keyed by curated id. These are
+        # the only bed figures allowed to influence ranking.
+        self._reported_beds: dict[str, int] = {}
     
     def _deterministic_float(self, string_id: str, seed: str) -> float:
         """
@@ -205,12 +235,6 @@ class HospitalIntelligenceAgent:
                 with open(_CAPABILITIES_PATH, encoding="utf-8") as f:
                     payload = json.load(f)
                 self._capabilities = payload.get("hospitals", {})
-                # Secondary index so Overpass results, which carry OSM ids
-                # rather than our blr-* ids, can still match on name.
-                self._capabilities_by_name = {
-                    entry["name"].lower(): entry
-                    for entry in self._capabilities.values()
-                }
                 logger.info(
                     "Loaded curated capability profiles for %d hospitals",
                     len(self._capabilities),
@@ -218,38 +242,31 @@ class HospitalIntelligenceAgent:
             except Exception:
                 logger.exception("Could not load %s", _CAPABILITIES_PATH.name)
                 self._capabilities = {}
-                self._capabilities_by_name = {}
         return self._capabilities
 
-    def _match_curated(self, hid: str, name: str) -> dict[str, Any] | None:
-        """Resolve a hospital to its curated profile by id, then by name."""
+    def _curated_for_osm(self, name: str, lat: float, lng: float) -> str | None:
+        """The curated hospital an OpenStreetMap entry describes, if any.
+
+        A name alone is not an identity: "Manipal Hospital" is three curated
+        branches, and an unrelated clinic can share a word with any of them.
+        So a match needs a shared name or distinctive name token AND a position
+        within OSM_MATCH_RADIUS_M of the curated coordinate; the nearest wins.
+        """
         curated = self._load_capabilities()
-        if hid in curated:
-            return curated[hid]
-
         lowered = name.lower().strip()
-        by_name = self._capabilities_by_name
-        if lowered in by_name:
-            return by_name[lowered]
+        tokens = _distinctive_tokens(lowered)
+        best: tuple[float, str] | None = None
+        for curated_id, entry in curated.items():
+            names = {entry["name"].lower()}
+            if entry.get("osm_name"):
+                names.add(str(entry["osm_name"]).lower())
+            if lowered not in names and not any(tokens & _distinctive_tokens(n) for n in names):
+                continue
+            distance = _haversine(lat, lng, entry["lat"], entry["lng"])
+            if distance <= OSM_MATCH_RADIUS_M and (best is None or distance < best[0]):
+                best = (distance, curated_id)
+        return best[1] if best else None
 
-        # Overpass names are noisy ("Manipal Hospital" vs our fuller title).
-        # Require a distinctive token overlap rather than any substring, so
-        # "Lakshmi Hospital" cannot inherit "Manipal Hospital"'s profile.
-        stop = {"hospital", "hospitals", "the", "and", "of", "institute",
-                "medical", "centre", "center", "clinic", "multispeciality",
-                "multi", "speciality", "specialty", "care", "health"}
-        tokens = {t for t in lowered.replace(",", " ").split() if t not in stop and len(t) > 3}
-        if not tokens:
-            return None
-        for cand_name, entry in by_name.items():
-            cand_tokens = {
-                t for t in cand_name.replace(",", " ").replace("(", " ").replace(")", " ").split()
-                if t not in stop and len(t) > 3
-            }
-            if tokens & cand_tokens:
-                return entry
-        return None
-        
     # Real Bangalore hospitals as a reliable seed list — used when Overpass is slow/unavailable
     BANGALORE_HOSPITALS_SEED = [
         {"id": "blr-001", "name": "Manipal Hospital (Old Airport Road)",     "lat": 12.9591, "lng": 77.6469},
@@ -340,14 +357,18 @@ class HospitalIntelligenceAgent:
         except Exception as e:
             logger.warning("Overpass fetch failed (%s) — using seed list", e)
 
-        # Merge: prefer live data, fill gaps from seed list
-        seen_names = {h["name"].lower() for h in live_hospitals}
-        for seed in self.BANGALORE_HOSPITALS_SEED:
-            if not any(seed["name"].lower() in n or n in seed["name"].lower() for n in seen_names):
-                live_hospitals.append(seed)
-
-        if not live_hospitals:
-            live_hospitals = list(self.BANGALORE_HOSPITALS_SEED)
+        # Merge by identity, not by name. Every curated hospital is always in
+        # the catalogue under its own id and coordinate. An OSM entry that is
+        # one of them (same name and within OSM_MATCH_RADIUS_M) is dropped as a
+        # duplicate; any other OSM entry is kept as an unclassified facility at
+        # its own position. Previously an OSM node named "Manipal Hospital"
+        # removed every Manipal branch by substring and took one branch's
+        # profile and position.
+        merged = [dict(seed) for seed in self.BANGALORE_HOSPITALS_SEED]
+        for h in live_hospitals:
+            if self._curated_for_osm(h["name"], h["lat"], h["lng"]) is None:
+                merged.append(h)
+        live_hospitals = merged
 
         # ------------------------------------------------------------------
         # Enrichment. Two clearly separated provenance tiers:
@@ -363,14 +384,11 @@ class HospitalIntelligenceAgent:
 
         for h in live_hospitals:
             hid = h["id"]
-            profile = self._match_curated(hid, h["name"])
+            profile = self._load_capabilities().get(hid)
 
             if profile:
                 curated_hits += 1
-                curated_id = next(
-                    (k for k, v in (self._capabilities or {}).items() if v is profile),
-                    None,
-                )
+                curated_id = hid
                 caps = dict(profile["capabilities"])
                 beds_total = profile["beds_total"]
                 icu_total = profile["icu_total"]
@@ -408,10 +426,16 @@ class HospitalIntelligenceAgent:
                     "conservative modelled estimate."
                 )
 
-            # Live occupancy has no data source anywhere. Always simulated.
+            # No hospital feed exists. Without an ER-desk entry the bed and ICU
+            # figures are illustrative only (shown as simulated, never scored).
             occupancy = 0.55 + self._deterministic_float(hid, "avail") * 0.35
             beds_available = max(0, int(beds_total * (1.0 - occupancy)))
             icu_available = max(0, int(icu_total * (1.0 - occupancy)))
+            availability_provenance = "simulated"
+            reported = self._reported_beds.get(curated_id) if curated_id else None
+            if reported is not None:
+                beds_available = min(reported, beds_total)
+                availability_provenance = "operator-reported"
 
             # An ER on divert is genuinely removed from emergency routing -
             # not merely annotated - which is what the terminal promises.
@@ -442,7 +466,7 @@ class HospitalIntelligenceAgent:
                 "specialists": specialists,
                 "capabilities": caps,
                 "capability_provenance": capability_provenance,
-                "availability_provenance": "simulated",
+                "availability_provenance": availability_provenance,
                 "note": note,
             })
 
@@ -482,11 +506,12 @@ class HospitalIntelligenceAgent:
             others.append(h)
 
         deduped: list[dict[str, Any]] = list(by_curated.values())
-        curated_names = {_normalise_name(n) for n in by_curated}
 
         for h in others:
             norm = _normalise_name(h["name"])
-            if not norm or norm in curated_names:
+            # A curated namesake is a duplicate only nearby (checked below);
+            # the identity matcher has already merged anything within 1 km.
+            if not norm:
                 continue
             duplicate = False
             for kept in deduped:
@@ -526,6 +551,14 @@ class HospitalIntelligenceAgent:
                 return key
         return None
 
+    def set_reported_beds(self, key: str, beds_available: int | None) -> None:
+        """Record (or clear, with None) the available beds an ER desk entered."""
+        if beds_available is None:
+            self._reported_beds.pop(key, None)
+        else:
+            self._reported_beds[key] = beds_available
+        self._fetch_cache.clear()
+
     def set_divert(self, identifier: str, on_divert: bool) -> str | None:
         """Put a facility on or off divert. Returns the curated key, or None."""
         key = self.resolve_key(identifier)
@@ -539,7 +572,7 @@ class HospitalIntelligenceAgent:
         self._fetch_cache.clear()
         logger.info(
             "Hospital %s (%s) is now %s",
-            key, self._capabilities[key]["name"],
+            log_safe(key), log_safe(self._capabilities[key]["name"]),
             "ON DIVERT - excluded from emergency routing" if on_divert else "accepting",
         )
         return key
@@ -554,8 +587,9 @@ class HospitalIntelligenceAgent:
         weights_label = etype if etype in WEIGHT_TABLES else "general"
 
         logger.info(
-            "Ranking hospitals for %s emergency at [%.4f, %.4f] using '%s' weights",
-            etype, request.incident_location.lat, request.incident_location.lng, weights_label
+            "Ranking hospitals for %s emergency at [%s, %s] using '%s' weights",
+            log_safe(etype), log_safe(f"{request.incident_location.lat:.4f}"),
+            log_safe(f"{request.incident_location.lng:.4f}"), log_safe(weights_label),
         )
 
         hospitals = await self._fetch_live_hospitals(request.incident_location.lat, request.incident_location.lng)
@@ -576,9 +610,16 @@ class HospitalIntelligenceAgent:
             if excluded:
                 logger.info(
                     "Excluded %d non-receiving facilities for %s emergency",
-                    excluded, etype,
+                    excluded, log_safe(etype),
                 )
-            hospitals = eligible or hospitals
+            if not eligible:
+                # Every candidate is on divert or not an emergency department.
+                # Recommending one anyway only produced a plan that approval
+                # then refused for each hospital.
+                raise NoHospitalCandidatesError(
+                    f"No hospital is currently accepting patients for a {etype} emergency"
+                )
+            hospitals = eligible
 
         # Specialty-centre bypass gate (see _CAPABILITY_GATE).
         gate = _CAPABILITY_GATE.get(etype)
@@ -593,7 +634,7 @@ class HospitalIntelligenceAgent:
                 logger.info(
                     "Specialty bypass: %d of %d facilities meet %s >= %.2f "
                     "for %s - restricting candidates",
-                    len(qualified), len(hospitals), factor, threshold, etype,
+                    len(qualified), len(hospitals), log_safe(factor), threshold, log_safe(etype),
                 )
                 hospitals = qualified
                 gate_applied = True
@@ -614,7 +655,13 @@ class HospitalIntelligenceAgent:
                 hosp["lat"], hosp["lng"]
             )
 
-            bed_score = (hosp["beds_available"] / hosp["beds_total"] if hosp["beds_total"] > 0 else 0.0)
+            # Only a bed count an ER desk actually entered may move the ranking.
+            # Otherwise every hospital gets the same neutral value, so generated
+            # figures cannot decide the recommendation.
+            if hosp.get("availability_provenance") == "operator-reported" and hosp["beds_total"] > 0:
+                bed_score = hosp["beds_available"] / hosp["beds_total"]
+            else:
+                bed_score = _NEUTRAL_BED_SCORE
 
             scores: dict[str, float] = {
                 "travel_time": _travel_time_score(dist),
@@ -656,18 +703,14 @@ class HospitalIntelligenceAgent:
 
         entries.sort(key=lambda e: e.score, reverse=True)
 
-        # Guard: if no hospitals matched (e.g. all on divert, or graph empty),
-        # return the full unfiltered list so the dispatcher always sees options.
+        # Guard: nothing to rank (e.g. every facility on divert, or an empty
+        # catalogue). An empty HospitalRankingResponse is invalid, so raise a
+        # dedicated error: /rank maps it to 503 and the incident pipeline
+        # marks the incident failed with a readable reason.
         if not entries:
-            logger.warning(
-                "Hospital ranking produced zero entries for %s — returning unfiltered fallback",
-                request.emergency_type,
-            )
-            return HospitalRankingResponse(
-                ranked_hospitals=[],
-                emergency_type=request.emergency_type,
-                weights_used="fallback-no-candidates",
-                data_freshness=DataFreshness.STALE,
+            logger.warning("Hospital ranking produced zero candidates for %s", log_safe(etype))
+            raise NoHospitalCandidatesError(
+                f"No hospital is currently accepting patients for a {etype} emergency"
             )
 
         # ------------------------------------------------------------------
@@ -679,7 +722,7 @@ class HospitalIntelligenceAgent:
         # every candidate would take ~45s, so only the shortlist is upgraded.
         # ------------------------------------------------------------------
         shortlist = entries[:_ROAD_ETA_SHORTLIST]
-        upgraded = self._rerank_on_road_eta(
+        upgraded = await asyncio.to_thread(self._rerank_on_road_eta,
             shortlist, request.incident_location, weights,
         )
 

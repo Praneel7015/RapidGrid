@@ -19,7 +19,13 @@ const ROLE_LABEL = {
   hospital: 'ER desk',
 };
 
-export default function LiveEmergencyChat({
+export default function LiveEmergencyChat(props) {
+  // Scope recordings and in-flight sends as well as visible messages to the
+  // incident, even when a caller reuses this component without its own key.
+  return <IncidentChannel key={props.incidentId} {...props} />;
+}
+
+function IncidentChannel({
   incidentId,
   senderRole = 'citizen',
   senderName,
@@ -30,7 +36,11 @@ export default function LiveEmergencyChat({
   const [text, setText] = useState('');
   const [transport, setTransport] = useState('connecting');
   const socket = useRef(null);
+  const following = useRef(true);
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState(null);
   const stream = useRef(null);
+  const channelGeneration = useRef(0);
   const speech = useSpeechToText({ lang: 'en-IN' });
 
   const displayName = senderName ?? ROLE_LABEL[senderRole] ?? 'User';
@@ -44,22 +54,29 @@ export default function LiveEmergencyChat({
 
   const scrollDown = useCallback(() => {
     const el = stream.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (el && following.current) el.scrollTop = el.scrollHeight;
   }, []);
 
   useEffect(scrollDown, [messages, scrollDown]);
 
   useEffect(() => {
     if (!incidentId) return;
+    channelGeneration.current += 1;
     let cancelled = false;
+    setMessages([]);
+    setText('');
+    setSending(false);
+    setSendError(null);
+    following.current = true;
     const load = async () => {
       try {
         const res = await fetch(`/api/chat/${incidentId}/messages`);
-        if (!res.ok) return;
+        if (!res.ok) throw new Error();
         const data = await res.json();
         if (!cancelled) {
           // Merge incoming messages rather than replacing — prevents a WS
           // message from disappearing if the poll fires before the server persists it.
+          if (socket.current?.readyState !== WebSocket.OPEN) setTransport('polling');
           const incoming = data.messages ?? [];
           setMessages((prev) => {
             const seen = new Set(prev.map((m) => m.id));
@@ -73,13 +90,14 @@ export default function LiveEmergencyChat({
     };
     load();
     const timer = setInterval(load, 3000);
-    return () => { cancelled = true; clearInterval(timer); };
+    return () => { cancelled = true; channelGeneration.current += 1; clearInterval(timer); };
   }, [incidentId]);
 
   useEffect(() => {
     if (!incidentId) return;
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     let ws;
+    let cancelled = false;
     try {
       ws = new WebSocket(`${proto}//${window.location.host}/ws/chat/${incidentId}`);
     } catch {
@@ -88,9 +106,10 @@ export default function LiveEmergencyChat({
     }
     socket.current = ws;
     ws.onopen = () => setTransport('live');
-    ws.onclose = () => setTransport('polling');
+    ws.onclose = () => { if (!cancelled) setTransport('polling'); };
     ws.onerror = () => setTransport('polling');
     ws.onmessage = (event) => {
+      if (cancelled) return;
       try {
         const msg = JSON.parse(event.data);
         setMessages((prev) =>
@@ -107,6 +126,7 @@ export default function LiveEmergencyChat({
       } catch { /* non-JSON frame */ }
     };
     return () => {
+      cancelled = true;
       ws.close();
       socket.current = null;
     };
@@ -114,9 +134,15 @@ export default function LiveEmergencyChat({
 
   const send = async (e) => {
     e?.preventDefault();
-    speech.stop();
-    const body = text.trim();
-    if (!body || !incidentId) return;
+    if (!incidentId || sending) return;
+    setSending(true);
+    const generation = channelGeneration.current;
+    const spoken = await speech.finish();
+    if (channelGeneration.current !== generation) return;
+    const body = `${text} ${spoken}`.trim();
+    if (!body) { setSending(false); return; }
+    setSendError(null);
+    following.current = true;
     setText('');
 
     const payload = {
@@ -134,8 +160,11 @@ export default function LiveEmergencyChat({
       });
       if (!res.ok) throw new Error();
     } catch {
+      setSendError('Message was not sent. Your draft is restored; try again.');
       setTransport('offline');
       setText(body);
+    } finally {
+      setSending(false);
     }
   };
 
@@ -160,9 +189,10 @@ export default function LiveEmergencyChat({
   }
 
   return (
-    <Panel className="flex flex-col overflow-hidden">
+    <Panel className="flex min-w-0 flex-col overflow-hidden">
       <PanelHead
         label="Incident channel"
+        className="flex-wrap"
         right={
           <div className="flex flex-wrap items-center justify-end gap-1.5">
             {callTargets.map((t) => (
@@ -175,7 +205,9 @@ export default function LiveEmergencyChat({
         }
       />
 
-      <div ref={stream} className="flex-1 space-y-2.5 overflow-y-auto px-4 py-3" style={{ height }}>
+      <div ref={stream} role="log" aria-label="Incident messages" aria-live="polite" tabIndex={0}
+        onScroll={() => { const el = stream.current; following.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48; }}
+        className="min-h-0 shrink-0 space-y-2.5 overflow-y-auto overscroll-contain px-4 py-3" style={{ height }}>
         {messages.length === 0 ? (
           <p className="py-8 text-center text-[12px] text-text-faint">
             No messages yet. Anyone working this incident can write here — or dictate.
@@ -186,14 +218,14 @@ export default function LiveEmergencyChat({
             return (
               <div key={m.id ?? i} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
                 <div className={`max-w-[82%] ${mine ? 'text-right' : ''}`}>
-                  <div className="mb-1 flex items-center gap-1.5 t-meta uppercase tracking-[0.1em] text-text-faint">
+                  <div className="mb-1 flex flex-wrap items-center gap-1.5 t-meta uppercase tracking-[0.1em] text-text-faint">
                     <span className="font-bold">
                       {ROLE_LABEL[m.sender_role] ?? m.sender_role}
                     </span>
                     {m.timestamp && <span>{m.timestamp}</span>}
                   </div>
                   <div
-                    className={`inline-block rounded-sm border px-3 py-2 text-left text-[12.5px] leading-relaxed ${
+                    className={`inline-block [overflow-wrap:anywhere] whitespace-pre-wrap rounded-sm border px-3 py-2 text-left text-[12.5px] leading-relaxed ${
                       mine
                         ? 'border-ink bg-ink text-on-ink'
                         : 'border-rule bg-paper-sunk text-text'
@@ -208,11 +240,17 @@ export default function LiveEmergencyChat({
         )}
       </div>
 
-      {speech.error && (
-        <p className="border-t border-rule px-3 pt-2 text-[12px] leading-relaxed text-critical">{speech.error}</p>
-      )}
+      {sendError && <p role="alert" className="px-3 py-2 text-xs text-critical">{sendError}</p>}
+      {/* Always mounted, so a screen reader announces the first error too. */}
+      <div role="status">
+        {speech.error && (
+          <p className="border-t border-rule px-3 pt-2 text-[12px] leading-relaxed text-critical">{speech.error}</p>
+        )}
+      </div>
       <form onSubmit={send} className="flex items-center gap-2 border-t border-rule p-2.5">
         <input
+          aria-label="Message to incident channel"
+          disabled={sending}
           value={speech.listening && speech.interim ? `${text} ${speech.interim}`.trim() : text}
           onChange={(e) => setText(e.target.value)}
           placeholder={
@@ -234,7 +272,7 @@ export default function LiveEmergencyChat({
         />
         <button
           type="submit"
-          disabled={!text.trim()}
+          disabled={sending || (!text.trim() && !speech.listening && speech.phase === 'idle')}
           aria-label="Send message"
           className="tap grid h-11 w-11 shrink-0 place-items-center rounded-sm border border-ink bg-signal text-ink transition-colors hover:bg-ink hover:text-signal disabled:opacity-40 lg:h-9 lg:w-9"
         >

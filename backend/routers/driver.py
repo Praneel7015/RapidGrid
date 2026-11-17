@@ -1,188 +1,219 @@
-# Driver Router for live Unified React App
+"""Driver assignments and validated pickup/transport transitions."""
 from __future__ import annotations
+
+import asyncio
+from typing import Literal
+
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
-from routers.incident import ACTIVE_INCIDENTS, save_db
+from pydantic import BaseModel, Field
+
+from models.schemas import Coordinate, RouteRequest
+from routers.incident import (
+    ACTIVE_INCIDENTS, _INCIDENTS_LOCK, commit, required_units, route_agent, snapshot, unit_statuses,
+)
 
 router = APIRouter(prefix="/api/driver", tags=["Driver Queue"])
 
+
 class ClaimPayload(BaseModel):
     incident_id: str
-    driver_id: str = "drv-11"
-    unit_type: str = "primary"
+    driver_id: str = Field(default="drv-11", min_length=1, max_length=100)
+    unit_type: Literal["primary", "ambulance"] = "primary"
 
-@router.get("/active")
-async def get_active_dispatches():
-    active_list = []
-    for inc in ACTIVE_INCIDENTS:
-        status = inc.get("status")
-        if status in ["dispatched", "awaiting_dispatcher_approval", "processing"]:
-            cit_view = inc.get("citizen_view") or {}
-            act_plan = inc.get("action_plan") or {}
-            rec_hosp = act_plan.get("recommended_hospital") or {}
-            rec_route = act_plan.get("recommended_route") or {}
-
-            route_coords = cit_view.get("route_coordinates") or []
-            if not route_coords and hasattr(rec_route, "coordinates") and rec_route.coordinates:
-                route_coords = [{"lat": c.lat, "lng": c.lng} for c in rec_route.coordinates]
-
-            active_list.append({
-                "incident_id": inc["incident_id"],
-                "status": inc.get("status"),
-                "emergency_type": inc.get("emergency_type") or cit_view.get("emergency_type") or "General Emergency",
-                "severity": inc.get("severity") or cit_view.get("severity") or 0.7,
-                "hospital_name": cit_view.get("hospital_name") or rec_hosp.get("name") or "Nearest Hospital",
-                "hospital_location": cit_view.get("hospital_location") or {"lat": 12.9716, "lng": 77.5946},
-                "origin": cit_view.get("origin") or {"lat": 12.9756, "lng": 77.6068},
-                "eta_minutes": cit_view.get("eta_minutes") or 7,
-                "distance_meters": cit_view.get("distance_meters") or 2400,
-                "route_coordinates": route_coords,
-                "hospital": rec_hosp,
-                "citizen_text": inc.get("citizen_text") or inc.get("details") or "Emergency reported by citizen.",
-                "details": inc.get("details") or inc.get("citizen_text") or "Emergency reported by citizen.",
-                "vehicle_required": inc.get("vehicle_required") or "Ambulance",
-                "include_ambulance_backup": inc.get("include_ambulance_backup") or cit_view.get("include_ambulance_backup") or False,
-                "assigned_driver": inc.get("assigned_driver"),
-                "driver_claimed": inc.get("driver_claimed", False),
-                # Phone numbers needed by DriverDashboard LiveEmergencyChat contacts prop
-                "citizen_phone": inc.get("citizen_phone"),
-                "unit_phone": inc.get("unit_phone") or cit_view.get("unit_phone"),
-                "hospital_phone": inc.get("hospital_phone") or cit_view.get("hospital_phone"),
-                # Include the full citizen_view and action_plan so DriverDashboard
-                # can access phase1_hub, route_coordinates, hospital_name, etc.
-                "citizen_view": cit_view,
-                "action_plan": inc.get("action_plan") or {},
-            })
-    active_list.reverse() # Newest incidents first
-    return {"dispatches": active_list}
-
-@router.post("/claim")
-async def claim_dispatch(payload: ClaimPayload):
-    for inc in ACTIVE_INCIDENTS:
-        if inc["incident_id"] == payload.incident_id:
-            existing_driver = inc.get("assigned_driver")
-            if existing_driver and existing_driver != payload.driver_id and inc.get("driver_claimed"):
-                raise HTTPException(status_code=409, detail=f"Already claimed by {existing_driver}")
-            
-            inc["assigned_driver"] = payload.driver_id
-            inc["driver_claimed"] = True
-            inc["status"] = "dispatched"
-            
-            unit_statuses = inc.get("unit_statuses") or {"primary": "dispatched", "ambulance": "dispatched"}
-            unit_statuses[payload.unit_type] = "dispatched"
-            inc["unit_statuses"] = unit_statuses
-            
-            if "citizen_view" in inc:
-                inc["citizen_view"]["status"] = "dispatched"
-                inc["citizen_view"]["unit_statuses"] = unit_statuses
-                
-            save_db()
-            return {"status": "claimed", "incident_id": payload.incident_id, "driver_id": payload.driver_id, "unit_statuses": unit_statuses}
-    raise HTTPException(status_code=404, detail="Incident not found")
 
 class HospitalChangePayload(BaseModel):
     incident_id: str
     hospital_name: str
 
-BANGALORE_HOSPITAL_COORDS = {
-    "Aster CMI Hospital (Hebbal)": {"lat": 13.0473, "lng": 77.5908},
-    "MEDSTAR Speciality Hospital": {"lat": 13.0380, "lng": 77.5860},
-    "Manipal Hospital (Hebbal)": {"lat": 13.0420, "lng": 77.5920},
-    "Victoria Hospital": {"lat": 12.9634, "lng": 77.5746},
-    "Fortis Hospital (Cunningham Rd)": {"lat": 12.9880, "lng": 77.5940},
-    "Apollo Hospital (Seshadripuram)": {"lat": 12.9940, "lng": 77.5780}
-}
+
+def _incident(incident_id: str) -> dict:
+    incident = next((i for i in ACTIVE_INCIDENTS if i["incident_id"] == incident_id), None)
+    if incident is None:
+        raise HTTPException(status_code=404, detail="Incident not found")
+    return incident
+
+
+def _assignments(incident: dict) -> dict:
+    """Read old single-unit claims without assigning the backup to that driver."""
+    assignments = dict(incident.get("unit_assignments") or {})
+    if incident.get("driver_claimed") and incident.get("assigned_driver"):
+        assignments.setdefault("primary", incident["assigned_driver"])
+    return assignments
+
+
+def _require_driver(incident: dict, driver_id: str, unit_type: str) -> None:
+    if unit_type not in required_units(incident):
+        raise HTTPException(status_code=409, detail="No backup ambulance is assigned")
+    assigned = _assignments(incident).get(unit_type)
+    if assigned and assigned != driver_id:
+        raise HTTPException(status_code=409, detail="This unit is assigned to another driver")
+
+
+def _claim(incident: dict, driver_id: str, unit_type: str) -> None:
+    assignments = _assignments(incident)
+    assignments[unit_type] = driver_id
+    incident["unit_assignments"] = assignments
+    if unit_type == "primary":
+        incident["assigned_driver"] = driver_id
+        incident["driver_claimed"] = True
+
+
+async def _route(origin: dict, destination: dict) -> dict:
+    """Use a real provider or offline path; never invent distance or travel time."""
+    try:
+        result = await asyncio.to_thread(
+            route_agent.compute_route,
+            RouteRequest(origin=Coordinate(**origin), destination=Coordinate(**destination)),
+        )
+        if result.confidence <= 0 or len(result.coordinates) < 2:
+            raise ValueError("No usable route")
+        return {
+            "route_coordinates": [{"lat": c.lat, "lng": c.lng} for c in result.coordinates],
+            "eta_minutes": max(1, int(result.eta // 60)),
+            "distance_meters": result.distance,
+            "route_degraded": False,
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Routing is unavailable; assignment has not changed") from exc
+
+
+@router.get("/active")
+async def get_active_dispatches():
+    # A driver must not act on a report before a dispatcher approves it.
+    from routers.hospital import destination_on_divert
+
+    async with _INCIDENTS_LOCK:
+        return {"dispatches": snapshot(_active_dispatches(destination_on_divert))}
+
+
+def _active_dispatches(destination_on_divert) -> list[dict]:
+    active = []
+    for incident in ACTIVE_INCIDENTS:
+        if incident.get("status") not in {"dispatched", "patient_picked_up"}:
+            continue
+        view = incident.get("citizen_view") or {}
+        states = unit_statuses(incident)
+        plan = incident.get("action_plan") or {}
+        hospital = plan.get("recommended_hospital") or {}
+        active.append({
+            **incident,
+            "unit_statuses": states,
+            "unit_assignments": _assignments(incident),
+            "driver_stage": "hospital" if incident["status"] == "patient_picked_up" else "pickup",
+            "hospital_name": view.get("hospital_name") or hospital.get("name"),
+            "hospital_location": view.get("hospital_location"),
+            "origin": view.get("origin") or incident.get("location"),
+            "eta_minutes": view.get("eta_minutes"),
+            "distance_meters": view.get("distance_meters"),
+            "route_coordinates": view.get("route_coordinates") or [],
+            "hospital": hospital,
+            "citizen_view": view,
+            "action_plan": plan,
+            # The destination may stop accepting after approval; the driver must see it.
+            "destination_on_divert": destination_on_divert(incident),
+        })
+    return list(reversed(active))
+
+
+@router.post("/claim")
+async def claim_dispatch(payload: ClaimPayload):
+    async with _INCIDENTS_LOCK:
+        incident = _incident(payload.incident_id)
+        if incident.get("status") not in {"dispatched", "patient_picked_up"}:
+            raise HTTPException(status_code=409, detail="Dispatcher approval is required before claiming a call")
+        _require_driver(incident, payload.driver_id, payload.unit_type)
+        if unit_statuses(incident)[payload.unit_type] == "arrived":
+            raise HTTPException(status_code=409, detail="This unit has already completed its assignment")
+        _claim(incident, payload.driver_id, payload.unit_type)
+        # Claiming again must never rewind a case already being transported.
+        await commit(incident)
+        return {"status": "claimed", "incident_id": payload.incident_id, "driver_id": payload.driver_id,
+                "unit_type": payload.unit_type, "unit_assignments": incident["unit_assignments"],
+                "unit_statuses": unit_statuses(incident)}
+
 
 @router.post("/arrived_pickup")
 async def arrived_pickup(payload: ClaimPayload):
-    from routers.incident import route_agent, Coordinate, RouteRequest
-    for inc in ACTIVE_INCIDENTS:
-        if inc["incident_id"] == payload.incident_id:
-            inc["driver_stage"] = "hospital"
-            inc["status"] = "patient_picked_up"
-            
-            # Recompute live route from Patient -> Hospital
-            cit_view = inc.get("citizen_view") or {}
-            origin = cit_view.get("origin") or inc.get("location") or {"lat": 12.9756, "lng": 77.6068}
-            hosp_loc = cit_view.get("hospital_location") or {"lat": 13.0473, "lng": 77.5908}
+    async with _INCIDENTS_LOCK:
+        incident = _incident(payload.incident_id)
+        _require_driver(incident, payload.driver_id, payload.unit_type)
+        states = unit_statuses(incident)
+        medical = payload.unit_type == "ambulance" or (incident.get("vehicle_required") or "Ambulance") in {"Ambulance", "Medical"}
+        if not medical:
+            raise HTTPException(status_code=409, detail="A nonmedical unit confirms arrival at the scene instead of patient pickup")
+        if incident.get("status") not in {"dispatched", "patient_picked_up"}:
+            raise HTTPException(status_code=409, detail="Only a dispatched call can be picked up")
+        if states[payload.unit_type] == "patient_picked_up":
+            return {"status": incident["status"], "unit_statuses": states,
+                    "citizen_view": incident.get("citizen_view", {})}
+        if states[payload.unit_type] != "dispatched":
+            raise HTTPException(status_code=409, detail="This unit has already completed its assignment")
+        view = dict(incident.get("citizen_view") or {})
+        origin = view.get("origin") or incident.get("location")
+        destination = view.get("hospital_location")
+        if not origin or not destination:
+            raise HTTPException(status_code=409, detail="Approved patient and hospital locations are required")
+    route = await _route(origin, destination)
+    async with _INCIDENTS_LOCK:
+        incident = _incident(payload.incident_id)
+        _require_driver(incident, payload.driver_id, payload.unit_type)
+        states = unit_statuses(incident)
+        if incident.get("status") not in {"dispatched", "patient_picked_up"} or states[payload.unit_type] != "dispatched":
+            raise HTTPException(status_code=409, detail="The incident changed while routing; refresh the call")
+        view = dict(incident.get("citizen_view") or {})
+        # If dispatch changed the destination while routing, do not store an obsolete path.
+        if view.get("hospital_location") != destination:
+            raise HTTPException(status_code=409, detail="The destination changed; retry pickup confirmation")
+        view.update(route)
+        states[payload.unit_type] = "patient_picked_up"
+        view["unit_statuses"] = states
+        view.update({"status": "patient_picked_up", "message": f"Patient picked up. Transporting to {view.get('hospital_name', 'Hospital ER')}."})
+        incident.update({"driver_stage": "hospital", "status": "patient_picked_up", "citizen_view": view,
+                         "unit_statuses": states})
+        _claim(incident, payload.driver_id, payload.unit_type)
+        await commit(incident)
+        from routers.hospital import destination_on_divert
+        return {"status": "patient_picked_up", "citizen_view": view, "unit_statuses": states,
+                "unit_assignments": incident["unit_assignments"],
+                "destination_on_divert": destination_on_divert(incident)}
 
-            # Guard against dicts that are missing lat/lng keys (e.g. loaded
-            # from an older DB record written before these fields were added).
-            origin_lat = origin.get("lat") if isinstance(origin, dict) else 12.9756
-            origin_lng = origin.get("lng") if isinstance(origin, dict) else 77.6068
-            hosp_lat   = hosp_loc.get("lat") if isinstance(hosp_loc, dict) else 13.0473
-            hosp_lng   = hosp_loc.get("lng") if isinstance(hosp_loc, dict) else 77.5908
-            if origin_lat is None: origin_lat = 12.9756
-            if origin_lng is None: origin_lng = 77.6068
-            if hosp_lat is None:   hosp_lat   = 13.0473
-            if hosp_lng is None:   hosp_lng   = 77.5908
-
-            try:
-                p2_route = route_agent.compute_route(RouteRequest(
-                    origin=Coordinate(lat=origin_lat, lng=origin_lng),
-                    destination=Coordinate(lat=hosp_lat, lng=hosp_lng)
-                ))
-                new_coords = [{"lat": c.lat, "lng": c.lng} for c in p2_route.coordinates]
-                eta_mins = max(1, int(p2_route.eta // 60))
-                dist_meters = p2_route.distance
-            except Exception as e:
-                new_coords = [{"lat": origin_lat, "lng": origin_lng}, {"lat": hosp_lat, "lng": hosp_lng}]
-                eta_mins = 6
-                dist_meters = 2800
-
-            cit_view["route_coordinates"] = new_coords
-            cit_view["eta_minutes"] = eta_mins
-            cit_view["distance_meters"] = dist_meters
-            cit_view["message"] = f"Patient picked up. Transporting to {cit_view.get('hospital_name', 'Hospital ER')}."
-            cit_view["status"] = "patient_picked_up"
-            inc["citizen_view"] = cit_view
-            save_db()
-            return {"status": "patient_picked_up", "citizen_view": cit_view}
-    raise HTTPException(status_code=404, detail="Incident not found")
 
 @router.post("/change_hospital")
 async def change_hospital(payload: HospitalChangePayload):
-    from routers.incident import route_agent, Coordinate, RouteRequest
-    for inc in ACTIVE_INCIDENTS:
-        if inc["incident_id"] == payload.incident_id:
-            h_coords = BANGALORE_HOSPITAL_COORDS.get(payload.hospital_name) or {"lat": 13.0473, "lng": 77.5908}
-            
-            cit_view = inc.get("citizen_view") or {}
-            origin = cit_view.get("origin") or inc.get("location") or {"lat": 12.9756, "lng": 77.6068}
+    from agents.hospital_intelligence import hospital_agent
+    from routers.hospital import _resolve
 
-            # Guard against dicts missing lat/lng (stale DB records).
-            origin_lat = origin.get("lat") if isinstance(origin, dict) else 12.9756
-            origin_lng = origin.get("lng") if isinstance(origin, dict) else 77.6068
-            h_lat      = h_coords.get("lat") if isinstance(h_coords, dict) else 13.0473
-            h_lng      = h_coords.get("lng") if isinstance(h_coords, dict) else 77.5908
-            if origin_lat is None: origin_lat = 12.9756
-            if origin_lng is None: origin_lng = 77.6068
-            if h_lat is None:      h_lat      = 13.0473
-            if h_lng is None:      h_lng      = 77.5908
-            
-            # Recompute live Google route from Patient Location -> New Selected Hospital
-            try:
-                new_route = route_agent.compute_route(RouteRequest(
-                    origin=Coordinate(lat=origin_lat, lng=origin_lng),
-                    destination=Coordinate(lat=h_lat, lng=h_lng)
-                ))
-                new_coords = [{"lat": c.lat, "lng": c.lng} for c in new_route.coordinates]
-                eta_mins = max(1, int(new_route.eta // 60))
-                dist_meters = new_route.distance
-            except Exception as e:
-                new_coords = [{"lat": origin_lat, "lng": origin_lng}, {"lat": h_lat, "lng": h_lng}]
-                eta_mins = 7
-                dist_meters = 3200
-
-            cit_view["hospital_name"] = payload.hospital_name
-            cit_view["hospital_location"] = h_coords
-            cit_view["route_coordinates"] = new_coords
-            cit_view["eta_minutes"] = eta_mins
-            cit_view["distance_meters"] = dist_meters
-            cit_view["message"] = f"Rerouted by driver to {payload.hospital_name}."
-            
-            inc["hospital_name"] = payload.hospital_name
-            inc["citizen_view"] = cit_view
-            save_db()
-            return {"status": "rerouted", "citizen_view": cit_view}
-    raise HTTPException(status_code=404, detail="Incident not found")
+    async with _INCIDENTS_LOCK:
+        incident = _incident(payload.incident_id)
+        if incident.get("status") != "patient_picked_up":
+            raise HTTPException(status_code=409, detail="A destination can be changed only during transport")
+        candidates = (incident.get("action_plan") or {}).get("all_hospitals") or []
+        hospital = next((h for h in candidates if payload.hospital_name in {h.get("name"), h.get("hospital_id")}), None)
+        if not hospital or not hospital.get("location"):
+            raise HTTPException(status_code=422, detail="Choose a hospital from the incident's reviewed destinations")
+        canonical = _resolve(str(hospital.get("hospital_id", ""))) or _resolve(hospital["name"])
+        if canonical in hospital_agent.diverted:
+            raise HTTPException(status_code=409, detail="That hospital is on divert; select another destination")
+        view = dict(incident.get("citizen_view") or {})
+        origin = view.get("origin") or incident.get("location")
+        old_destination = view.get("hospital_location")
+    route = await _route(origin, hospital["location"])
+    async with _INCIDENTS_LOCK:
+        incident = _incident(payload.incident_id)
+        if incident.get("status") != "patient_picked_up" or (incident.get("citizen_view") or {}).get("hospital_location") != old_destination:
+            raise HTTPException(status_code=409, detail="The incident changed while routing; refresh the call")
+        if canonical in hospital_agent.diverted:
+            raise HTTPException(status_code=409, detail="The hospital went on divert; select another destination")
+        from routers.incident import _hospital_phone
+        view = dict(incident.get("citizen_view") or {})
+        view.update(route)
+        view.update({"hospital_name": hospital["name"], "hospital_location": hospital["location"],
+                     "hospital_phone": _hospital_phone(hospital["name"]),
+                     "message": f"Rerouted by driver to {hospital['name']}."})
+        incident.update({"hospital_name": hospital["name"], "approved_hospital_id": canonical or hospital.get("hospital_id"),
+                         "hospital_phone": view["hospital_phone"], "citizen_view": view})
+        await commit(incident)
+        from routers.hospital import destination_on_divert
+        return {"status": "rerouted", "citizen_view": view, "hospital_name": hospital["name"],
+                "hospital_phone": view["hospital_phone"],
+                "destination_on_divert": destination_on_divert(incident)}

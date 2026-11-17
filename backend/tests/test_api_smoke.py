@@ -56,6 +56,7 @@ def test_health_reports_status_and_routing(client):
 
 def test_chat_send_and_history_have_message_ids(client):
     inc_id = "INC-test"
+    incident_router.ACTIVE_INCIDENTS.append({"incident_id": inc_id, "status": "processing"})
     send = client.post(
         f"/api/chat/{inc_id}/send",
         json={
@@ -79,6 +80,7 @@ def test_chat_send_and_history_have_message_ids(client):
 
 
 def test_chat_rejects_empty_message(client):
+    incident_router.ACTIVE_INCIDENTS.append({"incident_id": "INC-empty", "status": "processing"})
     res = client.post(
         "/api/chat/INC-empty/send",
         json={
@@ -128,8 +130,8 @@ def test_pipeline_failure_marks_incident_failed(client):  # noqa: ARG001
     )
     # save_db() writes to the temp DB_FILE (redirected by _reset_disk_db),
     # so no real patch needed — but we keep one to avoid unnecessary I/O.
-    with patch.object(incident_router, "save_db"):
-        incident_router._mark_failed("INC-fail", RuntimeError("fusion exploded"))
+    import asyncio
+    asyncio.run(incident_router._mark_failed("INC-fail", RuntimeError("fusion exploded")))
     inc = incident_router.ACTIVE_INCIDENTS[0]
     assert inc["status"] == "failed"
     assert "fusion exploded" in inc["error"]

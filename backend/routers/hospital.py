@@ -1,201 +1,171 @@
-"""
-Hospital Intelligence API router.
-
-Endpoints:
-  POST /api/hospital/rank            — rank hospitals for an emergency
-  GET  /api/hospital/list            — list all known hospitals
-  GET  /api/hospital/{hospital_id}   — get details for one hospital
-"""
-
+"""Hospital recommendations, receiving queues and persisted operator overrides."""
 from __future__ import annotations
 
 import logging
 
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
 
-from agents.hospital_intelligence import hospital_agent
-from pydantic import BaseModel
-
+from agents.hospital_intelligence import NoHospitalCandidatesError, hospital_agent
 from models.schemas import HospitalRankingResponse, HospitalRequest
-
-
-class HospitalResourceUpdate(BaseModel):
-    """ER terminal toggling live resource availability."""
-    icu_available: bool
-    beds_available: int | None = None
-    note: str | None = None
-from routers.incident import ACTIVE_INCIDENTS
+from routers.incident import ACTIVE_INCIDENTS, _INCIDENTS_LOCK, persistence_path, snapshot, unit_statuses
+from logsafe import log_safe
+from storage import load_collection, save_collection
 
 logger = logging.getLogger("geoagentic.router.hospital")
-
 router = APIRouter(prefix="/api/hospital", tags=["Hospital Intelligence"])
 
 
-@router.post(
-    "/rank",
-    response_model=HospitalRankingResponse,
-    summary="Rank hospitals for an emergency by weighted resource availability",
-)
+class HospitalResourceUpdate(BaseModel):
+    """Legacy icu_available toggle controls whether a facility accepts new cases."""
+    # Omitted or null leaves the accepting/divert state unchanged.
+    icu_available: bool | None = None
+    beds_available: int | None = Field(default=None, ge=0)
+    note: str | None = Field(default=None, max_length=500)
+
+
+def _resolve(identifier: str) -> str | None:
+    """Resolve exact identifiers/names without matching another hospital's tokens."""
+    profiles = hospital_agent._load_capabilities()
+    if identifier in profiles:
+        return identifier
+    needle = identifier.strip().casefold()
+    for key, profile in profiles.items():
+        if profile["name"].casefold() == needle:
+            return key
+    for hospital in hospital_agent._hospitals:
+        if str(hospital.get("id")) == identifier and hospital.get("curated_id") in profiles:
+            return hospital["curated_id"]
+    return None
+
+
+def destination_on_divert(incident: dict) -> bool:
+    """True when the hospital this case is heading to has stopped accepting."""
+    assigned = incident.get("approved_hospital_id")
+    key = _resolve(str(assigned)) if assigned else None
+    if key is None:
+        name = (incident.get("citizen_view") or {}).get("hospital_name")
+        key = _resolve(name) if name else None
+    return key is not None and key in hospital_agent.diverted
+
+
+def restore_capacity() -> None:
+    """Reapply persisted diversion overrides during application startup."""
+    overrides = load_collection("hospital_capacity", {}, database=persistence_path())
+    for key, override in overrides.items():
+        if override.get("icu_available") is not None:
+            hospital_agent.set_divert(key, on_divert=not override["icu_available"])
+        if override.get("beds_available") is not None:
+            hospital_agent.set_reported_beds(key, override["beds_available"])
+
+
+def _details(key: str) -> dict:
+    profile = hospital_agent._load_capabilities()[key]
+    override = load_collection("hospital_capacity", {}, database=persistence_path()).get(key, {})
+    accepting = override.get("icu_available", key not in hospital_agent.diverted)
+    return {
+        "hospital_id": key,
+        "name": profile["name"],
+        "location": {"lat": profile.get("lat"), "lng": profile.get("lng")},
+        "capabilities": profile["capabilities"],
+        "beds_total": profile.get("beds_total"),
+        "beds_available": override.get("beds_available"),
+        "icu_available": accepting,
+        "accepting": accepting,
+        "on_divert": not accepting,
+        "availability_provenance": "operator-reported demo override" if override else "demo default; no hospital feed",
+        "note": override.get("note"),
+    }
+
+
+@router.post("/rank", response_model=HospitalRankingResponse)
 async def rank_hospitals(request: HospitalRequest) -> HospitalRankingResponse:
-    """
-    Run the Hospital Intelligence Agent for the given emergency.
-
-    Scores hospitals using the weight table for the specified
-    emergency_type (general / cardiac / trauma / stroke).  Returns the
-    full ranked list with per-factor score breakdowns and plain-language
-    reasoning for each hospital.
-
-    Never ranks by distance alone — this is the agent's core
-    differentiator.
-    """
-    result = await hospital_agent.publish_ranking(request)
-    return result
+    try:
+        return await hospital_agent.publish_ranking(request)
+    except NoHospitalCandidatesError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
-@router.get(
-    "/list",
-    summary="List all known hospitals with their capabilities",
-)
+@router.get("/list")
 async def list_hospitals():
-    """Return the full list of hospitals in the system (unranked)."""
-    hospitals = []
-    for h in hospital_agent._hospitals:
-        hospitals.append({
-            "hospital_id": h["id"],
-            "name": h["name"],
-            "location": {"lat": h["lat"], "lng": h["lng"]},
-            "icu_available": h["icu_available"],
-            "beds_total": h["beds_total"],
-            "beds_available": h["beds_available"],
-            "specialists": h["specialists"],
-            "capabilities": h["capabilities"],
-        })
+    hospitals = [_details(key) for key in hospital_agent._load_capabilities()]
     return {"hospitals": hospitals, "count": len(hospitals)}
 
 
-@router.get(
-    "/incoming/all",
-    summary="Return all active incoming emergency cases for the Hospital ER Desk",
-)
-async def get_all_incoming_cases():
-    """Return all active incoming emergency cases for the Hospital ER Desk."""
+def _incoming(hospital_id: str) -> list[dict]:
+    key = None if hospital_id == "all" else _resolve(hospital_id)
+    if hospital_id != "all" and key is None:
+        raise HTTPException(status_code=404, detail="Hospital not found")
     incoming = []
-    for inc in ACTIVE_INCIDENTS:
-        if inc.get("status") in ("dispatched", "awaiting_dispatcher_approval", "processing", "patient_picked_up"):
-            cit_view = inc.get("citizen_view") or {}
-            action_plan = inc.get("action_plan") or {}
-            rec_hosp = action_plan.get("recommended_hospital") or {}
-            hosp_name = cit_view.get("hospital_name") or rec_hosp.get("name") or "Nearest Hospital"
+    for incident in ACTIVE_INCIDENTS:
+        if incident.get("status") not in {"dispatched", "patient_picked_up"}:
+            continue
+        if (incident.get("vehicle_required") or "Ambulance") not in {"Ambulance", "Medical"} and not incident.get("include_ambulance_backup"):
+            continue
+        medical_unit = "primary" if (incident.get("vehicle_required") or "Ambulance") in {"Ambulance", "Medical"} else "ambulance"
+        if unit_statuses(incident).get(medical_unit) == "arrived":
+            continue
+        view = incident.get("citizen_view") or {}
+        recommendation = (incident.get("action_plan") or {}).get("recommended_hospital") or {}
+        assigned_id = incident.get("approved_hospital_id") or recommendation.get("hospital_id")
+        assigned_key = _resolve(str(assigned_id)) if assigned_id else None
+        hospital_name = view.get("hospital_name") or recommendation.get("name")
+        if assigned_key is None and hospital_name:
+            assigned_key = _resolve(hospital_name)
+        if hospital_id != "all" and assigned_key != key:
+            continue
+        incoming.append({
+            "incident_id": incident["incident_id"], "status": incident["status"],
+            "emergency_type": incident.get("emergency_type") or view.get("emergency_type") or "general",
+            "severity": incident.get("severity", view.get("severity", 0.5)),
+            "hospital_name": hospital_name, "eta_minutes": view.get("eta_minutes"),
+            "patient_summary": incident.get("details") or incident.get("citizen_text"),
+            "assigned_driver": (incident.get("unit_assignments") or {}).get(medical_unit) or (incident.get("assigned_driver") if medical_unit == "primary" else None),
+            "citizen_phone": incident.get("citizen_phone"),
+            "unit_phone": incident.get("unit_phone") or view.get("unit_phone"),
+            "destination_on_divert": destination_on_divert(incident),
+        })
+    return incoming
 
-            incoming.append({
-                "incident_id": inc["incident_id"],
-                "status": inc.get("status"),
-                "emergency_type": inc.get("emergency_type") or cit_view.get("emergency_type") or "General Emergency",
-                "severity": inc.get("severity") or cit_view.get("severity") or 0.7,
-                "hospital_name": hosp_name,
-                "eta_minutes": cit_view.get("eta_minutes") or 7,
-                "patient_summary": inc.get("details") or inc.get("citizen_text") or "Emergency reported by citizen.",
-                "assigned_driver": inc.get("assigned_driver", "AMB-IND-04"),
-                # Phone numbers needed by HospitalDashboard LiveEmergencyChat contacts prop
-                "citizen_phone": inc.get("citizen_phone"),
-                "unit_phone": inc.get("unit_phone") or cit_view.get("unit_phone"),
-            })
-    return {"incoming": incoming}
+
+@router.get("/incoming/all")
+async def get_all_incoming_cases():
+    async with _INCIDENTS_LOCK:
+        return {"incoming": snapshot(_incoming("all"))}
 
 
 @router.get("/{hospital_id}/incoming")
-async def get_incoming_cases(hospital_id: str, name: str = None):
-    """Hospital dashboard polls for incoming cases assigned specifically to this hospital."""
-    incoming = []
-    for inc in ACTIVE_INCIDENTS:
-        # Include patient_picked_up — that's when the hospital most needs to prepare
-        if inc.get("status") in ("dispatched", "awaiting_dispatcher_approval", "processing", "patient_picked_up", "completed"):
-            cit_view = inc.get("citizen_view") or {}
-            action_plan = inc.get("action_plan") or {}
-            rec_hosp = action_plan.get("recommended_hospital") or {}
-
-            hosp_name = cit_view.get("hospital_name")
-            if not hosp_name and isinstance(rec_hosp, dict):
-                hosp_name = rec_hosp.get("name")
-            elif not hosp_name and hasattr(rec_hosp, "name"):
-                hosp_name = rec_hosp.name
-            hosp_name = hosp_name or "Assigned Hospital"
-
-            rec_id = ""
-            if isinstance(rec_hosp, dict):
-                rec_id = rec_hosp.get("hospital_id", "")
-            elif hasattr(rec_hosp, "hospital_id"):
-                rec_id = getattr(rec_hosp, "hospital_id", "")
-
-            target_terms = [hospital_id.lower()]
-            if name:
-                target_terms.append(name.lower())
-
-            # Match by all, hospital_id, hospital_name, or name tokens
-            matches = (
-                hospital_id == 'all' or
-                rec_id.lower() == hospital_id.lower() or
-                any(term in hosp_name.lower() for term in target_terms if term) or
-                any(token in hosp_name.lower() for term in target_terms for token in term.split() if len(token) > 3)
-            )
-
-            # Fire and Police incidents without hospital transport do not clutter Hospital ER Desk
-            veh_req = inc.get("vehicle_required") or "Ambulance"
-            if matches and veh_req in ("Ambulance", "Medical"):
-                incoming.append({
-                    "incident_id": inc["incident_id"],
-                    "status": inc.get("status"),
-                    "emergency_type": inc.get("emergency_type") or cit_view.get("emergency_type") or "General Emergency",
-                    "severity": inc.get("severity") or cit_view.get("severity") or 0.7,
-                    "hospital_name": hosp_name,
-                    "eta_minutes": cit_view.get("eta_minutes") or 7,
-                    "patient_summary": inc.get("details") or inc.get("citizen_text") or "Emergency reported by citizen.",
-                    "assigned_driver": inc.get("assigned_driver", "AMB-UNIT-04"),
-                    # Phone numbers needed by HospitalDashboard LiveEmergencyChat contacts prop
-                    "citizen_phone": inc.get("citizen_phone"),
-                    "unit_phone": inc.get("unit_phone") or cit_view.get("unit_phone"),
-                })
-    return {"incoming": incoming}
+async def get_incoming_cases(hospital_id: str, name: str | None = None):
+    # Names in the query string never broaden the requested facility scope.
+    async with _INCIDENTS_LOCK:
+        return {"incoming": snapshot(_incoming(hospital_id))}
 
 
-@router.get(
-    "/{hospital_id}",
-    summary="Get details for a specific hospital",
-)
+@router.get("/{hospital_id}")
 async def get_hospital(hospital_id: str):
-    """
-    An ER desk setting its own capacity.
-
-    Putting a facility on divert removes it from the routing engine's candidate
-    list for new emergency calls - it is a real control, not an annotation.
-    Accepts a curated id (blr-005), an OSM id, or the hospital name, because
-    different parts of the app address hospitals differently.
-    """
-    key = hospital_agent.set_divert(hospital_id, on_divert=not update.icu_available)
+    key = _resolve(hospital_id)
     if key is None:
-        raise HTTPException(
-            status_code=404,
-            detail=(
-                f"No hospital matched '{hospital_id}'. Use a curated id "
-                f"(e.g. blr-005), an OSM id, or the full facility name."
-            ),
-        )
+        raise HTTPException(status_code=404, detail="Hospital not found")
+    return _details(key)
 
-    profile = hospital_agent._load_capabilities()[key]
-    logger.info(
-        "ER capacity update: %s -> %s",
-        profile["name"], "accepting" if update.icu_available else "on divert",
-    )
-    return {
-        "status": "updated",
-        "hospital_id": key,
-        "name": profile["name"],
-        "accepting": update.icu_available,
-        "on_divert": not update.icu_available,
-        "effect": (
-            "Excluded from routing for new emergency calls."
-            if not update.icu_available
-            else "Available for routing."
-        ),
-        "diverted_facilities": sorted(hospital_agent.diverted),
-    }
+
+@router.patch("/{hospital_id}/resources")
+async def update_hospital_resources(hospital_id: str, update: HospitalResourceUpdate):
+    key = _resolve(hospital_id)
+    if key is None:
+        raise HTTPException(status_code=404, detail="Choose a specific hospital before changing capacity")
+    total = hospital_agent._load_capabilities()[key].get("beds_total")
+    if update.beds_available is not None and total is not None and update.beds_available > total:
+        raise HTTPException(status_code=422, detail="Available beds cannot exceed total beds")
+    overrides = load_collection("hospital_capacity", {}, database=persistence_path())
+    changes = update.model_dump(exclude_unset=True)
+    if changes.get("icu_available") is None:
+        changes.pop("icu_available", None)
+    overrides[key] = {**overrides.get(key, {}), **changes}
+    save_collection("hospital_capacity", overrides, database=persistence_path())
+    if update.icu_available is not None:
+        hospital_agent.set_divert(key, on_divert=not update.icu_available)
+    if "beds_available" in update.model_fields_set:
+        hospital_agent.set_reported_beds(key, update.beds_available)
+    logger.info("Operator capacity override for %s: accepting=%s", log_safe(key), log_safe(update.icu_available))
+    return {"status": "updated", **_details(key), "diverted_facilities": sorted(hospital_agent.diverted)}

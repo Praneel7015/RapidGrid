@@ -221,6 +221,21 @@ class TestClinicalOutcome:
         assert e.within_target
         assert e.target_minutes == 90
 
+    def test_targets_apply_to_the_interval_each_guideline_defines(self):
+        stroke = {"name": "Stroke unit", "capabilities": {"neurology": 1.0}}
+        e = estimate("stroke", stroke, 0, 20 * 60)
+        # Door to needle is the in-hospital time, well under 60 min, although
+        # the whole call-to-needle estimate is over an hour.
+        assert e.total_minutes > 60
+        assert e.target_interval_minutes == pytest.approx(e.in_hospital_minutes, abs=0.1)
+        assert e.within_target
+        pci = {"name": "PCI centre", "capabilities": {"cardiology": 1.0}}
+        c = estimate("cardiac", pci, 30 * 60, 16 * 60)
+        assert c.target_interval_minutes == pytest.approx(
+            c.on_scene_minutes + c.to_hospital_minutes + c.in_hospital_minutes, abs=0.2)
+        trauma = estimate("trauma", {"name": "T", "capabilities": {"trauma_centre": 1.0}}, 10 * 60, 10 * 60)
+        assert trauma.target_interval_minutes == trauma.total_minutes
+
     def test_unknown_pathway_returns_none(self):
         """Better to say nothing than invent a clinical target."""
         assert estimate("general", {"name": "x", "capabilities": {}}, 60, 60) is None
@@ -328,18 +343,27 @@ class TestHospitalCoordinates:
 
 
 class TestRoutingRegression:
-    def test_cardiac_at_msrit_picks_the_hospital_next_door(self):
+    def test_cardiac_at_msrit_picks_the_hospital_next_door(self, monkeypatch):
         """
         End to end: the nearest capable hospital should win when it is 600 m
         away and every alternative is kilometres off.
         """
         import asyncio
+        import httpx
         from agents.hospital_intelligence import hospital_agent
         from agents.local_router import local_router
         from models.schemas import Coordinate, EmergencyType, HospitalRequest
 
         if not local_router.load():
             pytest.skip("road graph not built")
+
+        # No network: rank against the seed list, with a private catalogue cache.
+        async def _no_network(*_args, **_kwargs):
+            raise httpx.ConnectError("network disabled in tests")
+
+        monkeypatch.setattr(httpx.AsyncClient, "get", _no_network)
+        monkeypatch.setattr(hospital_agent, "_fetch_cache", {})
+        monkeypatch.setattr(hospital_agent, "_hospitals", [])
 
         res = asyncio.run(hospital_agent.rank_hospitals(HospitalRequest(
             incident_location=Coordinate(lat=13.0297, lng=77.5645),

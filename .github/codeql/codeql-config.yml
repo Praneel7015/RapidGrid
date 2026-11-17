@@ -1,0 +1,6 @@
+name: RapidGrid CodeQL config
+
+# Build output and installed packages only; all source is analysed.
+paths-ignore:
+  - frontend/dist
+  - "**/node_modules"
