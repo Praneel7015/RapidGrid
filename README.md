@@ -233,7 +233,10 @@ modelled values carry hatched badges and dotted underlines.
 ```
 
 Every incident is planned on the same city model, so a closure or a hospital
-divert changes every plan that follows, not only the one that caused it.
+divert can change the plans that follow, not only the one that caused it. A
+divert removes that hospital from every new plan. A closure changes hospital
+ranking, and dispatched routes too when they come from the offline router
+(with a Google Routes key, dispatched routes do not see drawn closures).
 
 ---
 
