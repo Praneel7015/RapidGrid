@@ -79,7 +79,12 @@ def allowed_hosts() -> set[str]:
 
 def host_allowed(connection: HTTPConnection) -> bool:
     host = connection.headers.get("host", "")
-    hostname = (urlsplit("//" + host).hostname or "").lower() if host else ""
+    if not host:
+        return False
+    try:
+        hostname = (urlsplit("//" + host).hostname or "").lower()
+    except ValueError:  # e.g. an unbalanced "[" in the Host header
+        return False
     return hostname in allowed_hosts()
 
 
@@ -339,6 +344,9 @@ class ShowcaseAccessMiddleware:
         path = scope.get("path", "").rstrip("/")
         api_path = path == "/api" or path.startswith("/api/")
         socket_path = path.startswith("/ws/")
+        # How to refuse depends on the connection, not the path: a plain HTTP
+        # request to /ws/... gets an HTTP response.
+        is_socket = scope["type"] == "websocket"
         connection = HTTPConnection(scope)
         if path in _DOC_PATHS:
             if mode() == "operator" and not authenticated(connection):
@@ -350,14 +358,14 @@ class ShowcaseAccessMiddleware:
             # DNS rebinding: a hostile page can point its own domain at a
             # locally running demo; Host then names that domain and Origin
             # matches it, so the origin check alone passes.
-            if socket_path:
+            if is_socket:
                 await send({"type": "websocket.close", "code": 1008})
             else:
                 await JSONResponse({"detail": "Unknown host"}, status_code=421)(scope, receive, send)
             return
         method = scope.get("method", "GET")
         if (socket_path or method not in {"GET", "HEAD", "OPTIONS"}) and not _same_origin(connection):
-            if socket_path:
+            if is_socket:
                 await send({"type": "websocket.close", "code": 1008})
             else:
                 await JSONResponse({"detail": "Cross-origin action refused"}, status_code=403)(scope, receive, send)
@@ -367,7 +375,7 @@ class ShowcaseAccessMiddleware:
             return await self.app(scope, receive, send)
         protected = mode() == "operator" or (method not in {"GET", "HEAD"} and path in _BULK_ACTIONS)
         if protected and not authenticated(connection):
-            if socket_path:
+            if is_socket:
                 await send({"type": "websocket.close", "code": 1008})
             else:
                 configured = bool(operator_token())

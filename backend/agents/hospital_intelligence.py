@@ -506,11 +506,12 @@ class HospitalIntelligenceAgent:
             others.append(h)
 
         deduped: list[dict[str, Any]] = list(by_curated.values())
-        curated_names = {_normalise_name(n) for n in by_curated}
 
         for h in others:
             norm = _normalise_name(h["name"])
-            if not norm or norm in curated_names:
+            # A curated namesake is a duplicate only nearby (checked below);
+            # the identity matcher has already merged anything within 1 km.
+            if not norm:
                 continue
             duplicate = False
             for kept in deduped:
