@@ -504,3 +504,37 @@ def test_empty_client_ip_header_setting_keeps_the_render_default(client, monkeyp
         client.post("/api/session", json={"token": "guess"}, headers={"X-Forwarded-For": "203.0.113.20"})
     assert client.post("/api/session", json={"token": "test-showcase-secret"},
                        headers={"X-Forwarded-For": "203.0.113.21"}).status_code == 200
+
+
+# --- F18: DNS rebinding against a local demo -----------------------------------
+
+def test_demo_api_refuses_unknown_hosts(monkeypatch):
+    monkeypatch.setenv("RAPIDGRID_MODE", "demo")
+    monkeypatch.delenv("RAPIDGRID_ALLOWED_ORIGINS", raising=False)
+    rebinding = {"Host": "attacker.example", "Origin": "http://attacker.example"}
+    local = TestClient(app, base_url="http://testserver")
+    assert local.get("/api/incidents/", headers=rebinding).status_code == 421
+    assert local.post("/api/city/clear", headers=rebinding).status_code == 421
+    with pytest.raises(WebSocketDisconnect) as closed:
+        with local.websocket_connect("/ws/chat/any", headers=rebinding):
+            pass
+    assert closed.value.code == 1008
+    # Local names work, with or without a port, and the page itself is not affected.
+    for host in ("localhost:5173", "127.0.0.1:8000", "[::1]:8000"):
+        assert local.get("/api/incidents/", headers={"Host": host}).status_code == 200, host
+    assert local.get("/health/live", headers=rebinding).status_code == 200
+
+
+def test_demo_hosts_can_be_extended(monkeypatch):
+    monkeypatch.setenv("RAPIDGRID_MODE", "demo")
+    monkeypatch.setenv("RAPIDGRID_ALLOWED_HOSTS", "testserver, demo.lan")
+    monkeypatch.setenv("RENDER_EXTERNAL_HOSTNAME", "rapidgrid.onrender.com")
+    local = TestClient(app, base_url="http://testserver")
+    assert local.get("/api/incidents/", headers={"Host": "demo.lan:8000"}).status_code == 200
+    assert local.get("/api/incidents/", headers={"Host": "rapidgrid.onrender.com"}).status_code == 200
+
+
+def test_operator_mode_does_not_pin_hosts(client):
+    # Operator mode already needs a session; a custom domain must keep working.
+    login(client)
+    assert client.get("/api/incidents/", headers={"Host": "rapidgrid.example.org"}).status_code == 200

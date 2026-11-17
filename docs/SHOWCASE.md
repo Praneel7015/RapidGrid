@@ -80,6 +80,12 @@ Same-origin browser calls need no CORS setting. If a deliberate separate
 development origin is needed, list exact origins in
 `RAPIDGRID_ALLOWED_ORIGINS`. Broad origins are not enabled by default.
 
+Demo mode is open, so its API answers only to local host names (`localhost`,
+`127.0.0.1`, `::1`). This stops a hostile web page from reaching a locally
+running demo through DNS rebinding. To share a demo on a network, add its host
+names to `RAPIDGRID_ALLOWED_HOSTS` (comma-separated). Operator mode does not
+pin hosts, because every call already needs a session.
+
 ## Storage and deployment
 
 Incidents, chat messages and hospital capacity overrides are atomic SQLite
