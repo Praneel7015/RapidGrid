@@ -22,6 +22,11 @@ from agents.triage import classify
     # Phrases that state a negative finding still count.
     ("He is not breathing and has no pulse", "cardiac"),
     ("Not responding, no pulse, possible heart attack", "cardiac"),
+    # A cue that negates something else does not cancel the emergency.
+    ("Not sure if heart attack", "cardiac"),
+    ("He does not look well chest pain", "cardiac"),
+    ("Doesn't have any chest pain", "general"),
+    ("No history of seizures but sudden weakness on one side", "stroke"),
     # Unchanged behaviour for plain reports.
     ("My father collapsed with severe chest pain", "cardiac"),
     ("Two-wheeler hit by a truck, rider has heavy bleeding from the leg", "trauma"),
