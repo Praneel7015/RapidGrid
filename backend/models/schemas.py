@@ -54,27 +54,6 @@ class AccessibilityInputModality(str, Enum):
     SOS_BUTTON = "sos_button"
 
 
-class CommunicationChannel(str, Enum):
-    """Notification channels for the Communication Agent."""
-    SMS = "sms"
-    EMAIL = "email"
-    HOSPITAL_API = "hospital_api"
-    TRAFFIC_CONTROL = "traffic_control"
-    APP_PUSH = "app_push"
-
-
-class AgentName(str, Enum):
-    """Names of the agents in the system."""
-    TRAFFIC = "traffic_intelligence"
-    ROUTE = "route_optimization"
-    HOSPITAL = "hospital_intelligence"
-    PREDICTION = "prediction_agent"
-    ACCESSIBILITY = "accessibility_agent"
-    COMMUNICATION = "communication_agent"
-    FUSION = "decision_fusion_engine"
-    COORDINATOR = "emergency_coordinator"
-
-
 class Coordinate(BaseModel):
     """A geographic point — [lat, lng], NOT GeoJSON [lng, lat]."""
     lat: float = Field(..., ge=-90, le=90, allow_inf_nan=False)
@@ -84,21 +63,6 @@ class Coordinate(BaseModel):
 # ---------------------------------------------------------------------------
 # Traffic Intelligence Agent — contract
 # ---------------------------------------------------------------------------
-
-class TrafficRequest(BaseModel):
-    """Input to the Traffic Intelligence Agent."""
-    bounding_box: Optional[dict] = Field(
-        None,
-        description=(
-            "Geographic bounding box: {north, south, east, west}. "
-            "Omit to analyse all loaded segments."
-        ),
-    )
-    time_window: Optional[str] = Field(
-        None,
-        description="ISO 8601 duration or interval for the analysis window.",
-    )
-
 
 class TrafficIncident(BaseModel):
     """An incident affecting a road segment."""
@@ -574,50 +538,6 @@ class AccessibilityResponse(BaseModel):
         ..., ge=0, le=1, description="Confidence in the translation/normalization."
     )
     data_freshness: DataFreshness = DataFreshness.LIVE
-
-
-# ---------------------------------------------------------------------------
-# Communication Agent — contract
-# ---------------------------------------------------------------------------
-
-class DeliveryReceipt(BaseModel):
-    """Receipt for a single notification dispatch."""
-    recipient: str = Field(..., description="E.g., 'Hospital ER', 'Driver', 'Family'")
-    channel: CommunicationChannel
-    status: str = Field(..., description="'delivered', 'failed', 'pending', or 'simulated'")
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
-    error_message: Optional[str] = None
-
-
-class CommunicationRequest(BaseModel):
-    """Input to the Communication Agent."""
-    action_plan: dict = Field(..., description="The approved action plan to dispatch.")
-
-
-class CommunicationResponse(BaseModel):
-    """Output of the Communication Agent."""
-    receipts: list[DeliveryReceipt]
-    overall_status: str = Field(..., description="E.g., 'completed_with_errors', 'success'")
-    data_freshness: DataFreshness = DataFreshness.LIVE
-    simulated: bool = Field(default=False, description="True when no external delivery was attempted")
-
-
-# ---------------------------------------------------------------------------
-# Emergency Coordinator — contract
-# ---------------------------------------------------------------------------
-
-class CoordinatorRequest(BaseModel):
-    """Input to the Emergency Coordinator."""
-    incident_report: IncidentReport
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
-
-
-class CoordinatorResponse(BaseModel):
-    """Output of the Emergency Coordinator."""
-    incident_id: str
-    severity: float = Field(..., ge=0, le=1)
-    activated_agents: list[AgentName]
-    status: str = "active"
 
 
 # ---------------------------------------------------------------------------
