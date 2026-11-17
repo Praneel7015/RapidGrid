@@ -16,8 +16,10 @@ system can say exactly why it drove past it.
 
 ```bash
 cd backend && ./venv/bin/python -m uvicorn main:app --reload --port 8000
-# Windows: cd backend; .\venv\Scripts\python.exe -m uvicorn main:app --reload --port 8000
 ```
+
+Commands in this runbook use `./venv/bin/python` (Linux and macOS). On
+Windows, use `.\venv\Scripts\python.exe` instead.
 
 ```bash
 cd frontend && npm run dev
@@ -30,7 +32,7 @@ so there is no hardcoded backend URL anywhere in the client.
 ### Preflight — run this every single time
 
 ```bash
-cd backend && ./venv/Scripts/python.exe scripts/preflight.py
+cd backend && ./venv/bin/python scripts/preflight.py
 ```
 
 Checks all three API keys, both routing tiers, the road graph, the hospital
@@ -41,7 +43,7 @@ router covers it); a FAIL is not.
 Then cross-check the data itself against the external APIs:
 
 ```bash
-cd backend && ./venv/Scripts/python.exe scripts/validate_against_apis.py
+cd backend && ./venv/bin/python scripts/validate_against_apis.py
 ```
 
 Preflight answers "is everything switched on". This answers "does what we
@@ -56,7 +58,7 @@ residential access road that the graph does not index).
 ### One-time, if the road graph is missing
 
 ```bash
-cd backend && ./venv/Scripts/python.exe scripts/build_road_graph.py
+cd backend && ./venv/bin/python scripts/build_road_graph.py
 ```
 
 Pulls Bengaluru's drivable network from OpenStreetMap and writes a compact
@@ -82,6 +84,24 @@ curl -s -X POST -H "Authorization: Bearer $RAPIDGRID_OPERATOR_TOKEN" http://127.
 curl -s -X POST -H "Authorization: Bearer $RAPIDGRID_OPERATOR_TOKEN" http://127.0.0.1:8000/api/city/clear
 ```
 
+### Presenting on the hosted site
+
+The hosted showcase runs in **operator mode**: every page first shows an
+unlock screen. Enter the access token (ask the team; it is never in the
+code). One unlock lasts 8 hours in that browser, and **Sign out** ends it on
+the server too. Ten wrong tokens in 10 minutes pause unlocking for that
+network for 10 minutes, so paste the token rather than typing it.
+
+To reset the hosted site before presenting, use **Reset the city** on the
+dispatcher screen, and clear old incidents with the token:
+
+```bash
+curl -s -X POST -H "Authorization: Bearer $RAPIDGRID_OPERATOR_TOKEN" https://rapidgrid.highcortisol.xyz/api/incidents/clear
+```
+
+The commands in sections 1 and 2 that call `127.0.0.1:8000` are for a local
+run. The API docs at `/docs` appear on the hosted site only after unlocking.
+
 ### Open four browser tabs
 
 | Tab | URL | Role |
@@ -94,9 +114,9 @@ curl -s -X POST -H "Authorization: Bearer $RAPIDGRID_OPERATOR_TOKEN" http://127.
 Arrange them so you can switch quickly. Tab 2 is the one judges will look at
 longest.
 
-> **Say this early:** sign-in is deliberately open — picking a role grants it.
-> The login screen states this itself. It is a demo affordance, not a security
-> claim, and naming it before anyone asks buys you credibility for everything
+> **Say this early:** the hosted site is locked with one shared access token,
+> and inside it anyone can act in any role. There are no per-person accounts
+> yet. Naming that before anyone asks buys you credibility for everything
 > that follows.
 
 ---
@@ -132,7 +152,7 @@ The call is classified **cardiac, severity 0.99, P1 CRITICAL**.
 Show that the classifier is transparent and auditable, not a claimed ML model:
 
 ```bash
-cd backend && ./venv/Scripts/python.exe -c "import sys; sys.path.insert(0,'.'); from agents.triage import classify; r=classify('Two-wheeler hit by a truck, rider has heavy bleeding from the leg'); print(r.emergency_type.value, r.severity, r.confidence); print(r.as_note())"
+cd backend && ./venv/bin/python -c "import sys; sys.path.insert(0,'.'); from agents.triage import classify; r=classify('Two-wheeler hit by a truck, rider has heavy bleeding from the leg'); print(r.emergency_type.value, r.severity, r.confidence); print(r.as_note())"
 ```
 
 **Say this:** it is a weighted-keyword model and we call it that. It reports
@@ -166,7 +186,7 @@ onward. That is why driving further can arrive sooner.
 Prove it live:
 
 ```bash
-cd backend && ./venv/Scripts/python.exe -c "
+cd backend && ./venv/bin/python -c "
 import sys; sys.path.insert(0,'.')
 from agents.clinical_outcome import compare
 near = {'name':'Local general hospital','capabilities':{'cardiology':0.42}}
@@ -246,7 +266,7 @@ else in the city*. That second-order effect is the whole point.
 Prove it with numbers:
 
 ```bash
-cd backend && ./venv/Scripts/python.exe -c "
+cd backend && ./venv/bin/python -c "
 import sys, logging; sys.path.insert(0,'.'); logging.basicConfig(level=logging.WARNING)
 from agents.local_router import local_router
 from agents.city_state import city_state
@@ -367,7 +387,7 @@ it came from.
 ### The road graph is real OpenStreetMap data
 
 ```bash
-cd backend && ./venv/Scripts/python.exe -c "
+cd backend && ./venv/bin/python -c "
 import sys; sys.path.insert(0,'.')
 from agents.local_router import local_router
 local_router.load()
@@ -446,12 +466,30 @@ OpenStreetMap and each records its `coord_source`.
 against both our graph and Google Routes: 0 problems, with the two networks
 agreeing on distance to within 1–15%.
 
+**"How is this different from Google Maps?"**
+Google Maps finds the fastest route to a place you chose. RapidGrid chooses
+the place: the hospital that can treat this patient, counting the cost of a
+secondary transfer. And its city model reacts to interventions: a closure
+pushes traffic onto neighbouring roads, so other ambulances' routes change too.
+
+**"What do you mean by better choices as a whole?"**
+Every incident is planned on the same city model. A closure drawn for one
+call changes the costs for every other call, and a hospital going on divert
+drops out of every new plan at once while crews already heading there are
+warned. Planning several incidents *jointly* (who gets which ambulance) is
+the next step.
+
 **"What happens if Google goes down?"**
 Beat 8. Turn off the wi-fi and watch.
 
 **"Is it secure?"**
-No, and it does not pretend to be. Role selection grants the role, with no
-credential check, and the login screen says so. Real authentication and
+For a showcase, yes; for real dispatch, not yet. The hosted site is locked
+with a shared access token: sessions expire after 8 hours and end on the
+server at sign-out, wrong tokens are throttled, the API docs are hidden until
+unlock, and every response carries browser security headers. CodeQL reports
+no open alerts and an independent audit's findings are fixed. What it lacks is
+per-person accounts: inside the lock, anyone can act in any role. Real
+authentication and
 authorisation is the first thing a production deployment needs.
 
 **"What would you build next?"**
@@ -471,7 +509,8 @@ same ambulance instead of each assuming an infinite fleet.
 | Map tiles grey | OpenStreetMap rate limit | reload; tiles are cached after first load |
 | Queue empty | incidents cleared | raise an SOS from Tab 1 |
 | Everything slow | first Overpass call | hospital catalogue caches for 15 min after the first fetch |
-| Port 5173 busy | an old Vite still running | `Get-NetTCPConnection -LocalPort 5173 -State Listen` gives the PID |
+| Port 5173 busy | an old Vite still running | `lsof -i :5173` (Windows: `Get-NetTCPConnection -LocalPort 5173 -State Listen`) gives the PID |
+| Unlock says "Too many wrong tokens" | ten wrong tokens from this network in 10 minutes | wait for the time shown, then paste the token |
 | A hospital looks misplaced | coordinate drift | `python scripts/validate_against_apis.py` names it; `resolve_hospital_coords.py --write` re-resolves |
 
 **Record a backup video the night before.** Venue wi-fi is the one failure the

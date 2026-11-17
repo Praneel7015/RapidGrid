@@ -15,9 +15,9 @@ transfer them onward costs far more time than driving past it.
 > [What is real and what is modelled](#what-is-real-and-what-is-modelled).
 > Nothing is presented as measured unless it is.
 
-> **Hosted copy:** https://rapidgrid.onrender.com is built from an older
-> commit of a different repository and does not include the access gate or the
-> fixes in this one. Run it locally until the deployment is updated.
+> **Hosted showcase:** https://rapidgrid.highcortisol.xyz runs in operator
+> mode. Every page first asks for the shared access token; ask the team for
+> it. Local runs default to an open demo with synthetic data.
 
 ---
 
@@ -199,8 +199,8 @@ modelled values carry hatched badges and dotted underlines.
   with one shared access token; demo mode is open. Within either mode any
   user can act in any role and read every caller's details. Real roles are
   the first thing a production deployment needs.
-- Notifications. The SMS, hospital and traffic-control dispatches are
-  simulated.
+- Notifications. There are no SMS or push messages; crews and hospitals see
+  a dispatch on their screen, which refreshes every few seconds.
 - Sign-language input and non-English triage.
 - Working without a connection. The installed app opens offline (see
   below), but reporting, dispatch, chat and routing all need the server.
@@ -211,30 +211,29 @@ modelled values carry hatched badges and dotted underlines.
 ## Architecture
 
 ```
-[ Citizen SOS ]
-      │
-      ▼
-[ Accessibility ] ──▶ [ Triage ] ──▶ [ Emergency Coordinator ]
-                                              │
-                                              ▼
-                                  [ Decision Fusion Engine ]
-              ┌───────────────┬───────────────┼───────────────┐
-              ▼               ▼               ▼               ▼
-        [ Traffic ]     [ Route Opt ]   [ Hospital ]   [ Clinical  ]
-        [  Intel   ]    [  3 tiers  ]   [  Intel    ]  [  Outcome  ]
-              │               │               │               │
-              │        [ City State ]         │               │
-              │        [  causal    ]         │               │
-              └───────────────┴───────────────┴───────────────┘
-                                              ▼
-                                  [ Dispatcher Approval ]
-                                              │
-                    ┌─────────────────────────┴─────────────────────────┐
-                    ▼                                                   ▼
-        [ Driver field app ]                                [ Hospital ER terminal ]
-        [ Stage 1 → Stage 2 ]                               [ capacity / divert    ]
-                    └────────────────[ incident channel ]────────────────┘
+  Caller (/citizen)
+        │  text or voice, confirmed location
+        ▼
+  ┌─────────────┐   ┌──────────────────────┐   ┌─────────────┐   ┌────────────┐
+  │   Triage    │──▶│   Hospital ranking   │──▶│   Routing   │──▶│    Plan    │
+  │ keywords →  │   │ capability gate,     │   │ Google live │   │ runner-up, │
+  │ type and    │   │ weighted score,      │   │ or A* over  │   │ trade-off, │
+  │ severity    │   │ road-time re-rank    │   │ OSM graph   │   │ outcome    │
+  └─────────────┘   └──────────▲───────────┘   └──────▲──────┘   └─────┬──────┘
+                               │                      │                │
+                    ┌──────────┴──────────────────────┴──────┐         ▼
+                    │  City model (structural causal model)   │   Dispatcher approves
+                    │  hour · weather · closures · displacement│   (/dispatcher)
+                    └─────────────────────────────────────────┘         │
+                                              ┌─────────────────────────┴──────────┐
+                                              ▼                                    ▼
+                                    Field unit (/driver)              Emergency dept (/hospital)
+                                    hub → patient → hospital          incoming, beds, divert
+                                              └────────── incident chat ───────────┘
 ```
+
+Every incident is planned on the same city model, so a closure or a hospital
+divert changes every plan that follows, not only the one that caused it.
 
 ---
 
@@ -246,7 +245,7 @@ RapidGrid/
 ├── backend/
 │   ├── main.py                          # FastAPI entry point, lifespan, WebSocket
 │   ├── agents/
-│   │   ├── accessibility.py             # Multi-modal input normalisation
+│   │   ├── accessibility.py             # Normalises report text for triage
 │   │   ├── city_state.py                # Structural causal model of the city
 │   │   ├── clinical_outcome.py          # Time-to-treatment estimation
 │   │   ├── decision_fusion.py           # Plan assembly + explanation
@@ -268,14 +267,15 @@ RapidGrid/
 │   │   ├── build_road_graph.py          # Fetch + compact the OSM graph
 │   │   ├── preflight.py                 # Pre-demo health check
 │   │   ├── resolve_hospital_coords.py   # Resolve coordinates against OSM
-│   │   ├── validate_against_apis.py     # Cross-check data vs Google + OSM
-│   │   └── simulate_workflow.py
-│   ├── tests/test_scenarios.py          # 30 behavioural tests
+│   │   └── validate_against_apis.py     # Cross-check data vs Google + OSM
+│   ├── security.py                      # Access modes, sessions, throttle, headers
+│   ├── storage.py                       # SQLite: one row per incident and message
+│   ├── tests/                           # ~170 backend tests (pytest)
 │   ├── requirements.txt
 │   └── requirements-dev.txt
 └── frontend/
     └── src/
-        ├── App.jsx                      # Routes + demo role gate (not auth)
+        ├── App.jsx                      # Routes + operator unlock screen
         ├── index.css                    # Design tokens, provenance styling
         ├── context/AuthContext.jsx      # Role/session state
         ├── components/
@@ -283,6 +283,7 @@ RapidGrid/
         │   ├── CityControls.jsx         # Disruption interventions
         │   ├── LiveEmergencyChat.jsx    # Per-incident channel
         │   ├── MapOverlay.jsx           # Routes, markers, closures, congestion
+        │   ├── PwaStatus.jsx            # Offline banner, update prompt
         │   ├── SharedShell.jsx          # Portal frame + live health
         │   └── ui.jsx                   # Shared primitives
         └── views/                       # Landing, Login + 4 role portals
@@ -439,6 +440,45 @@ one application process per data directory.
 
 ---
 
+## Access and security
+
+- **Two modes.** *Demo* (the local default) is open, with synthetic data, and
+  its API answers only to local host names. *Operator* (the default on Render)
+  locks every API call and the chat socket behind a session started with a
+  shared access token.
+- **Sessions** are HttpOnly, `SameSite=Strict` cookies that expire after 8
+  hours. Signing out revokes the session on the server and closes its chat
+  connections, so a copied cookie stops working.
+- **Wrong tokens are throttled:** 10 per client and 200 in total per 10
+  minutes, for the unlock form and `Bearer` headers alike.
+- **Hidden until unlock** in operator mode: the API docs and the routing and
+  city detail in `/health`.
+- **Browser headers:** no framing, `nosniff`, a referrer policy, a
+  permissions policy, and HSTS over HTTPS.
+- **Input limits** on every field; reports outside Bengaluru are refused;
+  hospital and road names are always rendered as text.
+- **Checks on every pull request:** about 170 backend and 21 browser tests,
+  CodeQL, a gitleaks secret scan and Dependabot.
+
+Details and deployment settings: [docs/SHOWCASE.md](docs/SHOWCASE.md).
+
+---
+
+## What we would build next
+
+1. **Calibrate the city model** against real Bengaluru traffic counts, and
+   publish the error.
+2. **Plan incidents jointly.** When calls compete for ambulances, assign
+   units and hospitals together to minimise total time to treatment.
+3. **Show counterfactuals on screen.** When a road closes or a hospital
+   diverts, show the old and new plan side by side with the causal reason.
+4. **Reposition idle ambulances** ahead of predicted congestion.
+5. **One live hospital feed** (HL7 FHIR) in place of the neutral bed value.
+6. **Better triage:** negation, Kannada and Hindi detection.
+7. **Per-person accounts and roles,** with an audit trail.
+
+---
+
 ## Known limitations
 
 Stated plainly, because a system that hides these is harder to trust:
@@ -452,7 +492,7 @@ Stated plainly, because a system that hides these is harder to trust:
    unless an ER desk enters them. Capability *scores* are judgement calls
    without a per-hospital citation.
 5. **Triage is English keyword matching** without negation handling.
-6. **Learning and coordinator modules are stubs; notifications are simulated.**
+6. **No notifications.** No SMS or push; screens refresh every few seconds.
 7. **Single-incident assumption.** No contention for a shared fleet.
 8. **With a Google key, dispatched routes do not see drawn closures**, while
    hospital ranking (on the offline graph) does. Leave the key unset to keep
