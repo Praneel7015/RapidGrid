@@ -555,3 +555,48 @@ def test_app_shell_opens_offline_but_live_data_is_never_cached(pwa_context, serv
     assert cached, "the app shell should be precached"
     assert not [u for u in cached if u.startswith(("/api", "/ws", "/health"))]
     assert not [u for u in cached if u.endswith(".wasm") or "transformers" in u]
+
+
+def controlled_page(context, server, path="/citizen"):
+    page = context.new_page()
+    page.goto(server + path)
+    page.wait_for_function("navigator.serviceWorker && navigator.serviceWorker.ready.then(() => true)")
+    page.reload()
+    page.wait_for_function("navigator.serviceWorker.controller !== null")
+    return page
+
+
+def test_server_routes_with_a_query_string_bypass_the_app_shell(pwa_context, server):
+    # Workbox matches navigations on pathname plus query, so /api?x must not
+    # fall through to the cached index.html.
+    page = controlled_page(pwa_context, server)
+    for path in ("/api?probe=1", "/health?probe=1"):
+        response = page.goto(server + path)
+        assert "application/json" in response.headers.get("content-type", ""), path
+        assert 'id="root"' not in page.content(), path
+
+
+def test_update_reloads_only_the_tab_that_chose_reload(pwa_context, server):
+    later = controlled_page(pwa_context, server)
+    chooser = controlled_page(pwa_context, server)
+    later.evaluate("window.__stillHere = true")
+
+    sw = ROOT / "frontend/dist/sw.js"
+    original = sw.read_bytes()
+    try:
+        # Any byte change to sw.js is a new version for the browser.
+        sw.write_bytes(original + b"\n// browser-test update\n")
+        for page in (later, chooser):
+            page.evaluate("navigator.serviceWorker.getRegistration().then((r) => r.update())")
+        for page in (later, chooser):
+            expect(page.get_by_text("A new version of RapidGrid is ready.")).to_be_visible(timeout=15000)
+
+        later.get_by_role("button", name="Later", exact=True).click()
+        with chooser.expect_navigation(timeout=15000):
+            chooser.get_by_role("button", name="Reload", exact=True).click()
+
+        # The other tab is told, and keeps its page (and any open call).
+        expect(later.get_by_text("RapidGrid was updated in another tab.", exact=False)).to_be_visible(timeout=15000)
+        assert later.evaluate("window.__stillHere === true")
+    finally:
+        sw.write_bytes(original)
