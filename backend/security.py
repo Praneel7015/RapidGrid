@@ -9,8 +9,12 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import logging
 import os
+import secrets
+import threading
 import time
+from collections import deque
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, HTTPException, Request, Response
@@ -18,12 +22,25 @@ from pydantic import BaseModel, Field
 from starlette.requests import HTTPConnection
 from starlette.responses import JSONResponse
 
+logger = logging.getLogger("geoagentic.security")
+
 COOKIE_NAME = "rapidgrid_operator"
 SESSION_SECONDS = 8 * 60 * 60
+_REVOKED_COLLECTION = "security:revoked_sessions"
+
+# Wrong-token throttle. Counted per client and across all clients, for the
+# login form and for Bearer headers alike, so neither path is a faster way to
+# guess. A throttled attempt is refused without comparing the token.
+FAILURE_WINDOW_SECONDS = 10 * 60
+MAX_FAILURES_PER_CLIENT = 10
+MAX_FAILURES_TOTAL = 200
 # Clearing incidents destroys case records, so it needs operator access even in
 # the synthetic demo. Clearing the city model only undoes closures that any
 # demo visitor can already draw, so the demo keeps it open.
 _BULK_ACTIONS = {"/api/incidents/clear"}
+# The interactive API docs list every endpoint and let visitors try them. They
+# are for local development, so operator mode serves them only after unlock.
+_DOC_PATHS = {"/docs", "/docs/oauth2-redirect", "/redoc", "/openapi.json"}
 
 
 def mode() -> str:
@@ -57,13 +74,149 @@ def _same_origin(connection: HTTPConnection) -> bool:
     return parsed.scheme == scheme and parsed.netloc.lower() == connection.headers.get("host", "").lower()
 
 
-def _signature(issued_at: str, secret: str) -> str:
-    return hmac.new(secret.encode(), ("rapidgrid-session:" + issued_at).encode(), hashlib.sha256).hexdigest()
+# --- Wrong-token throttle -----------------------------------------------------
+
+_failures: dict[str, deque] = {}
+_all_failures: deque = deque()
+_failures_lock = threading.Lock()
+
+
+def client_key(connection: HTTPConnection) -> str:
+    """The client a failure is charged to.
+
+    Behind a proxy the socket peer is the proxy itself, and charging every
+    visitor to it would let one person's typos lock everyone out. A deployment
+    names the header carrying the client address; on Render the default is the
+    first X-Forwarded-For entry. A client can forge that entry, which only buys
+    it a fresh per-client allowance: the global ceiling still caps the total
+    guessing rate.
+    """
+    default = "x-forwarded-for" if os.getenv("RENDER", "").lower() == "true" else ""
+    header = os.getenv("RAPIDGRID_CLIENT_IP_HEADER", default).strip().lower()
+    if header:
+        value = connection.headers.get(header, "").split(",")[0].strip()
+        if value:
+            return value[:64]
+    return connection.client.host if connection.client else "unknown"
+
+
+def _prune(entries: deque, now: float) -> None:
+    while entries and now - entries[0] >= FAILURE_WINDOW_SECONDS:
+        entries.popleft()
+
+
+def retry_after(key: str) -> int:
+    """Seconds until ``key`` may try again, or 0 when it is not throttled."""
+    now = time.monotonic()
+    with _failures_lock:
+        _prune(_all_failures, now)
+        mine = _failures.get(key)
+        if mine is not None:
+            _prune(mine, now)
+            if not mine:
+                _failures.pop(key, None)
+        waits = []
+        if mine and len(mine) >= MAX_FAILURES_PER_CLIENT:
+            waits.append(FAILURE_WINDOW_SECONDS - (now - mine[0]))
+        if len(_all_failures) >= MAX_FAILURES_TOTAL:
+            waits.append(FAILURE_WINDOW_SECONDS - (now - _all_failures[0]))
+        return max(1, int(max(waits)) + 1) if waits else 0
+
+
+def record_failure(key: str) -> None:
+    now = time.monotonic()
+    with _failures_lock:
+        if len(_failures) > 1000:
+            for stale in [k for k, v in _failures.items() if not v or now - v[-1] >= FAILURE_WINDOW_SECONDS]:
+                del _failures[stale]
+        _failures.setdefault(key, deque()).append(now)
+        _all_failures.append(now)
+    logger.warning("Wrong showcase access token")
+
+
+def reset_throttle() -> None:
+    with _failures_lock:
+        _failures.clear()
+        _all_failures.clear()
+
+
+# --- Sessions ---------------------------------------------------------------
+# A cookie is "<issued_at>.<session id>.<signature>". The signature is keyed on
+# the operator token, so changing the token ends every session. Logging out
+# records the session id as revoked until it would have expired anyway, so a
+# copy of the cookie stops working too.
+
+_revoked: dict[str, float] | None = None
+_revoked_lock = threading.Lock()
+
+
+def _revoked_sessions() -> dict[str, float]:
+    global _revoked
+    if _revoked is None:
+        try:
+            import storage
+
+            stored = storage.load_collection(_REVOKED_COLLECTION, {}) or {}
+            _revoked = {str(k): float(v) for k, v in stored.items()}
+        except Exception:
+            logger.exception("Could not load revoked sessions; starting with none")
+            _revoked = {}
+    return _revoked
+
+
+def _revoke(session_id: str, expires_at: float) -> None:
+    with _revoked_lock:
+        revoked = _revoked_sessions()
+        now = time.time()
+        for key in [k for k, until in revoked.items() if until <= now]:
+            del revoked[key]
+        revoked[session_id] = expires_at
+        snapshot = dict(revoked)
+    try:
+        import storage
+
+        storage.save_collection(_REVOKED_COLLECTION, snapshot)
+    except Exception:
+        # The revocation still holds in this process; only a restart before
+        # the session's own expiry would forget it.
+        logger.exception("Could not persist a revoked session")
+
+
+def _signature(issued_at: str, session_id: str, secret: str) -> str:
+    message = "rapidgrid-session:" + issued_at + ":" + session_id
+    return hmac.new(secret.encode(), message.encode(), hashlib.sha256).hexdigest()
 
 
 def _session_value() -> str:
     issued_at = str(int(time.time()))
-    return issued_at + "." + _signature(issued_at, operator_token())
+    session_id = secrets.token_urlsafe(18)
+    return issued_at + "." + session_id + "." + _signature(issued_at, session_id, operator_token())
+
+
+def _valid_session(cookie: str, secret: str) -> tuple[str, float] | None:
+    """(session id, expiry) for a well-formed, signed, unexpired cookie."""
+    parts = cookie.split(".")
+    if len(parts) != 3:
+        return None
+    issued_at, session_id, signature = parts
+    if len(issued_at) > 12 or not issued_at.isascii() or not issued_at.isdigit():
+        return None
+    if not 16 <= len(session_id) <= 64 or not session_id.isascii():
+        return None
+    age = time.time() - int(issued_at)
+    if not 0 <= age < SESSION_SECONDS:
+        return None
+    if not hmac.compare_digest(signature.encode(), _signature(issued_at, session_id, secret).encode()):
+        return None
+    return session_id, int(issued_at) + SESSION_SECONDS
+
+
+def _session_active(cookie: str, secret: str) -> bool:
+    session = _valid_session(cookie, secret)
+    if session is None:
+        return False
+    with _revoked_lock:
+        return session[0] not in _revoked_sessions()
 
 
 def authenticated(connection: HTTPConnection) -> bool:
@@ -71,14 +224,17 @@ def authenticated(connection: HTTPConnection) -> bool:
     if not secret:
         return False
     auth = connection.headers.get("authorization", "")
-    if auth.startswith("Bearer ") and hmac.compare_digest(auth[7:].encode(), secret.encode()):
-        return True
-    cookie = connection.cookies.get(COOKIE_NAME, "")
-    issued_at, separator, signature = cookie.partition(".")
-    if not separator or len(issued_at) > 12 or not issued_at.isascii() or not issued_at.isdigit():
+    if auth.startswith("Bearer "):
+        # The raw token is the same secret the unlock form takes, for scripts
+        # such as the reset command; it is throttled the same way.
+        key = client_key(connection)
+        if retry_after(key):
+            return False
+        if hmac.compare_digest(auth[7:].encode(), secret.encode()):
+            return True
+        record_failure(key)
         return False
-    age = time.time() - int(issued_at)
-    return 0 <= age < SESSION_SECONDS and hmac.compare_digest(signature.encode(), _signature(issued_at, secret).encode())
+    return _session_active(connection.cookies.get(COOKIE_NAME, ""), secret)
 
 
 class ShowcaseAccessMiddleware:
@@ -93,9 +249,13 @@ class ShowcaseAccessMiddleware:
         path = scope.get("path", "").rstrip("/")
         api_path = path == "/api" or path.startswith("/api/")
         socket_path = path.startswith("/ws/")
+        connection = HTTPConnection(scope)
+        if path in _DOC_PATHS:
+            if mode() == "operator" and not authenticated(connection):
+                return await JSONResponse({"detail": "Not Found"}, status_code=404)(scope, receive, send)
+            return await self.app(scope, receive, send)
         if not api_path and not socket_path:
             return await self.app(scope, receive, send)
-        connection = HTTPConnection(scope)
         method = scope.get("method", "GET")
         if (socket_path or method not in {"GET", "HEAD", "OPTIONS"}) and not _same_origin(connection):
             if socket_path:
@@ -137,7 +297,16 @@ async def login_session(payload: SessionLogin, request: Request, response: Respo
     secret = operator_token()
     if not secret:
         raise HTTPException(status_code=503, detail="Operator access is not configured")
+    key = client_key(request)
+    wait = retry_after(key)
+    if wait:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many wrong tokens. Try again later.",
+            headers={"Retry-After": str(wait)},
+        )
     if not hmac.compare_digest(payload.token.encode(), secret.encode()):
+        record_failure(key)
         raise HTTPException(status_code=401, detail="Invalid showcase access token")
     secure = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
     response.set_cookie(COOKIE_NAME, _session_value(), max_age=SESSION_SECONDS, httponly=True, secure=secure, samesite="strict", path="/")
@@ -146,7 +315,54 @@ async def login_session(payload: SessionLogin, request: Request, response: Respo
 
 
 @router.delete("")
-async def logout_session(response: Response):
+async def logout_session(request: Request, response: Response):
+    secret = operator_token()
+    session = _valid_session(request.cookies.get(COOKIE_NAME, ""), secret) if secret else None
+    if session is not None:
+        _revoke(*session)
     response.delete_cookie(COOKIE_NAME, path="/")
     response.headers["Cache-Control"] = "no-store"
     return {"authenticated": mode() == "demo", "operator_authenticated": False}
+
+
+# --- Response headers ---------------------------------------------------------
+
+# Only directives that cannot break the app: no framing (clickjacking), no
+# plugins, no <base> or form redirection. Script and connect sources are left
+# open because the voice model and map tiles load from third-party CDNs.
+CONTENT_SECURITY_POLICY = "frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'"
+_SECURITY_HEADERS = [
+    (b"content-security-policy", CONTENT_SECURITY_POLICY.encode()),
+    (b"x-frame-options", b"DENY"),
+    (b"x-content-type-options", b"nosniff"),
+    (b"referrer-policy", b"strict-origin-when-cross-origin"),
+    (b"permissions-policy", b"camera=(), geolocation=(self), microphone=(self)"),
+]
+HSTS = b"max-age=15552000"
+
+
+class SecurityHeadersMiddleware:
+    """Add browser hardening headers to every HTTP response."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        connection = HTTPConnection(scope)
+        https = connection.url.scheme == "https" or connection.headers.get("x-forwarded-proto", "").split(",")[0].strip() == "https"
+
+        async def send_with_headers(message):
+            if message["type"] == "http.response.start":
+                headers = list(message.get("headers", []))
+                present = {name.lower() for name, _ in headers}
+                for name, value in _SECURITY_HEADERS:
+                    if name not in present:
+                        headers.append((name, value))
+                if https and b"strict-transport-security" not in present:
+                    headers.append((b"strict-transport-security", HSTS))
+                message = {**message, "headers": headers}
+            await send(message)
+
+        return await self.app(scope, receive, send_with_headers)

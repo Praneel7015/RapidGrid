@@ -390,7 +390,8 @@ and it flows into every ETA and every hospital ranking.
 ### Interactive API docs
 
 `http://localhost:8000/docs` — every endpoint, every schema, try any of them
-live in front of the judges.
+live in front of the judges. On the hosted (operator-mode) site, unlock first;
+the docs are hidden from visitors who have not.
 
 ---
 

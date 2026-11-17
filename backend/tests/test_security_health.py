@@ -21,6 +21,23 @@ from main import app
 from models.schemas import Coordinate, RouteRequest
 
 
+@pytest.fixture(autouse=True)
+def fresh_security_state(monkeypatch, tmp_path):
+    monkeypatch.setenv("RAPIDGRID_DATA_DIR", str(tmp_path))
+    monkeypatch.delenv("RAPIDGRID_CLIENT_IP_HEADER", raising=False)
+    monkeypatch.delenv("RENDER", raising=False)
+    monkeypatch.setattr(security, "_revoked", None)
+    security.reset_throttle()
+    yield
+    security.reset_throttle()
+
+
+def login(client):
+    response = client.post("/api/session", json={"token": "test-showcase-secret"})
+    assert response.status_code == 200, response.text
+    return response
+
+
 @pytest.fixture
 def client(monkeypatch):
     monkeypatch.setenv("RAPIDGRID_MODE", "operator")
@@ -66,8 +83,11 @@ def test_missing_or_unknown_mode_fails_closed(client, monkeypatch):
 
 def test_expired_tampered_and_malformed_cookies_are_rejected(client):
     old = str(int(time.time()) - security.SESSION_SECONDS - 10)
-    valid_but_expired = old + "." + security._signature(old, "test-showcase-secret")
-    for cookie in (valid_but_expired, "tampered", "9" * 5000 + ".bad", "123.☃"):
+    sid = "s" * 24
+    valid_but_expired = old + "." + sid + "." + security._signature(old, sid, "test-showcase-secret")
+    now = str(int(time.time()))
+    wrong_key = now + "." + sid + "." + security._signature(now, sid, "another-secret")
+    for cookie in (valid_but_expired, wrong_key, "tampered", "9" * 5000 + ".bad", "123.☃", "1.2.3.4"):
         # Cookie headers are latin-1 on the wire; unicode attacks use the
         # authentication helper directly elsewhere via JSON login above.
         if not cookie.isascii():
@@ -116,6 +136,7 @@ def test_public_health_does_not_leak_operator_interventions(client, monkeypatch)
         "closed_segments": 1,
         "interventions": [{"detail": "Private operator incident label", "target": [123]}],
     })
+    login(client)
     response = client.get("/health")
     assert response.status_code == 200
     assert response.json()["city_model"] == {"closed_segments": 1}
@@ -187,6 +208,7 @@ def test_health_does_not_call_google_and_does_not_trust_key(client, monkeypatch)
     monkeypatch.setattr(route_agent, "api_key", "configured")
     monkeypatch.setattr(route_agent, "_last_live_success_monotonic", None)
     monkeypatch.setattr(route_agent, "_last_live_error_monotonic", None)
+    login(client)
     with patch("agents.route_optimization.httpx.Client") as network:
         body = client.get("/health").json()
         assert body["routing"]["live_api_key_configured"] is True
@@ -260,3 +282,131 @@ def test_spa_route_serves_inside_files_and_falls_back_for_escapes(tmp_path, monk
         body = client.get(url).text
         assert "SECRET" not in body and "root:" not in body, url
         assert body == "INDEX", url
+
+
+# --- F16: session and surface hardening ----------------------------------------
+
+def test_logout_revokes_a_copied_session_cookie(client):
+    login(client)
+    stolen = client.cookies.get(security.COOKIE_NAME)
+    assert stolen and stolen.count(".") == 2
+    assert client.delete("/api/session").status_code == 200
+
+    replay = TestClient(app, base_url="https://testserver")
+    replay.cookies.set(security.COOKIE_NAME, stolen)
+    assert replay.get("/api/incidents/").status_code == 401
+    assert replay.get("/api/session").json()["operator_authenticated"] is False
+
+
+def test_revocation_survives_a_restart(client, monkeypatch):
+    login(client)
+    stolen = client.cookies.get(security.COOKIE_NAME)
+    client.delete("/api/session")
+    monkeypatch.setattr(security, "_revoked", None)  # as after a restart
+    replay = TestClient(app, base_url="https://testserver")
+    replay.cookies.set(security.COOKIE_NAME, stolen)
+    assert replay.get("/api/incidents/").status_code == 401
+
+
+def test_other_sessions_survive_one_logout(client):
+    login(client)
+    other = TestClient(app, base_url="https://testserver")
+    login(other)
+    client.delete("/api/session")
+    assert other.get("/api/incidents/").status_code == 200
+
+
+def test_old_format_cookie_is_refused(client):
+    issued = str(int(time.time()))
+    import hashlib, hmac
+    signature = hmac.new(b"test-showcase-secret", ("rapidgrid-session:" + issued).encode(), hashlib.sha256).hexdigest()
+    client.cookies.set(security.COOKIE_NAME, issued + "." + signature)
+    assert client.get("/api/incidents/").status_code == 401
+
+
+def test_wrong_tokens_are_throttled_and_the_right_one_waits_too(client):
+    for _ in range(security.MAX_FAILURES_PER_CLIENT):
+        assert client.post("/api/session", json={"token": "guess"}).status_code == 401
+    throttled = client.post("/api/session", json={"token": "test-showcase-secret"})
+    assert throttled.status_code == 429
+    assert int(throttled.headers["retry-after"]) > 0
+
+
+def test_bearer_guesses_share_the_throttle(client):
+    for _ in range(security.MAX_FAILURES_PER_CLIENT):
+        assert client.get("/api/incidents/", headers={"Authorization": "Bearer guess"}).status_code == 401
+    assert client.get("/api/incidents/", headers={"Authorization": "Bearer test-showcase-secret"}).status_code == 401
+    assert client.post("/api/session", json={"token": "test-showcase-secret"}).status_code == 429
+
+
+def test_throttle_is_per_client_with_a_global_ceiling(client, monkeypatch):
+    monkeypatch.setenv("RAPIDGRID_CLIENT_IP_HEADER", "true-client-ip")
+    for _ in range(security.MAX_FAILURES_PER_CLIENT):
+        client.post("/api/session", json={"token": "guess"}, headers={"True-Client-IP": "198.51.100.1"})
+    assert client.post("/api/session", json={"token": "guess"}, headers={"True-Client-IP": "198.51.100.1"}).status_code == 429
+    # A different client is unaffected...
+    assert client.post("/api/session", json={"token": "test-showcase-secret"},
+                       headers={"True-Client-IP": "198.51.100.2"}).status_code == 200
+    # ...until the total across all clients reaches the ceiling.
+    monkeypatch.setattr(security, "MAX_FAILURES_TOTAL", security.MAX_FAILURES_PER_CLIENT + 1)
+    client.post("/api/session", json={"token": "guess"}, headers={"True-Client-IP": "198.51.100.3"})
+    assert client.post("/api/session", json={"token": "test-showcase-secret"},
+                       headers={"True-Client-IP": "198.51.100.4"}).status_code == 429
+
+
+def test_throttle_expires(client, monkeypatch):
+    clock = [1000.0]
+    monkeypatch.setattr(security.time, "monotonic", lambda: clock[0])
+    for _ in range(security.MAX_FAILURES_PER_CLIENT):
+        client.post("/api/session", json={"token": "guess"})
+    assert client.post("/api/session", json={"token": "test-showcase-secret"}).status_code == 429
+    clock[0] += security.FAILURE_WINDOW_SECONDS
+    assert client.post("/api/session", json={"token": "test-showcase-secret"}).status_code == 200
+
+
+def test_api_docs_need_unlock_in_operator_mode(client):
+    for path in ("/docs", "/redoc", "/openapi.json"):
+        assert client.get(path).status_code == 404, path
+    login(client)
+    assert client.get("/openapi.json").status_code == 200
+    assert client.get("/docs").status_code == 200
+
+
+def test_api_docs_stay_open_in_demo_mode(client, monkeypatch):
+    monkeypatch.setenv("RAPIDGRID_MODE", "demo")
+    assert client.get("/openapi.json").status_code == 200
+
+
+def test_public_health_is_a_status_line_until_unlock(client):
+    body = client.get("/health").json()
+    assert set(body) == {"status", "service"}
+    login(client)
+    assert {"routing", "city_model", "pipeline"} <= set(client.get("/health").json())
+
+
+def test_security_headers_on_pages_and_api(client):
+    for path in ("/health/live", "/api/incidents/", "/api/session"):
+        headers = client.get(path).headers
+        assert headers["x-frame-options"] == "DENY", path
+        assert "frame-ancestors 'none'" in headers["content-security-policy"]
+        assert headers["x-content-type-options"] == "nosniff"
+        assert headers["referrer-policy"] == "strict-origin-when-cross-origin"
+        assert "microphone=(self)" in headers["permissions-policy"]
+        assert headers["strict-transport-security"].startswith("max-age=")
+
+
+def test_no_hsts_over_plain_http(monkeypatch):
+    monkeypatch.setenv("RAPIDGRID_MODE", "demo")
+    plain = TestClient(app, base_url="http://testserver")
+    assert "strict-transport-security" not in plain.get("/health/live").headers
+
+
+def test_render_charges_failures_to_the_forwarded_client(client, monkeypatch):
+    monkeypatch.setenv("RENDER", "true")
+    for _ in range(security.MAX_FAILURES_PER_CLIENT):
+        client.post("/api/session", json={"token": "guess"}, headers={"X-Forwarded-For": "203.0.113.9, 10.0.0.1"})
+    assert client.post("/api/session", json={"token": "guess"},
+                       headers={"X-Forwarded-For": "203.0.113.9"}).status_code == 429
+    # Someone else behind the same proxy can still unlock.
+    assert client.post("/api/session", json={"token": "test-showcase-secret"},
+                       headers={"X-Forwarded-For": "203.0.113.10, 10.0.0.1"}).status_code == 200

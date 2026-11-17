@@ -392,7 +392,7 @@ hospital capacity failures and mobile layouts.
 
 ## API
 
-Interactive docs at `http://localhost:8000/docs`.
+Interactive docs at `http://localhost:8000/docs`. In operator mode they, and the detail in `/health`, appear only after unlocking.
 
 **Session** `GET /api/session` · `POST /api/session` · `DELETE /api/session`
 (operator-mode sign-in with the shared access token)
