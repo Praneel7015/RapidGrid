@@ -26,7 +26,14 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from security import ShowcaseAccessMiddleware, allowed_origins, router as session_router
+from security import (
+    SecurityHeadersMiddleware,
+    ShowcaseAccessMiddleware,
+    allowed_origins,
+    authenticated,
+    mode as access_mode,
+    router as session_router,
+)
 from logsafe import log_safe
 
 from agents.city_state import city_state
@@ -149,6 +156,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.add_middleware(ShowcaseAccessMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
 
 @app.exception_handler(RequestValidationError)
 async def validation_error(request: Request, exc: RequestValidationError):
@@ -177,12 +185,14 @@ app.include_router(city.router)
 # ---------------------------------------------------------------------------
 
 @app.get("/health", tags=["Platform"])
-async def health():
+async def health(request: Request):
     """
     Health check endpoint.
 
     Honest status: degraded when offline graph is missing; unhealthy when
-    neither live routing nor offline graph can serve paths.
+    neither live routing nor offline graph can serve paths. In operator mode a
+    visitor who has not unlocked sees only the status line; the routing and
+    city-model detail is for operators.
     """
     telemetry = route_agent.stats()
     configured = bool(route_agent.api_key)
@@ -194,6 +204,9 @@ async def health():
         status_value = "degraded"
     else:
         status_value = "healthy"
+
+    if access_mode() == "operator" and not authenticated(request):
+        return {"status": status_value, "service": "geoagentic-backend"}
 
     return {
         "status": status_value,
