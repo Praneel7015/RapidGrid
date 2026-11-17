@@ -104,12 +104,12 @@ run. The API docs at `/docs` appear on the hosted site only after unlocking.
 
 ### Open four browser tabs
 
-| Tab | URL | Role |
-|-----|-----|------|
-| 1 | `localhost:5173/citizen` | Caller (Ananya Sharma, +91 98765 43210) |
-| 2 | `localhost:5173/dispatcher` | City dispatch |
-| 3 | `localhost:5173/driver` | Field unit (AMB-UNIT-04) |
-| 4 | `localhost:5173/hospital` | Emergency department |
+| Tab | Local | Hosted | Role |
+|-----|-------|--------|------|
+| 1 | `localhost:5173/citizen` | `rapidgrid.highcortisol.xyz/citizen` | Caller (Ananya Sharma, +91 98765 43210) |
+| 2 | `localhost:5173/dispatcher` | `rapidgrid.highcortisol.xyz/dispatcher` | City dispatch |
+| 3 | `localhost:5173/driver` | `rapidgrid.highcortisol.xyz/driver` | Field unit (AMB-UNIT-04) |
+| 4 | `localhost:5173/hospital` | `rapidgrid.highcortisol.xyz/hospital` | Emergency department |
 
 Arrange them so you can switch quickly. Tab 2 is the one judges will look at
 longest.
@@ -468,13 +468,19 @@ agreeing on distance to within 1–15%.
 
 **"How is this different from Google Maps?"**
 Google Maps finds the fastest route to a place you chose. RapidGrid chooses
-the place: the hospital that can treat this patient, counting the cost of a
-secondary transfer. And its city model reacts to interventions: a closure
-pushes traffic onto neighbouring roads, so other ambulances' routes change too.
+the place: for cardiac, stroke and trauma it first keeps only hospitals that
+can deliver the treatment, then ranks them on capability and road time. The
+cost of a secondary transfer is not part of that ranking; it is shown
+afterwards, in the outcome comparison of the top two, to explain why the
+capability gate matters. And its city model reacts to interventions: a
+closure pushes traffic onto neighbouring roads, so hospital ranking and
+offline routes change for other ambulances too. (With a Google Routes key,
+dispatched routes come from Google and do not see drawn closures.)
 
 **"What do you mean by better choices as a whole?"**
 Every incident is planned on the same city model. A closure drawn for one
-call changes the costs for every other call, and a hospital going on divert
+call can change the costs for every other call (hospital ranking always uses
+the city model; dispatched routes do when they come from the offline router), and a hospital going on divert
 drops out of every new plan at once while crews already heading there are
 warned. Planning several incidents *jointly* (who gets which ambulance) is
 the next step.
