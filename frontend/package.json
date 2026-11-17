@@ -10,7 +10,7 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.5",
-    "@vitejs/plugin-react": "^4.2.1",
+    "@vitejs/plugin-react": "^5.2.0",
     "autoprefixer": "^10.6.2",
     "postcss": "^8.5.33",
     "tailwindcss": "^4.3.3",
@@ -21,9 +21,9 @@
   "dependencies": {
     "@huggingface/transformers": "^3.8.1",
     "leaflet": "^1.9.4",
-    "lucide-react": "^0.344.0",
+    "lucide-react": "^0.544.0",
     "react": "^19.3.1",
-    "react-dom": "^18.2.0",
+    "react-dom": "^19.3.1",
     "react-router-dom": "^7.18.5"
   }
 }
