@@ -142,7 +142,6 @@ export default function SharedShell({ children }) {
       </header>
 
       {logoutError && <p role="alert" className="bg-critical-wash px-4 py-2 text-sm text-critical">{logoutError}</p>}
-      <p className="border-b border-rule bg-paper-sunk px-4 py-1.5 text-center text-[11px] text-text-muted">Demonstration only · Shared role access · Simulated fleet and bed counts · For real emergencies call 112</p>
       <main className="min-w-0 flex-1">{children}</main>
     </div>
   );

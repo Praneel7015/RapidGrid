@@ -86,21 +86,22 @@ curl -s -X POST -H "Authorization: Bearer $RAPIDGRID_OPERATOR_TOKEN" http://127.
 
 ### Presenting on the hosted site
 
-The hosted showcase runs in **operator mode**: every page first shows an
-unlock screen. Enter the access token (ask the team; it is never in the
-code). One unlock lasts 8 hours in that browser, and **Sign out** ends it on
-the server too. Ten wrong tokens in 10 minutes pause unlocking for that
-network for 10 minutes, so paste the token rather than typing it.
+For the finals the hosted showcase runs as an **open demo**
+(`RAPIDGRID_MODE=demo`): no unlock screen, so every screen opens directly.
+Use only made-up caller names and numbers; in demo mode anyone with the link
+can see them. `RAPIDGRID_ALLOWED_HOSTS` must list the custom domain, or the
+API refuses it.
 
 To reset the hosted site before presenting, use **Reset the city** on the
-dispatcher screen, and clear old incidents with the token:
+dispatcher screen, and clear old incidents with the access token (still set
+on the server; clearing incidents needs it even in demo mode):
 
 ```bash
 curl -s -X POST -H "Authorization: Bearer $RAPIDGRID_OPERATOR_TOKEN" https://rapidgrid.highcortisol.xyz/api/incidents/clear
 ```
 
 The commands in sections 1 and 2 that call `127.0.0.1:8000` are for a local
-run. The API docs at `/docs` appear on the hosted site only after unlocking.
+run. The API docs are at `/docs` on the hosted site too.
 
 ### Open four browser tabs
 
@@ -114,10 +115,10 @@ run. The API docs at `/docs` appear on the hosted site only after unlocking.
 Arrange them so you can switch quickly. Tab 2 is the one judges will look at
 longest.
 
-> **Say this early:** the hosted site is locked with one shared access token,
-> and inside it anyone can act in any role. There are no per-person accounts
-> yet. Naming that before anyone asks buys you credibility for everything
-> that follows.
+> **Say this early:** for the demo, anyone can open any role. There are no
+> per-person accounts yet; a deployment can be locked behind an access token
+> (operator mode). Naming that before anyone asks buys you credibility for
+> everything that follows.
 
 ---
 
@@ -489,10 +490,11 @@ the next step.
 Beat 8. Turn off the wi-fi and watch.
 
 **"Is it secure?"**
-For a showcase, yes; for real dispatch, not yet. The hosted site is locked
-with a shared access token: sessions expire after 8 hours and end on the
-server at sign-out, wrong tokens are throttled, the API docs are hidden until
-unlock, and every response carries browser security headers. CodeQL reports
+For a showcase, yes; for real dispatch, not yet. Today's demo is open on
+purpose, with synthetic data. Operator mode locks a deployment behind a
+shared access token: sessions expire after 8 hours and end on the server at
+sign-out, wrong tokens are throttled, the API docs are hidden until unlock,
+and every response carries browser security headers. CodeQL reports
 no open alerts and an independent audit's findings are fixed. What it lacks is
 per-person accounts: inside the lock, anyone can act in any role. Real
 authentication and
