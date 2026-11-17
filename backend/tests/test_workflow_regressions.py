@@ -845,7 +845,8 @@ def test_triage_result_survives_a_rolled_back_rejection(client, monkeypatch):
         report.pop(key, None)
     incident.save_db()
     triage = SimpleNamespace(incident_report=SimpleNamespace(
-        incident_type=SimpleNamespace(value="cardiac"), severity_estimate=0.9, extracted_details="chest pain"))
+        incident_type=SimpleNamespace(value="cardiac"), severity_estimate=0.9, extracted_details="chest pain",
+        triage_notices=[]))
     monkeypatch.setattr(incident.accessibility_agent, "process_input", AsyncMock(return_value=triage))
 
     async def stop_after_triage(*args, **kwargs):

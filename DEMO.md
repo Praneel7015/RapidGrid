@@ -475,13 +475,13 @@ cost of a secondary transfer is not part of that ranking; it is shown
 afterwards, in the outcome comparison of the top two, to explain why the
 capability gate matters. And its city model reacts to interventions: a
 closure pushes traffic onto neighbouring roads, so hospital ranking and
-offline routes change for other ambulances too. (With a Google Routes key,
-dispatched routes come from Google and do not see drawn closures.)
+routes change for other ambulances too. (While a closure is drawn, routing
+uses our graph rather than Google, because Google does not know about it.)
 
 **"What do you mean by better choices as a whole?"**
 Every incident is planned on the same city model. A closure drawn for one
-call can change the costs for every other call (hospital ranking always uses
-the city model; dispatched routes do when they come from the offline router), and a hospital going on divert
+call changes the costs for every other call (hospital ranking and, while a
+closure is drawn, dispatched routes), and a hospital going on divert
 drops out of every new plan at once while crews already heading there are
 warned. Planning several incidents *jointly* (who gets which ambulance) is
 the next step.

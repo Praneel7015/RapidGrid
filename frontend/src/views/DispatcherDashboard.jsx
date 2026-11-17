@@ -12,7 +12,7 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Check, CornerUpRight, X } from 'lucide-react';
+import { AlertTriangle, Check, CornerUpRight, X } from 'lucide-react';
 import MapOverlay from '../components/MapOverlay';
 import AIRationale from '../components/AIRationale';
 import CityControls from '../components/CityControls';
@@ -335,6 +335,17 @@ export default function DispatcherDashboard() {
                       <p className="mt-0.5 truncate text-[11px] text-text-muted">
                         {inc.citizen_text}
                       </p>
+                      {inc.triage_notices?.length > 0 && (
+                        // Keyword triage could not read the report fully (another
+                        // script, nothing recognised, or negated mentions).
+                        <p
+                          className="mt-1 flex items-start gap-1 text-[11px] leading-snug text-signal-hover"
+                          title={inc.triage_notices.join(' ')}
+                        >
+                          <AlertTriangle size={12} className="mt-px shrink-0" aria-hidden="true" />
+                          <span className="line-clamp-2">{inc.triage_notices[0]}</span>
+                        </p>
+                      )}
                       <div className="mt-2 flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
                         <SeverityTag severity={inc.severity ?? 0} />
                         <span className="min-w-0 truncate t-meta text-text-faint">

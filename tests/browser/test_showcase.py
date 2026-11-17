@@ -534,6 +534,32 @@ def test_map_popups_show_names_as_text_not_markup(context, server):
     assert content.locator("img").count() == 0
     expect(content).to_contain_text(hostile)
 
+
+def test_driver_outage_is_not_shown_as_no_calls(context, server):
+    unlock(context, server)
+    page = context.new_page()
+    page.route(re.compile(r".*/api/driver/active$"), lambda route: route.fulfill(status=503, body="down"))
+    page.goto(server + "/driver")
+    expect(page.get_by_text("Cannot reach dispatch")).to_be_visible(timeout=10000)
+    expect(page.get_by_text("No calls assigned")).to_have_count(0)
+
+
+def test_dispatcher_sees_when_triage_cannot_read_a_report(context, server):
+    unlock(context, server)
+    created = context.request.post(server + "/api/incidents", data={
+        "citizen_text": "ನನ್ನ ತಂದೆಗೆ ಎದೆ ನೋವು",
+        "citizen_name": "Script browser test", "citizen_phone": "TEST-SCRIPT-ONLY",
+        "location": {"lat": 13.035, "lng": 77.597},
+    })
+    assert created.status == 202
+    incident_id = created.json()["incident_id"]
+    poll_incident(context, server, incident_id, "awaiting_dispatcher_approval")
+    page = context.new_page()
+    page.route("https://tile.openstreetmap.org/**", lambda route: route.abort())
+    page.goto(server + "/dispatcher")
+    card = page.get_by_role("button").filter(has_text=incident_id).first
+    expect(card).to_contain_text("Kannada", timeout=10000)
+
 # --- Progressive web app ---------------------------------------------------------
 
 @pytest.fixture
