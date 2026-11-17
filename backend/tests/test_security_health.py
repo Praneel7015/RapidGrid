@@ -538,3 +538,23 @@ def test_operator_mode_does_not_pin_hosts(client):
     # Operator mode already needs a session; a custom domain must keep working.
     login(client)
     assert client.get("/api/incidents/", headers={"Host": "rapidgrid.example.org"}).status_code == 200
+
+
+def test_malformed_host_is_refused_without_an_error(monkeypatch):
+    monkeypatch.setenv("RAPIDGRID_MODE", "demo")
+    local = TestClient(app, base_url="http://testserver", raise_server_exceptions=True)
+    assert local.get("/api/incidents/", headers={"Host": "[bad"}).status_code == 421
+    with pytest.raises(WebSocketDisconnect) as closed:
+        with local.websocket_connect("/ws/chat/any", headers={"Host": "[bad"}):
+            pass
+    assert closed.value.code == 1008
+
+
+def test_plain_http_to_a_socket_path_gets_an_http_refusal(client, monkeypatch):
+    # Operator mode, no session: an HTTP GET to /ws/... must get a response.
+    assert client.get("/ws/chat/any").status_code == 401
+    monkeypatch.setenv("RAPIDGRID_MODE", "demo")
+    local = TestClient(app, base_url="http://testserver")
+    assert local.get("/ws/chat/any", headers={"Host": "attacker.example"}).status_code == 421
+    cross = {"Origin": "https://untrusted.example"}
+    assert client.get("/ws/chat/any", headers=cross).status_code == 403

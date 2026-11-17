@@ -131,3 +131,13 @@ def test_overpass_failure_still_gives_the_full_curated_catalogue(monkeypatch):
     agent = HospitalIntelligenceAgent()
     hospitals = asyncio.run(agent._fetch_live_hospitals(12.97, 77.70))
     assert {h["curated_id"] for h in hospitals} == set(agent._load_capabilities())
+
+
+def test_a_distant_exact_namesake_of_a_branch_is_kept(monkeypatch):
+    # Named exactly like the curated Whitefield branch, but about 2.6 km from
+    # it: not the same place, so it stays as its own unverified entry.
+    _, hospitals = catalogue(monkeypatch, [node(9400, "Manipal Hospital (Whitefield)", 12.9700, 77.7500)])
+    entries = [h for h in hospitals if h["name"] == "Manipal Hospital (Whitefield)"]
+    assert {h["curated_id"] for h in entries} == {"blr-015", None}
+    stray = next(h for h in entries if h["curated_id"] is None)
+    assert (stray["lat"], stray["lng"]) == (12.97, 77.75)
