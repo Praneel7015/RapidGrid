@@ -161,10 +161,18 @@ export default function DriverDashboard() {
 
         {dispatches.length === 0 ? (
           <Panel>
-            <Empty
-              title="No calls assigned"
-              hint="Approved calls for this demo service profile appear here. Profile filtering is a viewing convenience; shared showcase access covers every role."
-            />
+            {conn === 'down' ? (
+              // An outage must not read as "nothing to do".
+              <Empty
+                title="Cannot reach dispatch"
+                hint="Retrying every few seconds. Assigned calls appear as soon as the connection returns."
+              />
+            ) : (
+              <Empty
+                title="No calls assigned"
+                hint="Approved calls for this demo service profile appear here. Profile filtering is a viewing convenience; shared showcase access covers every role."
+              />
+            )}
           </Panel>
         ) : (
           <div className="space-y-2">

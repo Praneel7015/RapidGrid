@@ -50,6 +50,20 @@ _CACHE_PRECISION = 4
 _PROVIDER_FRESHNESS_S = 300.0
 
 
+GOOGLE_TIMEOUT_S = 4.0
+
+
+def _active_interventions() -> int:
+    """Closed plus obstructed segments in the city model (0 when it is not loaded)."""
+    try:
+        from agents.city_state import city_state
+    except Exception:
+        return 0
+    if not city_state.ready:
+        return 0
+    return len(city_state.closed_edges) + len(city_state.incident_edges)
+
+
 class RouteOptimizationAgent:
     """Live routing via Google Routes API."""
 
@@ -173,6 +187,17 @@ class RouteOptimizationAgent:
             )
             return self._local_route(request, reason="no API key configured")
 
+        # Google knows real traffic but not the closures and incidents drawn
+        # in our city model. While any are active, route on the graph that
+        # does, so the dispatched route and the hospital ranking agree.
+        interventions = _active_interventions()
+        if interventions:
+            return self._local_route(
+                request,
+                reason=f"{interventions} closed or obstructed segment(s) in the city model; "
+                "Google Routes does not know about them",
+            )
+
         cache_key = self._cache_key(request)
         cached = self._cache_get(cache_key)
         if cached is not None:
@@ -213,7 +238,9 @@ class RouteOptimizationAgent:
         try:
             with self._state_lock:
                 self.api_calls += 1
-            with httpx.Client(timeout=10.0) as client:
+            # Short timeout: a hanging provider must not hold up a report;
+            # the offline router answers in well under a second.
+            with httpx.Client(timeout=httpx.Timeout(GOOGLE_TIMEOUT_S, connect=2.0)) as client:
                 resp = client.post(url, headers=headers, json=payload)
                 resp.raise_for_status()
                 data = resp.json()

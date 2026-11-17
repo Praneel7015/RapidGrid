@@ -60,6 +60,7 @@ class AccessibilityAgent:
         severity = triage.severity
         details = triage.as_note()
         confidence = triage.confidence
+        notices = list(triage.notices)
 
         # Special handling for SOS button — minimal input, maximum urgency
         if request.modality == AccessibilityInputModality.SOS_BUTTON:
@@ -68,6 +69,7 @@ class AccessibilityAgent:
             # The prompt says if the citizen can't complete the follow-up, it auto-submits
             # as "unspecified/general".
             etype = EmergencyType.GENERAL
+            notices = []
 
         # 2. Build the normalized IncidentReport
         incident_report = IncidentReport(
@@ -76,6 +78,7 @@ class AccessibilityAgent:
             severity_estimate=severity,
             patient_count=1,
             extracted_details=details,
+            triage_notices=notices,
         )
 
         # 3. Handle Accessibility Profile

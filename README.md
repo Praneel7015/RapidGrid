@@ -126,9 +126,9 @@ plain pipeline:
 
 | Step | Module | What it really does |
 | :-- | :-- | :-- |
-| Triage | `triage.py`, `accessibility.py` | Weighted keyword matching on English text into emergency type and severity. No negation handling; other languages fall to `general`. A suggestion for the dispatcher, not clinical triage. |
+| Triage | `triage.py`, `accessibility.py` | Weighted keyword matching on English text into emergency type and severity. Negated mentions ("no chest pain") do not count. Reports in Kannada, Hindi and other Indian scripts, or with no recognised keywords, are flagged on the dispatcher's call card. A suggestion for the dispatcher, not clinical triage. |
 | Hospital ranking | `hospital_intelligence.py` | Scores curated capability, road time over the offline graph, and only ER-desk-entered bed figures. Diverted hospitals are excluded; specialty-bypass gate for cardiac, stroke and trauma. **This step chooses the hospital.** |
-| Routing | `route_optimization.py`, `local_router.py` | Google Routes when configured, otherwise A* over the offline graph (see tiers above). |
+| Routing | `route_optimization.py`, `local_router.py` | Google Routes when configured (4 s timeout), otherwise A* over the offline graph (see tiers above). While a closure or incident is drawn, always the offline graph, so routes respect it. |
 | Plan | `decision_fusion.py` | Packages the top-ranked hospital, the route and an explanation. Its five weighted factors describe the plan; they do not change which hospital is chosen. |
 | City model | `city_state.py` | Hour, weather and drawn closures, applied to the offline graph. Also the source of the traffic factor shown in the plan. |
 
@@ -236,8 +236,8 @@ modelled values carry hatched badges and dotted underlines.
 Every incident is planned on the same city model, so a closure or a hospital
 divert can change the plans that follow, not only the one that caused it. A
 divert removes that hospital from every new plan. A closure changes hospital
-ranking, and dispatched routes too when they come from the offline router
-(with a Google Routes key, dispatched routes do not see drawn closures).
+ranking and the dispatched route: while any closure or incident is drawn,
+routing uses the offline graph, which knows about it, instead of Google.
 
 ---
 
@@ -478,7 +478,7 @@ Details and deployment settings: [docs/SHOWCASE.md](docs/SHOWCASE.md).
    diverts, show the old and new plan side by side with the causal reason.
 4. **Reposition idle ambulances** ahead of predicted congestion.
 5. **One live hospital feed** (HL7 FHIR) in place of the neutral bed value.
-6. **Better triage:** negation, Kannada and Hindi detection.
+6. **Better triage:** read Kannada and Hindi rather than only flag them; a language model with the keyword model as a fallback.
 7. **Per-person accounts and roles,** with an audit trail.
 
 ---
@@ -495,12 +495,12 @@ Stated plainly, because a system that hides these is harder to trust:
 4. **No live hospital data.** Capability is curated; bed counts are simulated
    unless an ER desk enters them. Capability *scores* are judgement calls
    without a per-hospital citation.
-5. **Triage is English keyword matching** without negation handling.
+5. **Triage is English keyword matching.** It handles simple negation and flags other scripts, but cannot read them, and romanised Hindi or Kannada is not detected.
 6. **No notifications.** No SMS or push; screens refresh every few seconds.
 7. **Single-incident assumption.** No contention for a shared fleet.
-8. **With a Google key, dispatched routes do not see drawn closures**, while
-   hospital ranking (on the offline graph) does. Leave the key unset to keep
-   the two consistent.
+8. **While a closure is drawn, routes come from the offline graph,** which has
+   modelled rather than live traffic. Google's live traffic returns once the
+   city is reset.
 
 ---
 

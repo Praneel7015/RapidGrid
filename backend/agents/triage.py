@@ -108,23 +108,77 @@ class TriageResult:
     confidence: float
     matched_terms: list[str] = field(default_factory=list)
     red_flags: list[str] = field(default_factory=list)
-    method: str = "weighted-keyword-v1"
+    # Things the dispatcher should know about the classification itself:
+    # another script, nothing recognised, or mentions that were negated.
+    notices: list[str] = field(default_factory=list)
+    method: str = "weighted-keyword-v2"
 
     def as_note(self) -> str:
         """One-line provenance string for the incident record."""
         flags = f" Red flags: {', '.join(self.red_flags)}." if self.red_flags else ""
+        notices = "".join(f" {n}" for n in self.notices)
         return (
             f"{self.details} Classified by {self.method} "
             f"(matched: {', '.join(self.matched_terms) or 'no specific terms'})."
-            f"{flags}"
+            f"{flags}{notices}"
         )
 
 
-def _find(term: str, text: str) -> bool:
-    """Word-boundary match, so 'arm' does not fire inside 'alarm'."""
+# A mention is negated when one of these words appears shortly before it in
+# the same clause: "no chest pain", "denies any weakness", "isn't bleeding".
+_NEGATION_CUES = {
+    "no", "not", "without", "denies", "denied", "deny", "never", "none",
+    "isn't", "isnt", "doesn't", "doesnt", "didn't", "didnt", "hasn't", "hasnt",
+    "wasn't", "wasnt", "aren't", "arent", "don't", "dont", "nor",
+}
+_NEGATION_WINDOW = 4  # words before the term
+_CLAUSE_BREAK = re.compile(r"[.;:!?,]|\bbut\b|\bhowever\b|\bexcept\b|\band\b")
+
+# Scripts the keyword model cannot read. Reports in them are flagged rather
+# than silently filed as a general emergency.
+_SCRIPTS = {
+    "Kannada": ("\u0c80", "\u0cff"),
+    "Devanagari (Hindi)": ("\u0900", "\u097f"),
+    "Tamil": ("\u0b80", "\u0bff"),
+    "Telugu": ("\u0c00", "\u0c7f"),
+    "Malayalam": ("\u0d00", "\u0d7f"),
+}
+
+
+def _negated(text: str, start: int) -> bool:
+    clause = _CLAUSE_BREAK.split(text[:start])[-1]
+    words = re.findall(r"[a-z']+", clause)[-_NEGATION_WINDOW:]
+    return any(w in _NEGATION_CUES for w in words)
+
+
+def _occurrences(term: str, text: str):
     if " " in term or term.endswith("-"):
-        return term in text
-    return re.search(rf"\b{re.escape(term)}", text) is not None
+        return (m.start() for m in re.finditer(re.escape(term), text))
+    return (m.start() for m in re.finditer(rf"\b{re.escape(term)}", text))
+
+
+def _self_negating(term: str) -> bool:
+    """'no pulse' and 'not breathing' state a negative finding themselves."""
+    return term.split(" ", 1)[0] in _NEGATION_CUES
+
+
+def _find(term: str, text: str) -> bool:
+    """Word-boundary match ('arm' does not fire inside 'alarm') that is not
+    negated ('no chest pain' does not count as chest pain)."""
+    if _self_negating(term):
+        return any(True for _ in _occurrences(term, text))
+    return any(not _negated(text, start) for start in _occurrences(term, text))
+
+
+def _negated_only(term: str, text: str) -> bool:
+    if _self_negating(term):
+        return False
+    found = list(_occurrences(term, text))
+    return bool(found) and all(_negated(text, start) for start in found)
+
+
+def _scripts_in(text: str) -> list[str]:
+    return [name for name, (lo, hi) in _SCRIPTS.items() if any(lo <= ch <= hi for ch in text)]
 
 
 def classify(raw_text: str) -> TriageResult:
@@ -137,6 +191,17 @@ def classify(raw_text: str) -> TriageResult:
             details=_CATEGORY_DETAIL[EmergencyType.GENERAL],
             confidence=0.30,
         )
+
+    notices: list[str] = []
+    scripts = _scripts_in(text)
+    if scripts:
+        notices.append(
+            f"Report contains {', '.join(scripts)} text, which keyword triage cannot read. "
+            "Read the caller's words before relying on the category."
+        )
+    negated = sorted({
+        term for terms in _CATEGORY_TERMS.values() for term in terms if _negated_only(term, text)
+    })
 
     scores: dict[EmergencyType, float] = {}
     matches: dict[EmergencyType, list[str]] = {}
@@ -157,6 +222,11 @@ def classify(raw_text: str) -> TriageResult:
         matched: list[str] = []
         # No diagnostic terms at all - low confidence, and say so.
         confidence = 0.35
+        if not scripts:
+            notices.append(
+                "No emergency keywords recognised; the category is a default. "
+                "Read the caller's words."
+            )
     else:
         category = max(scores, key=scores.get)
         matched = matches[category]
@@ -192,6 +262,9 @@ def classify(raw_text: str) -> TriageResult:
         confidence=confidence,
         matched_terms=sorted(matched, key=len, reverse=True)[:5],
         red_flags=flags[:4],
+        notices=notices + (
+            [f"Ignored negated mention(s): {', '.join(negated[:4])}."] if negated else []
+        ),
     )
     logger.info(
         "Triage: %s severity=%.2f confidence=%.2f (matched %s)",
