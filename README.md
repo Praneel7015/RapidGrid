@@ -15,9 +15,10 @@ transfer them onward costs far more time than driving past it.
 > [What is real and what is modelled](#what-is-real-and-what-is-modelled).
 > Nothing is presented as measured unless it is.
 
-> **Hosted showcase:** https://rapidgrid.highcortisol.xyz runs in operator
-> mode. Every page first asks for the shared access token; ask the team for
-> it. Local runs default to an open demo with synthetic data.
+> **Hosted showcase:** https://rapidgrid.highcortisol.xyz runs as an open
+> demo for the hackathon: no sign-in, synthetic data only. Do not enter real
+> names or phone numbers there. Operator mode (below) locks a deployment
+> behind an access token when one is needed.
 
 ---
 
