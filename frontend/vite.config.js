@@ -9,7 +9,9 @@ const apiTarget = process.env.RAPIDGRID_DEV_API_URL || 'http://localhost:8000'
 
 // Server routes the service worker must never answer from a cache or with the
 // app shell: live incidents, chat, sessions, health and API docs.
-const SERVER_ONLY = [/^\/api(\/|$)/, /^\/ws\//, /^\/health(\/|$)/, /^\/docs/, /^\/redoc/, /^\/openapi\.json/]
+// Workbox tests navigations against pathname plus query string, so a query
+// ends the path segment too (/api?x=1 must reach the server).
+const SERVER_ONLY = [/^\/api(\/|\?|$)/, /^\/ws\//, /^\/health(\/|\?|$)/, /^\/docs/, /^\/redoc/, /^\/openapi\.json/]
 
 const pwa = VitePWA({
   // A new version waits until the user chooses to reload, so an open call is
