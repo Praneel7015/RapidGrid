@@ -27,6 +27,8 @@ def fresh_security_state(monkeypatch, tmp_path):
     monkeypatch.delenv("RAPIDGRID_CLIENT_IP_HEADER", raising=False)
     monkeypatch.delenv("RENDER", raising=False)
     monkeypatch.setattr(security, "_revoked", None)
+    monkeypatch.setattr(security, "_pending_revocations", {})
+    monkeypatch.setattr(security, "_socket_sessions", {})
     security.reset_throttle()
     yield
     security.reset_throttle()
@@ -410,3 +412,95 @@ def test_render_charges_failures_to_the_forwarded_client(client, monkeypatch):
     # Someone else behind the same proxy can still unlock.
     assert client.post("/api/session", json={"token": "test-showcase-secret"},
                        headers={"X-Forwarded-For": "203.0.113.10, 10.0.0.1"}).status_code == 200
+
+
+# --- Review follow-ups ---------------------------------------------------------
+
+def test_logout_closes_that_sessions_chat_socket_only(client):
+    from routers import incident as incident_router
+
+    incident_router.ACTIVE_INCIDENTS.append({"incident_id": "INC-socket-revoke", "status": "processing"})
+    try:
+        login(client)
+        other = TestClient(app, base_url="https://testserver")
+        login(other)
+        def cookie_header(c):
+            return {"cookie": f"{security.COOKIE_NAME}={c.cookies.get(security.COOKIE_NAME)}"}
+
+        # The session cookie is Secure; send it explicitly on the test socket.
+        with client.websocket_connect("/ws/chat/INC-socket-revoke", headers=cookie_header(client)) as mine, \
+                other.websocket_connect("/ws/chat/INC-socket-revoke", headers=cookie_header(other)) as theirs:
+            assert client.delete("/api/session").status_code == 200
+            with pytest.raises(WebSocketDisconnect) as closed:
+                mine.receive_text()
+            assert closed.value.code == 1008
+            # The other session's socket still works.
+            theirs.send_text('{"message": "still here", "sender_role": "dispatcher"}')
+            assert "still here" in theirs.receive_text()
+    finally:
+        incident_router.ACTIVE_INCIDENTS[:] = [
+            i for i in incident_router.ACTIVE_INCIDENTS if i["incident_id"] != "INC-socket-revoke"
+        ]
+
+
+def test_unreadable_revocations_fail_closed_and_retry(client, monkeypatch):
+    import storage
+
+    login(client)
+    real_load = storage.load_collection
+
+    def broken(name, *args, **kwargs):
+        if name == security._REVOKED_COLLECTION:
+            raise OSError("disk unavailable")
+        return real_load(name, *args, **kwargs)
+
+    monkeypatch.setattr(security, "_revoked", None)
+    monkeypatch.setattr(storage, "load_collection", broken)
+    assert client.get("/api/incidents/").status_code == 401  # fail closed
+    assert security._revoked is None  # nothing cached
+    monkeypatch.setattr(storage, "load_collection", real_load)
+    assert client.get("/api/incidents/").status_code == 200  # retried
+
+
+def test_failed_revocation_save_is_reported_and_still_applies(client, monkeypatch):
+    import storage
+
+    login(client)
+    cookie = client.cookies.get(security.COOKIE_NAME)
+    monkeypatch.setattr(storage, "save_collection", lambda *a, **k: (_ for _ in ()).throw(OSError("disk full")))
+    response = client.delete("/api/session")
+    assert response.status_code == 503
+    assert "set-cookie" not in response.headers  # the cookie is kept for a retry
+    replay = TestClient(app, base_url="https://testserver")
+    replay.cookies.set(security.COOKIE_NAME, cookie)
+    assert replay.get("/api/incidents/").status_code == 401  # revoked in this process
+
+
+def test_revocation_made_while_the_list_is_unreadable_is_kept(client, monkeypatch):
+    import storage
+
+    login(client)
+    cookie = client.cookies.get(security.COOKIE_NAME)
+    real_load = storage.load_collection
+    monkeypatch.setattr(security, "_revoked", None)
+    monkeypatch.setattr(storage, "load_collection", lambda *a, **k: (_ for _ in ()).throw(OSError("busy")))
+    assert client.delete("/api/session").status_code == 503
+    monkeypatch.setattr(storage, "load_collection", real_load)
+    monkeypatch.setattr(security, "_pending_revocations", dict(security._pending_revocations))
+    replay = TestClient(app, base_url="https://testserver")
+    replay.cookies.set(security.COOKIE_NAME, cookie)
+    assert replay.get("/api/incidents/").status_code == 401
+    # The next successful revocation stores it too.
+    login(client)
+    assert client.delete("/api/session").status_code == 200
+    monkeypatch.setattr(security, "_revoked", None)
+    assert replay.get("/api/incidents/").status_code == 401
+
+
+def test_empty_client_ip_header_setting_keeps_the_render_default(client, monkeypatch):
+    monkeypatch.setenv("RENDER", "true")
+    monkeypatch.setenv("RAPIDGRID_CLIENT_IP_HEADER", "")
+    for _ in range(security.MAX_FAILURES_PER_CLIENT):
+        client.post("/api/session", json={"token": "guess"}, headers={"X-Forwarded-For": "203.0.113.20"})
+    assert client.post("/api/session", json={"token": "test-showcase-secret"},
+                       headers={"X-Forwarded-For": "203.0.113.21"}).status_code == 200

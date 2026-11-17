@@ -92,7 +92,8 @@ def client_key(connection: HTTPConnection) -> str:
     guessing rate.
     """
     default = "x-forwarded-for" if os.getenv("RENDER", "").lower() == "true" else ""
-    header = os.getenv("RAPIDGRID_CLIENT_IP_HEADER", default).strip().lower()
+    # An empty value (as a copied .env template leaves it) means "not set".
+    header = (os.getenv("RAPIDGRID_CLIENT_IP_HEADER", "").strip() or default).lower()
     if header:
         value = connection.headers.get(header, "").split(",")[0].strip()
         if value:
@@ -150,36 +151,94 @@ _revoked: dict[str, float] | None = None
 _revoked_lock = threading.Lock()
 
 
+class RevocationUnavailable(RuntimeError):
+    """The revoked-session list could not be read or saved."""
+
+
 def _revoked_sessions() -> dict[str, float]:
+    """The revoked sessions, loaded once. Raises RevocationUnavailable when the
+    store cannot be read; nothing is cached then, so the next call retries."""
     global _revoked
     if _revoked is None:
         try:
             import storage
 
             stored = storage.load_collection(_REVOKED_COLLECTION, {}) or {}
-            _revoked = {str(k): float(v) for k, v in stored.items()}
-        except Exception:
-            logger.exception("Could not load revoked sessions; starting with none")
-            _revoked = {}
+            loaded = {str(k): float(v) for k, v in stored.items()}
+        except Exception as error:
+            logger.exception("Could not load revoked sessions")
+            raise RevocationUnavailable("revoked sessions unavailable") from error
+        _revoked = loaded
     return _revoked
 
 
 def _revoke(session_id: str, expires_at: float) -> None:
+    """Revoke a session in this process, then store it.
+
+    The in-process revocation always takes effect. RevocationUnavailable is
+    raised if the list could not be loaded or the result could not be saved,
+    so logout can report that it may not survive a restart.
+    """
     with _revoked_lock:
-        revoked = _revoked_sessions()
+        try:
+            revoked = _revoked_sessions()
+        except RevocationUnavailable:
+            # Never overwrite the stored list with a partial one; remember the
+            # revocation for this process only, then report the failure.
+            _pending_revocations[session_id] = expires_at
+            raise
         now = time.time()
         for key in [k for k, until in revoked.items() if until <= now]:
             del revoked[key]
+        revoked.update(_pending_revocations)
+        _pending_revocations.clear()
         revoked[session_id] = expires_at
         snapshot = dict(revoked)
     try:
         import storage
 
         storage.save_collection(_REVOKED_COLLECTION, snapshot)
-    except Exception:
-        # The revocation still holds in this process; only a restart before
-        # the session's own expiry would forget it.
-        logger.exception("Could not persist a revoked session")
+    except Exception as error:
+        logger.exception("Could not store a revoked session")
+        raise RevocationUnavailable("revoked session not stored") from error
+
+
+# Revocations made while the stored list could not be loaded. They apply in
+# this process and are merged into the list once it loads.
+_pending_revocations: dict[str, float] = {}
+
+
+# --- Chat sockets per session -------------------------------------------------
+# A socket opened with a session cookie is closed when that session is revoked,
+# so logging out also ends any chat connection it opened.
+
+_socket_sessions: dict[str, set] = {}
+
+
+def session_id_of(connection: HTTPConnection) -> str | None:
+    secret = operator_token()
+    session = _valid_session(connection.cookies.get(COOKIE_NAME, ""), secret) if secret else None
+    return session[0] if session else None
+
+
+def register_socket(session_id: str | None, websocket) -> None:
+    if session_id:
+        _socket_sessions.setdefault(session_id, set()).add(websocket)
+
+
+def unregister_socket(session_id: str | None, websocket) -> None:
+    if session_id and session_id in _socket_sessions:
+        _socket_sessions[session_id].discard(websocket)
+        if not _socket_sessions[session_id]:
+            del _socket_sessions[session_id]
+
+
+async def close_session_sockets(session_id: str) -> None:
+    for websocket in list(_socket_sessions.pop(session_id, ())):
+        try:
+            await websocket.close(code=1008)
+        except Exception:
+            pass  # already closed
 
 
 def _signature(issued_at: str, session_id: str, secret: str) -> str:
@@ -216,7 +275,14 @@ def _session_active(cookie: str, secret: str) -> bool:
     if session is None:
         return False
     with _revoked_lock:
-        return session[0] not in _revoked_sessions()
+        if session[0] in _pending_revocations:
+            return False
+        try:
+            return session[0] not in _revoked_sessions()
+        except RevocationUnavailable:
+            # Without the revoked list a logged-out cookie cannot be told
+            # apart, so cookie sign-in fails closed until it loads.
+            return False
 
 
 def authenticated(connection: HTTPConnection) -> bool:
@@ -316,10 +382,26 @@ async def login_session(payload: SessionLogin, request: Request, response: Respo
 
 @router.delete("")
 async def logout_session(request: Request, response: Response):
+    try:
+        return await _logout(request, response)
+    except RevocationUnavailable:
+        # The session is revoked in this process, but the record may not
+        # survive a restart. Say so, and keep the cookie so the user can retry.
+        return JSONResponse(
+            {"detail": "Signed out on this server, but it could not be recorded. Try again."},
+            status_code=503,
+            headers={"Cache-Control": "no-store"},
+        )
+
+
+async def _logout(request: Request, response: Response):
     secret = operator_token()
     session = _valid_session(request.cookies.get(COOKIE_NAME, ""), secret) if secret else None
     if session is not None:
-        _revoke(*session)
+        try:
+            _revoke(*session)
+        finally:
+            await close_session_sockets(session[0])
     response.delete_cookie(COOKIE_NAME, path="/")
     response.headers["Cache-Control"] = "no-store"
     return {"authenticated": mode() == "demo", "operator_authenticated": False}
