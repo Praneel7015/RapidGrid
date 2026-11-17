@@ -59,6 +59,30 @@ def allowed_origins() -> list[str]:
     return [value.strip().rstrip("/") for value in os.getenv("RAPIDGRID_ALLOWED_ORIGINS", "").split(",") if value.strip()]
 
 
+_LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
+
+
+def allowed_hosts() -> set[str]:
+    """Host names the open demo API answers to.
+
+    Local names, plus RAPIDGRID_ALLOWED_HOSTS (comma-separated), the hosts of
+    RAPIDGRID_ALLOWED_ORIGINS, and Render's own hostname when present.
+    """
+    hosts = set(_LOCAL_HOSTS)
+    hosts.update(h.strip().lower() for h in os.getenv("RAPIDGRID_ALLOWED_HOSTS", "").split(",") if h.strip())
+    hosts.update((urlsplit(origin).hostname or "").lower() for origin in allowed_origins())
+    if os.getenv("RENDER_EXTERNAL_HOSTNAME"):
+        hosts.add(os.getenv("RENDER_EXTERNAL_HOSTNAME", "").lower())
+    hosts.discard("")
+    return hosts
+
+
+def host_allowed(connection: HTTPConnection) -> bool:
+    host = connection.headers.get("host", "")
+    hostname = (urlsplit("//" + host).hostname or "").lower() if host else ""
+    return hostname in allowed_hosts()
+
+
 def _same_origin(connection: HTTPConnection) -> bool:
     origin = connection.headers.get("origin")
     if not origin:
@@ -322,6 +346,15 @@ class ShowcaseAccessMiddleware:
             return await self.app(scope, receive, send)
         if not api_path and not socket_path:
             return await self.app(scope, receive, send)
+        if mode() == "demo" and not host_allowed(connection):
+            # DNS rebinding: a hostile page can point its own domain at a
+            # locally running demo; Host then names that domain and Origin
+            # matches it, so the origin check alone passes.
+            if socket_path:
+                await send({"type": "websocket.close", "code": 1008})
+            else:
+                await JSONResponse({"detail": "Unknown host"}, status_code=421)(scope, receive, send)
+            return
         method = scope.get("method", "GET")
         if (socket_path or method not in {"GET", "HEAD", "OPTIONS"}) and not _same_origin(connection):
             if socket_path:
