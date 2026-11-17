@@ -497,6 +497,43 @@ def test_zoom_button_click_survives_dispatcher_refresh(context, server):
     assert zoom() == fitted + 1
 
 
+
+def test_map_popups_show_names_as_text_not_markup(context, server):
+    # Hospital and road names come from OpenStreetMap and the API. A name that
+    # looks like HTML must be shown literally, never parsed.
+    unlock(context, server)
+    created = context.request.post(server + "/api/incidents", data={
+        "citizen_text": "Test scenario: chest pain near Hebbal.",
+        "citizen_name": "Popup browser test", "citizen_phone": "TEST-POPUP-ONLY",
+        "location": {"lat": 13.035, "lng": 77.597},
+    })
+    assert created.status == 202
+    incident_id = created.json()["incident_id"]
+    poll_incident(context, server, incident_id, "awaiting_dispatcher_approval")
+
+    hostile = '<img src=x onerror="window.__popupInjected=1">Hostile ER'
+
+    def rename(route):
+        response = route.fetch()
+        body = response.json()
+        for incident in body if isinstance(body, list) else body.get("incidents", []):
+            if isinstance(incident.get("citizen_view"), dict):
+                incident["citizen_view"]["hospital_name"] = hostile
+        route.fulfill(response=response, json=body)
+
+    page = context.new_page()
+    page.route("https://tile.openstreetmap.org/**", lambda route: route.abort())
+    page.route(re.compile(r".*/api/incidents/$"), rename)
+    page.goto(server + "/dispatcher")
+    page.get_by_role("button").filter(has_text=incident_id).first.click()
+    page.locator(".rg-marker", has_text="ER").click()
+    content = page.locator(".leaflet-popup-content")
+    content.wait_for()
+    page.wait_for_timeout(500)
+    assert page.evaluate("window.__popupInjected") is None, "the name's markup ran"
+    assert content.locator("img").count() == 0
+    expect(content).to_contain_text(hostile)
+
 # --- Progressive web app ---------------------------------------------------------
 
 @pytest.fixture
