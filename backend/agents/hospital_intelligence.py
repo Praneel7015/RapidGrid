@@ -66,6 +66,24 @@ def _looks_non_emergency(name: str) -> bool:
     return any(k in lowered for k in _NON_EMERGENCY_KEYWORDS)
 
 
+# An OSM entry is the same place as a curated hospital only within this
+# distance of the curated (OSM-resolved) coordinate.
+OSM_MATCH_RADIUS_M = 1000
+
+_NAME_STOPWORDS = {
+    "hospital", "hospitals", "the", "and", "of", "institute", "medical",
+    "centre", "center", "clinic", "multispeciality", "multi", "speciality",
+    "specialty", "care", "health", "road", "memorial", "college",
+}
+
+
+def _distinctive_tokens(name: str) -> set[str]:
+    cleaned = name.lower()
+    for ch in ",()./-'":
+        cleaned = cleaned.replace(ch, " ")
+    return {t for t in cleaned.split() if t not in _NAME_STOPWORDS and len(t) > 3}
+
+
 def _normalise_name(name: str) -> str:
     """Canonical form for duplicate detection."""
     cleaned = "".join(c if c.isalnum() or c.isspace() else " " for c in name.lower())
@@ -190,7 +208,6 @@ class HospitalIntelligenceAgent:
     def __init__(self) -> None:
         self._hospitals = []  # Cached list of fetched hospitals
         self._capabilities: dict[str, Any] | None = None
-        self._capabilities_by_name: dict[str, Any] = {}
         self._fetch_cache: dict[tuple, tuple[float, list[dict[str, Any]]]] = {}
         # Facilities an ER desk has put on divert. Keyed by curated id, and
         # applied during enrichment so it survives catalogue cache rebuilds.
@@ -218,12 +235,6 @@ class HospitalIntelligenceAgent:
                 with open(_CAPABILITIES_PATH, encoding="utf-8") as f:
                     payload = json.load(f)
                 self._capabilities = payload.get("hospitals", {})
-                # Secondary index so Overpass results, which carry OSM ids
-                # rather than our blr-* ids, can still match on name.
-                self._capabilities_by_name = {
-                    entry["name"].lower(): entry
-                    for entry in self._capabilities.values()
-                }
                 logger.info(
                     "Loaded curated capability profiles for %d hospitals",
                     len(self._capabilities),
@@ -231,38 +242,31 @@ class HospitalIntelligenceAgent:
             except Exception:
                 logger.exception("Could not load %s", _CAPABILITIES_PATH.name)
                 self._capabilities = {}
-                self._capabilities_by_name = {}
         return self._capabilities
 
-    def _match_curated(self, hid: str, name: str) -> dict[str, Any] | None:
-        """Resolve a hospital to its curated profile by id, then by name."""
+    def _curated_for_osm(self, name: str, lat: float, lng: float) -> str | None:
+        """The curated hospital an OpenStreetMap entry describes, if any.
+
+        A name alone is not an identity: "Manipal Hospital" is three curated
+        branches, and an unrelated clinic can share a word with any of them.
+        So a match needs a shared name or distinctive name token AND a position
+        within OSM_MATCH_RADIUS_M of the curated coordinate; the nearest wins.
+        """
         curated = self._load_capabilities()
-        if hid in curated:
-            return curated[hid]
-
         lowered = name.lower().strip()
-        by_name = self._capabilities_by_name
-        if lowered in by_name:
-            return by_name[lowered]
+        tokens = _distinctive_tokens(lowered)
+        best: tuple[float, str] | None = None
+        for curated_id, entry in curated.items():
+            names = {entry["name"].lower()}
+            if entry.get("osm_name"):
+                names.add(str(entry["osm_name"]).lower())
+            if lowered not in names and not any(tokens & _distinctive_tokens(n) for n in names):
+                continue
+            distance = _haversine(lat, lng, entry["lat"], entry["lng"])
+            if distance <= OSM_MATCH_RADIUS_M and (best is None or distance < best[0]):
+                best = (distance, curated_id)
+        return best[1] if best else None
 
-        # Overpass names are noisy ("Manipal Hospital" vs our fuller title).
-        # Require a distinctive token overlap rather than any substring, so
-        # "Lakshmi Hospital" cannot inherit "Manipal Hospital"'s profile.
-        stop = {"hospital", "hospitals", "the", "and", "of", "institute",
-                "medical", "centre", "center", "clinic", "multispeciality",
-                "multi", "speciality", "specialty", "care", "health"}
-        tokens = {t for t in lowered.replace(",", " ").split() if t not in stop and len(t) > 3}
-        if not tokens:
-            return None
-        for cand_name, entry in by_name.items():
-            cand_tokens = {
-                t for t in cand_name.replace(",", " ").replace("(", " ").replace(")", " ").split()
-                if t not in stop and len(t) > 3
-            }
-            if tokens & cand_tokens:
-                return entry
-        return None
-        
     # Real Bangalore hospitals as a reliable seed list — used when Overpass is slow/unavailable
     BANGALORE_HOSPITALS_SEED = [
         {"id": "blr-001", "name": "Manipal Hospital (Old Airport Road)",     "lat": 12.9591, "lng": 77.6469},
@@ -353,14 +357,18 @@ class HospitalIntelligenceAgent:
         except Exception as e:
             logger.warning("Overpass fetch failed (%s) — using seed list", e)
 
-        # Merge: prefer live data, fill gaps from seed list
-        seen_names = {h["name"].lower() for h in live_hospitals}
-        for seed in self.BANGALORE_HOSPITALS_SEED:
-            if not any(seed["name"].lower() in n or n in seed["name"].lower() for n in seen_names):
-                live_hospitals.append(seed)
-
-        if not live_hospitals:
-            live_hospitals = list(self.BANGALORE_HOSPITALS_SEED)
+        # Merge by identity, not by name. Every curated hospital is always in
+        # the catalogue under its own id and coordinate. An OSM entry that is
+        # one of them (same name and within OSM_MATCH_RADIUS_M) is dropped as a
+        # duplicate; any other OSM entry is kept as an unclassified facility at
+        # its own position. Previously an OSM node named "Manipal Hospital"
+        # removed every Manipal branch by substring and took one branch's
+        # profile and position.
+        merged = [dict(seed) for seed in self.BANGALORE_HOSPITALS_SEED]
+        for h in live_hospitals:
+            if self._curated_for_osm(h["name"], h["lat"], h["lng"]) is None:
+                merged.append(h)
+        live_hospitals = merged
 
         # ------------------------------------------------------------------
         # Enrichment. Two clearly separated provenance tiers:
@@ -376,14 +384,11 @@ class HospitalIntelligenceAgent:
 
         for h in live_hospitals:
             hid = h["id"]
-            profile = self._match_curated(hid, h["name"])
+            profile = self._load_capabilities().get(hid)
 
             if profile:
                 curated_hits += 1
-                curated_id = next(
-                    (k for k, v in (self._capabilities or {}).items() if v is profile),
-                    None,
-                )
+                curated_id = hid
                 caps = dict(profile["capabilities"])
                 beds_total = profile["beds_total"]
                 icu_total = profile["icu_total"]
