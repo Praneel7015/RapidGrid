@@ -32,7 +32,10 @@ from security import (
     allowed_origins,
     authenticated,
     mode as access_mode,
+    register_socket,
     router as session_router,
+    session_id_of,
+    unregister_socket,
 )
 from logsafe import log_safe
 
@@ -241,6 +244,8 @@ async def websocket_chat_endpoint(websocket: WebSocket, incident_id: str):
         await websocket.close(code=1008)
         return
     await chat.manager.connect(websocket, incident_id)
+    session_id = session_id_of(websocket)
+    register_socket(session_id, websocket)
     try:
         while True:
             try:
@@ -269,7 +274,10 @@ async def websocket_chat_endpoint(websocket: WebSocket, incident_id: str):
             except Exception:
                 logger.exception("WebSocket chat message failed for %s", log_safe(incident_id))
     except WebSocketDisconnect:
+        pass
+    finally:
         chat.manager.disconnect(websocket, incident_id)
+        unregister_socket(session_id, websocket)
 
 
 # ---------------------------------------------------------------------------
