@@ -63,3 +63,28 @@ def test_without_interventions_google_is_still_used(city):
 
 def test_google_timeout_is_short():
     assert ro.GOOGLE_TIMEOUT_S <= 5
+
+
+def test_a_closure_drawn_during_the_google_call_discards_its_route(city):
+    agent = RouteOptimizationAgent()
+    agent.api_key = "configured"
+    route = local_router.find_path(HEBBAL, JAYADEVA)
+    bellary = [e for e in route["edge_ids"]
+               if "Bellary" in local_router.road_names[local_router.edge_name[e]]]
+
+    class Response:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            # The closure is drawn while Google is still answering.
+            city.close_road(bellary, "Bellary Road")
+            return {"routes": [{"duration": "600s", "distanceMeters": 9000,
+                                "polyline": {"geoJsonLinestring": {"coordinates": [[77.597, 13.035], [77.5878, 12.929]]}}}]}
+
+    with patch.object(ro.httpx, "Client") as google:
+        google.return_value.__enter__.return_value.post.return_value = Response()
+        result = agent.compute_route(request())
+    assert result.data_freshness == DataFreshness.CACHED
+    assert not set(result.edge_ids) & set(bellary)
+    assert agent._cache_get(agent._cache_key(request())) is None

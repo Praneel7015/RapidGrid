@@ -145,10 +145,38 @@ _SCRIPTS = {
 }
 
 
+# Between a negation cue and the term, only these words keep it a denial:
+# "no chest pain", "denies any weakness", "doesn't have a history of fits".
+# Anything else ("not sure if", "does not look well") means the cue negates
+# something else, and the mention stands.
+_NEGATION_FILLER = {
+    "any", "a", "an", "the", "his", "her", "their", "obvious", "visible",
+    "apparent", "active", "real", "much", "other", "more", "further", "signs",
+    "sign", "evidence", "history", "complaint", "complaints", "of", "have",
+    "has", "had", "having", "show", "shows", "showing", "complain", "complains",
+    "complaining", "feel", "feels", "feeling", "experiencing", "report",
+    "reports", "reported", "seem", "seems", "to", "be", "is", "are", "any",
+}
+
+
+def _symptom_words() -> set[str]:
+    """Words of every known term, so a list of denied symptoms
+    ("denies weakness or slurred speech") stays negated throughout."""
+    words: set[str] = {"or", "nor"}
+    for terms in (*_CATEGORY_TERMS.values(), _RED_FLAGS):
+        for term in terms:
+            words.update(re.findall(r"[a-z']+", term))
+    return words - _NEGATION_CUES
+
+
 def _negated(text: str, start: int) -> bool:
     clause = _CLAUSE_BREAK.split(text[:start])[-1]
     words = re.findall(r"[a-z']+", clause)[-_NEGATION_WINDOW:]
-    return any(w in _NEGATION_CUES for w in words)
+    allowed = _NEGATION_FILLER | _SYMPTOM_WORDS
+    for i in range(len(words) - 1, -1, -1):
+        if words[i] in _NEGATION_CUES:
+            return all(w in allowed for w in words[i + 1:])
+    return False
 
 
 def _occurrences(term: str, text: str):
@@ -179,6 +207,9 @@ def _negated_only(term: str, text: str) -> bool:
 
 def _scripts_in(text: str) -> list[str]:
     return [name for name, (lo, hi) in _SCRIPTS.items() if any(lo <= ch <= hi for ch in text)]
+
+
+_SYMPTOM_WORDS = _symptom_words()
 
 
 def classify(raw_text: str) -> TriageResult:

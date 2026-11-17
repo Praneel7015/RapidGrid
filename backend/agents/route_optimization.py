@@ -272,6 +272,16 @@ class RouteOptimizationAgent:
             self._provider_failure("Google Routes returned invalid route data")
             return self._local_route(request, reason="Google Routes returned invalid route data")
         
+        # A closure drawn while Google was answering: the route it returned
+        # cannot know about it, so do not cache or return it.
+        interventions = _active_interventions()
+        if interventions:
+            return self._local_route(
+                request,
+                reason=f"{interventions} closed or obstructed segment(s) in the city model; "
+                "Google Routes does not know about them",
+            )
+
         reason = (
             f"Primary route via Google Maps Live Traffic. "
             f"Estimated travel time: {eta:.0f}s, distance: {distance:.0f}m."
