@@ -3,7 +3,8 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
+from staff import require as require_staff
 from pydantic import BaseModel, Field
 
 from agents.hospital_intelligence import NoHospitalCandidatesError, hospital_agent
@@ -79,7 +80,8 @@ def _details(key: str) -> dict:
 
 
 @router.post("/rank", response_model=HospitalRankingResponse)
-async def rank_hospitals(request: HospitalRequest) -> HospitalRankingResponse:
+async def rank_hospitals(request: HospitalRequest, http: Request = None) -> HospitalRankingResponse:
+    require_staff(http, "dispatcher")
     try:
         return await hospital_agent.publish_ranking(request)
     except NoHospitalCandidatesError as exc:
@@ -150,7 +152,8 @@ async def get_hospital(hospital_id: str):
 
 
 @router.patch("/{hospital_id}/resources")
-async def update_hospital_resources(hospital_id: str, update: HospitalResourceUpdate):
+async def update_hospital_resources(hospital_id: str, update: HospitalResourceUpdate, request: Request = None):
+    require_staff(request, "hospital", _resolve(hospital_id) or hospital_id)
     key = _resolve(hospital_id)
     if key is None:
         raise HTTPException(status_code=404, detail="Choose a specific hospital before changing capacity")

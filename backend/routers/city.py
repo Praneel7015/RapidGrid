@@ -11,7 +11,8 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
+from staff import require as require_staff
 from pydantic import BaseModel, Field
 
 from agents.city_state import city_state
@@ -82,13 +83,14 @@ async def search_roads(q: str, limit: int = 12):
 
 
 @router.post("/close")
-async def close_road(payload: ClosureRequest):
+async def close_road(payload: ClosureRequest, request: Request = None):
     """
     do(close road).
 
     Removes the segments from routing and displaces their traffic onto the
     surrounding network, which is what makes unrelated routes slow down too.
     """
+    require_staff(request, "dispatcher")
     if not city_state.ready:
         city_state.attach(local_router)
 
@@ -107,8 +109,9 @@ async def close_road(payload: ClosureRequest):
 
 
 @router.post("/incident")
-async def report_incident(payload: ClosureRequest):
+async def report_incident(payload: ClosureRequest, request: Request = None):
     """do(incident here) - partial obstruction rather than a full closure."""
+    require_staff(request, "dispatcher")
     if not city_state.ready:
         city_state.attach(local_router)
     edge_ids = payload.edge_ids
@@ -121,8 +124,9 @@ async def report_incident(payload: ClosureRequest):
 
 
 @router.post("/conditions")
-async def set_conditions(payload: ConditionsRequest):
+async def set_conditions(payload: ConditionsRequest, request: Request = None):
     """Set the exogenous variables - time of day and weather."""
+    require_staff(request, "dispatcher")
     if not city_state.ready:
         city_state.attach(local_router)
     if payload.hour is not None:
@@ -133,8 +137,9 @@ async def set_conditions(payload: ConditionsRequest):
 
 
 @router.post("/clear")
-async def clear_state():
+async def clear_state(request: Request = None):
     """Revert every intervention and return the city to baseline."""
+    require_staff(request, "dispatcher")
     if not city_state.ready:
         city_state.attach(local_router)
     city_state.clear()

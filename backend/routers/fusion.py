@@ -8,10 +8,12 @@ Endpoints:
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 
 from agents.decision_fusion import FUSION_WEIGHTS, fusion_engine
 from models.schemas import FusionRequest, FusionResponse
+
+from staff import require as require_staff
 
 router = APIRouter(prefix="/api/fusion", tags=["Decision Fusion Engine"])
 
@@ -21,7 +23,7 @@ router = APIRouter(prefix="/api/fusion", tags=["Decision Fusion Engine"])
     response_model=FusionResponse,
     summary="Fuse all agents' outputs into one explainable action plan",
 )
-async def combine(request: FusionRequest) -> FusionResponse:
+async def combine(request: FusionRequest, http: Request = None) -> FusionResponse:
     """
     Run the full GeoAgentic pipeline for an incident:
 
@@ -35,6 +37,7 @@ async def combine(request: FusionRequest) -> FusionResponse:
     per-dimension scoring breakdown, and a plain-language explanation
     suitable for dispatcher review (workflow step 8).
     """
+    require_staff(http, "dispatcher")
     try:
         return await fusion_engine.fuse(request)
     except ValueError as exc:
