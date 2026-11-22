@@ -560,6 +560,29 @@ def test_dispatcher_sees_when_triage_cannot_read_a_report(context, server):
     card = page.get_by_role("button").filter(has_text=incident_id).first
     expect(card).to_contain_text("Kannada", timeout=10000)
 
+
+def test_police_call_is_a_scene_response_without_hospitals(context, server):
+    unlock(context, server)
+    created = context.request.post(server + "/api/incidents", data={
+        "citizen_text": "Test scenario: street fight, one person threatening others with a knife.",
+        "citizen_name": "Scene browser test", "citizen_phone": "TEST-SCENE-ONLY",
+        "vehicle_required": "Police Cruiser", "location": {"lat": 13.035, "lng": 77.597},
+    })
+    assert created.status == 202
+    incident_id = created.json()["incident_id"]
+    plan = poll_incident(context, server, incident_id, "awaiting_dispatcher_approval")["action_plan"]
+    assert plan["response_profile"] == "scene" and plan["all_hospitals"] == []
+
+    page = context.new_page()
+    page.route("https://tile.openstreetmap.org/**", lambda route: route.abort())
+    page.goto(server + "/dispatcher")
+    page.get_by_role("button").filter(has_text=incident_id).first.click()
+    expect(page.get_by_text("Scene response")).to_be_visible()
+    expect(page.get_by_role("button", name="Send to a different hospital")).to_have_count(0)
+    expect(page.get_by_text("Ranked destinations")).to_have_count(0)
+    page.get_by_role("button", name="Approve and dispatch", exact=True).click()
+    poll_incident(context, server, incident_id, "dispatched")
+
 # --- Progressive web app ---------------------------------------------------------
 
 @pytest.fixture

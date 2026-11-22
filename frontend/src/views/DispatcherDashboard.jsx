@@ -83,8 +83,9 @@ export default function DispatcherDashboard() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                   dispatcher_id: 'AUTO-DISPATCHER',
+                  // Scene-only calls (police, fire, rescue) have no hospital.
                   approved_hospital:
-                    inc.action_plan?.recommended_hospital?.hospital_id ?? '',
+                    inc.action_plan?.recommended_hospital?.hospital_id || undefined,
                   approved_route: inc.action_plan?.recommended_route?.route_id ?? '',
                 }),
               }).catch(() => null);
@@ -165,8 +166,9 @@ export default function DispatcherDashboard() {
 
   const approve = async (hospital = null) => {
     if (!selected?.action_plan) return;
+    const sceneOnly = selected.action_plan.response_profile === 'scene';
     const chosen = hospital || selected.action_plan.recommended_hospital;
-    if (!chosen?.hospital_id) return;
+    if (!sceneOnly && !chosen?.hospital_id) return;
 
     if (busy) return;
     setBusy(true);
@@ -177,7 +179,7 @@ export default function DispatcherDashboard() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           dispatcher_id: 'DISPATCHER-01',
-          approved_hospital: chosen.hospital_id,
+          approved_hospital: sceneOnly ? undefined : chosen.hospital_id,
           approved_route: selected.action_plan?.recommended_route?.route_id ?? '',
         }),
       });
@@ -224,6 +226,7 @@ export default function DispatcherDashboard() {
 
   const view = selected?.citizen_view ?? {};
   const plan = selected?.action_plan ?? null;
+  const sceneOnly = plan?.response_profile === 'scene';
   const routeCoords = view.route_coordinates ?? plan?.recommended_route?.coordinates ?? [];
 
   const queue = incidents.filter(
@@ -477,15 +480,17 @@ export default function DispatcherDashboard() {
                     Reject
                   </Button>
                 )}
-                <Button
-                  variant="quiet"
-                  onClick={toggleOverride}
-                  disabled={!plan}
-                  className="flex-1"
-                >
-                  {showOverride ? <X size={15} /> : <CornerUpRight size={15} />}
-                  {showOverride ? 'Close' : 'Send to a different hospital'}
-                </Button>
+                {!sceneOnly && (
+                  <Button
+                    variant="quiet"
+                    onClick={toggleOverride}
+                    disabled={!plan}
+                    className="flex-1"
+                  >
+                    {showOverride ? <X size={15} /> : <CornerUpRight size={15} />}
+                    {showOverride ? 'Close' : 'Send to a different hospital'}
+                  </Button>
+                )}
               </div>
 
               {showOverride && plan?.all_hospitals?.length > 0 && (
@@ -553,7 +558,18 @@ export default function DispatcherDashboard() {
         <div className="grid min-w-0 content-start gap-3 md:col-span-2 md:grid-cols-2 xl:col-span-1 xl:grid-cols-1">
           <CityControls onChange={loadOverlay} />
 
-          {plan ? (
+          {sceneOnly ? (
+            // Police, fire and rescue respond to the scene: no hospital to rank.
+            <Panel>
+              <PanelHead label="Scene response" />
+              <div className="space-y-2 px-4 py-3.5 text-[13px] leading-relaxed text-text">
+                <p>{plan.explanation}</p>
+                <p className="t-meta text-text-faint">
+                  No hospital leg. Add an ambulance backup if someone needs transport.
+                </p>
+              </div>
+            </Panel>
+          ) : plan ? (
             <>
               <AIRationale plan={plan} />
               <Panel>
