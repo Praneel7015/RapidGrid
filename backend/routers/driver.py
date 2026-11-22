@@ -48,6 +48,10 @@ def _require_driver(incident: dict, driver_id: str, unit_type: str) -> None:
     assigned = _assignments(incident).get(unit_type)
     if assigned and assigned != driver_id:
         raise HTTPException(status_code=409, detail="This unit is assigned to another driver")
+    # A call dispatch gave to a unit can be claimed (as primary) only by that unit.
+    fleet_unit = incident.get("assigned_unit")
+    if unit_type == "primary" and fleet_unit and driver_id != fleet_unit:
+        raise HTTPException(status_code=409, detail=f"This call is assigned to {fleet_unit}")
 
 
 def _claim(incident: dict, driver_id: str, unit_type: str) -> None:

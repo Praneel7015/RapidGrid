@@ -102,7 +102,23 @@ export default function CitizenAccess({ onSignedIn, onAnonymous }) {
         )}
       </form>
       <div className="border-t border-rule pt-3">
-        <Button variant="quiet" className="w-full" onClick={onAnonymous}>
+        <Button
+          variant="quiet"
+          className="w-full"
+          disabled={busy}
+          onClick={async () => {
+            if (busy) return;
+            setBusy(true);
+            setError(null);
+            try {
+              await onAnonymous();
+            } catch (err) {
+              setError(err.message || 'Something went wrong. Try again.');
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
           Report without an account
         </Button>
         <p className="mt-1.5 text-[11.5px] text-text-muted">In an emergency you never need an account.</p>

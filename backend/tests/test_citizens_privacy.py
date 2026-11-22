@@ -30,6 +30,8 @@ PINS = {
 
 @pytest.fixture(autouse=True)
 def isolated(monkeypatch):
+    import citizens
+    monkeypatch.setattr(citizens, "_registrations", {})
     monkeypatch.setenv("RAPIDGRID_MODE", "demo")
     monkeypatch.setenv("RAPIDGRID_SECRET", "test-only-secret")
     monkeypatch.setattr(security, "_revoked", None)
@@ -78,10 +80,13 @@ def test_wrong_pins_and_unknown_numbers_look_the_same_and_slow_down():
 
 
 def test_the_pin_is_never_stored_in_clear(tmp_path):
-    register(client())
+    assert register(client()).status_code == 200
+    import sqlite3
     import storage
-    data = Path(storage.data_path()).read_bytes()
-    assert b"246810" not in data
+    with sqlite3.connect(storage.data_path()) as db:
+        rows = [row[0] for row in db.execute("SELECT payload FROM citizens")]
+    assert rows and all("246810" not in row for row in rows)
+    assert all("pin_hash" in json.loads(row) for row in rows)
 
 
 def test_account_requests_need_an_origin_header():
@@ -111,10 +116,16 @@ def test_anonymous_reports_still_work():
 
 def test_no_incident_response_carries_caller_details():
     incident_id = report(client(), citizen_name="Private Person", citizen_phone="+91 90000 77777")
+    stored = next(i for i in incident_router.ACTIVE_INCIDENTS if i["incident_id"] == incident_id)
+    hospital = {"hospital_id": "blr-007", "name": "Aster CMI Hospital (Hebbal)", "location": {"lat": 13.0473, "lng": 77.5908}}
+    stored.update(status="dispatched", approved_hospital_id="blr-007",
+                  action_plan={"recommended_hospital": hospital, "all_hospitals": [hospital]},
+                  citizen_view={"hospital_name": hospital["name"], "hospital_location": hospital["location"]})
     c = client()
     for text in (c.get("/api/incidents/").text, c.get(f"/api/incidents/{incident_id}").text,
                  c.get("/api/driver/active").text, c.get("/api/hospital/incoming/all").text):
-        assert "Private Person" not in text and "90000 77777" not in text
+        assert incident_id in text  # the call is listed ...
+        assert "Private Person" not in text and "90000 77777" not in text  # ... without its caller
 
 
 def test_caller_reveal_is_role_checked_and_recorded(monkeypatch):
@@ -166,8 +177,8 @@ def test_registration_slow_down_is_per_client(monkeypatch):
     monkeypatch.setenv("RAPIDGRID_CLIENT_IP_HEADER", "x-test-client")
     register(client())
     noisy = TestClient(app, base_url="http://testserver", headers={**ORIGIN, "x-test-client": "203.0.113.1"})
-    for _ in range(staff.FREE_FAILURES + 2):
-        register(noisy)  # repeatedly registering a taken number
+    for _ in range(8):
+        register(noisy)  # repeatedly registering
     calm = TestClient(app, base_url="http://testserver", headers={**ORIGIN, "x-test-client": "203.0.113.2"})
     assert register(calm, phone="+91 98000 00009").status_code == 200
 
@@ -203,3 +214,33 @@ def test_with_staff_sign_in_off_anyone_may_reveal_and_it_is_recorded():
     assert client().post(f"/api/incidents/{incident_id}/caller").json()["name"] == "Open Demo"
     stored = next(i for i in incident_router.ACTIVE_INCIDENTS if i["incident_id"] == incident_id)
     assert stored["caller_reveals"][-1]["role"] == "open"
+
+
+@pytest.mark.parametrize("typed", ["+91 98000 00001", "0091 98000 00001", "9800000001", "९८०००००००१"])
+def test_phone_numbers_normalise_to_one_account(typed):
+    import citizens
+    assert citizens.normalise_phone(typed) == "+919800000001"
+
+
+def test_registrations_from_one_client_are_limited_even_when_they_succeed(monkeypatch):
+    import citizens
+    monkeypatch.setattr(citizens, "_registrations", {})
+    c = client()
+    codes = [register(c, phone=f"+91 98000 0010{i}").status_code for i in range(citizens.REGISTER_LIMIT + 1)]
+    assert codes[:-1] == [200] * citizens.REGISTER_LIMIT and codes[-1] == 429
+
+
+def test_sign_out_needs_the_apps_own_origin():
+    me = client()
+    register(me)
+    evil = TestClient(app, base_url="http://testserver", headers={"Origin": "https://evil.example"})
+    evil.cookies.set("rapidgrid_citizen", me.cookies.get("rapidgrid_citizen"))
+    assert evil.delete("/api/citizens/session").status_code == 403
+
+
+def test_another_unit_cannot_claim_a_call_assigned_to_a_unit(monkeypatch):
+    incident_id = report(client())
+    stored = next(i for i in incident_router.ACTIVE_INCIDENTS if i["incident_id"] == incident_id)
+    stored.update(status="dispatched", assigned_unit="AMB-01")
+    claim = client().post("/api/driver/claim", json={"incident_id": incident_id, "driver_id": "AMB-02"})
+    assert claim.status_code == 409

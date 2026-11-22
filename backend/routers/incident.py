@@ -524,11 +524,11 @@ async def report_incident(payload: IncidentReportPayload, response: Response, re
     incident_id = f"INC-{uuid.uuid4().hex}"
     # A signed-in citizen's report carries their account's name and number;
     # an anonymous report keeps whatever the caller typed (it is never refused).
-    from citizens import current as current_citizen
+    from citizens import current_async as current_citizen
 
     # An explicitly anonymous report never carries an account's details,
     # even if this browser is still signed in (a shared phone).
-    me = None if payload.anonymous else current_citizen(request)
+    me = None if payload.anonymous else await current_citizen(request)
     incident = {
         "incident_id": incident_id,
         "location": payload.location.model_dump(),
@@ -589,14 +589,15 @@ async def reveal_caller(incident_id: str, response: Response, request: Request =
     configured) the staff checks allow everyone, so anyone can reveal; the
     README says so. The hosted showcase runs with staff PINs."""
     import staff
-    from citizens import current as current_citizen
+    from citizens import current_async as current_citizen
     from routers.driver import _assignments
 
     response.headers["Cache-Control"] = "no-store"
     if request is not None and not security_same_origin(request):
         raise HTTPException(status_code=403, detail="Cross-origin or origin-less request refused")
-    me = current_citizen(request)
     async with _INCIDENTS_LOCK:
+        # The session is checked under the same lock as the decision.
+        me = await current_citizen(request)
         inc = next((i for i in ACTIVE_INCIDENTS if i["incident_id"] == incident_id), None)
         if inc is None:
             raise HTTPException(status_code=404, detail="Incident not found")

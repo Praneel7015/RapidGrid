@@ -43,8 +43,13 @@ _SCRYPT = {"n": 2 ** 14, "r": 8, "p": 1, "dklen": 32}
 
 
 def normalise_phone(value: str) -> str:
-    """Digits only, with India's +91 made explicit for 10-digit numbers."""
-    digits = re.sub(r"\D", "", value or "")
+    """Digits only, with India's +91 made explicit for 10-digit numbers.
+    Any Unicode decimal digit counts (as its ASCII value), and a leading 00
+    international prefix is the same as a leading +."""
+    text = (value or "").strip()
+    digits = "".join(str(int(ch)) for ch in text if ch.isdecimal())
+    if not text.startswith("+") and digits.startswith("00"):
+        digits = digits[2:]
     if len(digits) == 10:
         digits = "91" + digits
     if not 11 <= len(digits) <= 15:
@@ -67,8 +72,16 @@ _HASHING = asyncio.Semaphore(2)
 
 
 async def _hash(pin: str, salt: bytes) -> str:
-    async with _HASHING:
-        return await asyncio.to_thread(_pin_hash, pin, salt)
+    """Hash in a worker thread, holding a permit until that thread is done,
+    even if the request is cancelled meanwhile (the thread cannot be)."""
+    await _HASHING.acquire()
+    try:
+        future = asyncio.get_running_loop().run_in_executor(None, _pin_hash, pin, salt)
+    except BaseException:
+        _HASHING.release()
+        raise
+    future.add_done_callback(lambda _f: _HASHING.release())
+    return await asyncio.shield(future)
 
 
 class Registration(BaseModel):
@@ -122,6 +135,13 @@ def _account(cid: str) -> Optional[dict]:
     return json.loads(raw) if raw else None
 
 
+async def current_async(connection: Optional[HTTPConnection]) -> Optional[dict]:
+    """current(), with the storage read in a worker thread (no cookie: no read)."""
+    if connection is None or not connection.cookies.get(COOKIE_NAME):
+        return None
+    return await asyncio.to_thread(current, connection)
+
+
 def current(connection: Optional[HTTPConnection]) -> Optional[dict]:
     """The signed-in citizen's account ({id, name, phone}), or None."""
     if connection is None:
@@ -144,6 +164,36 @@ def _set_cookie(request: Request, response: Response, cid: str) -> None:
 
 router = APIRouter(prefix="/api/citizens", tags=["Citizen accounts"])
 
+# Registrations per client: every admitted attempt counts, successful or not.
+REGISTER_LIMIT = 5
+REGISTER_WINDOW_S = 600
+_registrations: dict[str, list[float]] = {}
+_number_locks: dict[str, asyncio.Lock] = {}
+
+
+def _admit_registration(client: str) -> bool:
+    now = time.monotonic()
+    recent = [t for t in _registrations.get(client, []) if now - t < REGISTER_WINDOW_S]
+    if len(recent) >= REGISTER_LIMIT:
+        _registrations[client] = recent
+        return False
+    recent.append(now)
+    _registrations[client] = recent
+    if len(_registrations) > 2000:
+        for key in [k for k, v in _registrations.items() if not v or now - v[-1] >= REGISTER_WINDOW_S]:
+            del _registrations[key]
+    return True
+
+
+def _number_lock(cid: str) -> asyncio.Lock:
+    lock = _number_locks.get(cid)
+    if lock is None:
+        if len(_number_locks) > 5000:
+            for key in [k for k, v in _number_locks.items() if not v.locked()]:
+                del _number_locks[key]
+        lock = _number_locks[cid] = asyncio.Lock()
+    return lock
+
 
 def _same_origin_or_refuse(request: Request) -> None:
     # Account changes come only from the app's own pages (CSRF).
@@ -159,11 +209,9 @@ async def register(payload: Registration, request: Request, response: Response):
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from None
     client = security.client_key(request)
-    register_key = "citizen-register:" + client  # per client: nobody slows others down
-    wait = staff._wait(register_key, client)
-    if wait:
-        raise HTTPException(status_code=429, detail="Too many attempts. Try again shortly.",
-                            headers={"Retry-After": str(wait)})
+    if not _admit_registration(client):
+        raise HTTPException(status_code=429, detail="Too many registrations from here. Try again later.",
+                            headers={"Retry-After": str(REGISTER_WINDOW_S)})
     cid = citizen_id(phone)
     salt = secrets.token_bytes(16)
     record = {"name": payload.name, "phone": phone, "salt": salt.hex(),
@@ -174,7 +222,6 @@ async def register(payload: Registration, request: Request, response: Response):
         # Saying so reveals that the number has an account; the alternative
         # (a silent success) would leave a caller unable to tell why sign-in
         # fails. Registrations are rate limited per client instead.
-        staff._fail(register_key, client)
         raise HTTPException(status_code=409, detail="This number already has an account. Sign in instead.")
     _set_cookie(request, response, cid)
     logger.info("Citizen account created")
@@ -191,6 +238,14 @@ async def sign_in(payload: Login, request: Request, response: Response):
     cid = citizen_id(phone)
     account_key = "citizen:" + cid
     client = security.client_key(request)
+    # One attempt per number at a time: checking the backoff, hashing and
+    # recording the outcome happen together, so parallel guesses cannot all
+    # slip in before the first failure is counted.
+    async with _number_lock(cid):
+        return await _check_pin(payload, request, response, cid, account_key, client)
+
+
+async def _check_pin(payload, request, response, cid, account_key, client):
     wait = staff._wait(account_key, client)
     if wait:
         raise HTTPException(status_code=429, detail="Too many wrong PINs. Try again shortly.",
@@ -217,6 +272,7 @@ async def session(request: Request, response: Response):
 
 @router.delete("/session")
 async def sign_out(request: Request, response: Response):
+    _same_origin_or_refuse(request)
     parsed = _parse(request.cookies.get(COOKIE_NAME, ""))
     if parsed is not None:
         try:
@@ -232,7 +288,7 @@ async def sign_out(request: Request, response: Response):
 @router.get("/me/incidents")
 async def my_incidents(request: Request):
     """The signed-in citizen's own reports, newest last, without other callers' details."""
-    me = current(request)
+    me = await current_async(request)
     if me is None:
         raise HTTPException(status_code=401, detail="Sign in to see your reports")
     from routers import incident as incident_router
