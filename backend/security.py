@@ -88,6 +88,10 @@ def host_allowed(connection: HTTPConnection) -> bool:
     return hostname in allowed_hosts()
 
 
+def same_origin(connection: HTTPConnection) -> bool:
+    return _same_origin(connection)
+
+
 def _same_origin(connection: HTTPConnection) -> bool:
     origin = connection.headers.get("origin")
     if not origin:
@@ -235,6 +239,22 @@ def _revoke(session_id: str, expires_at: float) -> None:
 # Revocations made while the stored list could not be loaded. They apply in
 # this process and are merged into the list once it loads.
 _pending_revocations: dict[str, float] = {}
+
+
+def revoke_session(session_id: str, expires_at: float) -> None:
+    """Revoke any signed session id (operator or staff) until it expires."""
+    _revoke(session_id, expires_at)
+
+
+def is_revoked(session_id: str) -> bool:
+    """True when revoked, or when the revoked list cannot be read (fail closed)."""
+    with _revoked_lock:
+        if session_id in _pending_revocations:
+            return True
+        try:
+            return session_id in _revoked_sessions()
+        except RevocationUnavailable:
+            return True
 
 
 # --- Chat sockets per session -------------------------------------------------

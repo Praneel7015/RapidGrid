@@ -11,7 +11,8 @@ import asyncio
 import logging
 import re
 from typing import List, Dict, Any, Literal, Optional
-from fastapi import APIRouter, Query, Response, status, HTTPException
+from fastapi import APIRouter, Query, Request, Response, status, HTTPException
+from staff import require as require_staff
 from pydantic import BaseModel, Field
 
 from models.schemas import (
@@ -556,8 +557,9 @@ async def get_all_incidents():
     return {"incidents": incidents}
 
 @router.post("/{incident_id}/approve")
-async def approve_incident(incident_id: str, payload: ApprovePayload):
+async def approve_incident(incident_id: str, payload: ApprovePayload, request: Request = None):
     """Approve a reviewed destination without allowing terminal cases to rewind."""
+    require_staff(request, "dispatcher")
     from routers.driver import _route
     from routers.hospital import _resolve
     from agents.hospital_intelligence import hospital_agent
@@ -627,7 +629,8 @@ async def approve_incident(incident_id: str, payload: ApprovePayload):
 
 
 @router.post("/{incident_id}/reject")
-async def reject_incident(incident_id: str, dispatcher_id: str = Query(default="DISPATCHER-01", min_length=1, max_length=100)):
+async def reject_incident(incident_id: str, dispatcher_id: str = Query(default="DISPATCHER-01", min_length=1, max_length=100), request: Request = None):
+    require_staff(request, "dispatcher")
     """Dispatcher rejects an incident plan — sets status to 'rejected' so it leaves the approval queue."""
     async with _INCIDENTS_LOCK:
         for inc in ACTIVE_INCIDENTS:
@@ -665,8 +668,9 @@ def unit_statuses(incident: dict) -> dict:
 
 
 @router.post("/{incident_id}/arrived")
-async def incident_arrived(incident_id: str, unit_type: str = "primary"):
+async def incident_arrived(incident_id: str, request: Request = None, unit_type: str = "primary"):
     """Record each unit independently; finish only when all required units arrive."""
+    require_staff(request, "unit")
     if unit_type not in {"primary", "ambulance"}:
         raise HTTPException(status_code=422, detail="Unknown unit type")
     async with _INCIDENTS_LOCK:
@@ -731,7 +735,8 @@ async def _backup_destination(inc: dict) -> dict:
 
 
 @router.post("/{incident_id}/request_ambulance")
-async def request_ambulance_backup(incident_id: str):
+async def request_ambulance_backup(incident_id: str, request: Request = None):
+    require_staff(request, "dispatcher")
     async with _INCIDENTS_LOCK:
         inc = next((i for i in ACTIVE_INCIDENTS if i["incident_id"] == incident_id), None)
         if inc is None:

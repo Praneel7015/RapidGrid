@@ -10,10 +10,12 @@ from __future__ import annotations
 
 import asyncio
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 
 from agents.route_optimization import route_agent
 from models.schemas import RouteRequest, RouteResponse
+
+from staff import require as require_staff
 
 router = APIRouter(prefix="/api/route", tags=["Route Optimization"])
 
@@ -26,7 +28,7 @@ _route_cache: dict[str, RouteResponse] = {}
     response_model=RouteResponse,
     summary="Compute the optimal emergency route with alternates",
 )
-async def compute_route(request: RouteRequest) -> RouteResponse:
+async def compute_route(request: RouteRequest, http: Request = None) -> RouteResponse:
     """
     Run the Route Optimization Agent for the given origin → destination.
 
@@ -37,6 +39,7 @@ async def compute_route(request: RouteRequest) -> RouteResponse:
     The request accepts node IDs from the loaded road network
     (e.g. "N1" for Incident Site, "N5" for Hospital Gate).
     """
+    require_staff(http, "dispatcher")
     try:
         route = await asyncio.to_thread(route_agent.compute_route, request)
     except ValueError as exc:
