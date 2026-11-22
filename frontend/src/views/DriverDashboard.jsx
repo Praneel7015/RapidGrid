@@ -349,16 +349,17 @@ export default function DriverDashboard() {
       )}
 
       {/* Divert: only meaningful once the patient is aboard. */}
-      {!sceneResponse && stage === 'transport' && active.action_plan?.all_hospitals?.length > 0 && (
+      {!sceneResponse && stage === 'transport' && (active.pickup_ranking?.hospitals?.length > 0 || active.action_plan?.all_hospitals?.length > 0) && (
         <Panel>
-          <PanelHead label="Change destination" />
+          <PanelHead label={active.pickup_ranking ? 'Hospitals from the scene now' : 'Change destination'} />
           <div className="p-2.5">
             <p className="px-1.5 pb-2 text-[11px] leading-relaxed text-text-muted">
-              If the assigned ER diverts, pick another. The route and the caller's screen update
-              immediately.
+              {active.pickup_ranking
+                ? `${active.pickup_ranking.summary} Ranked again at pickup on capability and modelled road time. Pick another to change; the route and the caller's screen update immediately.`
+                : "If the assigned ER diverts, pick another. The route and the caller's screen update immediately."}
             </p>
             <div className="space-y-1.5">
-              {active.action_plan.all_hospitals.slice(0, 4).map((h, i) => {
+              {(active.pickup_ranking?.hospitals ?? active.action_plan.all_hospitals).slice(0, 4).map((h, i) => {
                 const current = view.hospital_name === h.name;
                 return (
                   <button
@@ -376,7 +377,9 @@ export default function DriverDashboard() {
                         {h.name}
                       </span>
                       <span className="mt-1 block t-meta text-text-faint">
-                        {h.road_eta_seconds ? `${fmt.minutes(h.road_eta_seconds)} min by road` : '—'}
+                        {Number.isFinite(h.road_eta_min)
+                          ? `${h.road_eta_min} min by road · score ${Number(h.score).toFixed(2)}`
+                          : h.road_eta_seconds ? `${fmt.minutes(h.road_eta_seconds)} min by road` : '—'}
                       </span>
                     </span>
                     {current ? (
