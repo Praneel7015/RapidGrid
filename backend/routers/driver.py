@@ -4,6 +4,8 @@ from __future__ import annotations
 import asyncio
 from typing import Literal
 
+import logging
+
 from fastapi import APIRouter, HTTPException, Request
 from staff import require as require_staff
 from pydantic import BaseModel, Field
@@ -12,6 +14,8 @@ from models.schemas import Coordinate, RouteRequest
 from routers.incident import (
     ACTIVE_INCIDENTS, _INCIDENTS_LOCK, commit, required_units, route_agent, unit_statuses,
 )
+
+logger = logging.getLogger("geoagentic.driver")
 
 router = APIRouter(prefix="/api/driver", tags=["Driver Queue"])
 
@@ -169,6 +173,8 @@ async def arrived_pickup(payload: ClaimPayload, request: Request = None):
         destination = view.get("hospital_location")
         if not origin or not destination:
             raise HTTPException(status_code=409, detail="Approved patient and hospital locations are required")
+        emergency = incident.get("emergency_type") or "general"
+        current_id = incident.get("approved_hospital_id")
     route = await _route(origin, destination)
     async with _INCIDENTS_LOCK:
         incident = _incident(payload.incident_id)
@@ -186,17 +192,131 @@ async def arrived_pickup(payload: ClaimPayload, request: Request = None):
         view.update({"status": "patient_picked_up", "message": f"Patient picked up. Transporting to {view.get('hospital_name', 'Hospital ER')}."})
         incident.update({"driver_stage": "hospital", "status": "patient_picked_up", "citizen_view": view,
                          "unit_statuses": states})
+
         _claim(incident, payload.driver_id, payload.unit_type)
         await commit(incident)
+        # With the patient aboard, rank hospitals again from the scene (the
+        # plan is minutes old). In the background, so the crew's tap is never
+        # held up by a slow hospital lookup; attached when ready.
+        task = asyncio.create_task(_attach_ranking(payload.incident_id, origin, emergency,
+                                                   current_id, view.get("hospital_name"), destination))
+        _RANKING_TASKS.add(task)
+        task.add_done_callback(_RANKING_TASKS.discard)
         from routers.hospital import destination_on_divert
         return {"status": "patient_picked_up", "citizen_view": view, "unit_statuses": states,
                 "unit_assignments": incident["unit_assignments"],
                 "destination_on_divert": destination_on_divert(incident)}
 
 
+RANKING_TIMEOUT_S = 15.0  # in the background: pickup itself never waits
+_RANKING_TASKS: set = set()
+
+
+def _is_current(entry: dict, current_id: str | None, current_name: str | None) -> bool:
+    """Match the destination by curated id, else the raw id, else the name
+    (hospitals found only on OpenStreetMap have no curated id)."""
+    from routers.hospital import _resolve
+
+    hid = str(entry.get("hospital_id") or "")
+    if current_id:
+        if hid == str(current_id):
+            return True
+        resolved = _resolve(hid)
+        if resolved and resolved == _resolve(str(current_id)):
+            return True
+    return bool(current_name) and entry.get("name") == current_name
+
+
+def _summarise(ranking: dict) -> None:
+    """Keep-or-switch line from the ranking and its current flags."""
+    hospitals = ranking["hospitals"]
+    current = next((h for h in hospitals if h["current"]), None)
+    best = hospitals[0]
+    ranking["current_still_first"] = bool(best["current"])
+    if best["current"]:
+        ranking["summary"] = "The current hospital is still the best choice from the scene."
+    elif current is None:
+        ranking["summary"] = (f"{best['name']} ranks first from the scene; the current hospital is not in the "
+                              "top five on capability and modelled road time.")
+    elif Number(best.get("road_eta_min")) is not None and Number(current.get("road_eta_min")) is not None:
+        saves = current["road_eta_min"] - best["road_eta_min"]
+        ranking["summary"] = (f"{best['name']} ranks first from the scene ({best['road_eta_min']} min by road); "
+                              f"the current hospital is {current['road_eta_min']} min"
+                              + (f", so switching saves {saves:.1f} min." if saves > 0 else
+                                 ", but it ranks higher on capability."))
+    else:
+        ranking["summary"] = f"{best['name']} ranks first from the scene."
+
+
+def Number(value):
+    return value if isinstance(value, (int, float)) else None
+
+
+async def _rank_from_scene(origin: dict, emergency: str, current_id: str | None,
+                           current_name: str | None) -> dict | None:
+    """Hospitals ranked from the scene now: score, modelled road time, reasoning.
+    Hospitals on divert are left out."""
+    import time as _time
+
+    from agents.hospital_intelligence import hospital_agent
+    from models.schemas import Coordinate, EmergencyType, HospitalRequest
+    from routers.hospital import _resolve
+
+    try:
+        etype = EmergencyType(emergency)
+    except ValueError:
+        etype = EmergencyType.GENERAL
+    result = await hospital_agent.rank_hospitals(HospitalRequest(
+        incident_location=Coordinate(lat=origin["lat"], lng=origin["lng"]), emergency_type=etype))
+    diverted = hospital_agent.diverted
+    hospitals = []
+    for entry in result.ranked_hospitals:
+        data = entry.model_dump(mode="json")
+        if (_resolve(str(data.get("hospital_id"))) or data.get("hospital_id")) in diverted:
+            continue
+        hospitals.append({
+            "hospital_id": data.get("hospital_id"),
+            "name": data.get("name"),
+            "location": data.get("location"),
+            "score": data.get("score"),
+            "road_eta_min": round(data["road_eta_seconds"] / 60, 1) if data.get("road_eta_seconds") else None,
+            "reasoning": (data.get("reasoning") or "")[:400],
+        })
+        if len(hospitals) == 5:
+            break
+    if not hospitals:
+        return None
+    for h in hospitals:
+        h["current"] = _is_current(h, current_id, current_name)
+    ranking = {"at": _time.time(), "emergency_type": etype.value, "hospitals": hospitals}
+    _summarise(ranking)
+    return ranking
+
+
+async def _attach_ranking(incident_id: str, origin: dict, emergency: str, current_id: str | None,
+                          current_name: str | None, destination: dict) -> None:
+    try:
+        ranking = await asyncio.wait_for(_rank_from_scene(origin, emergency, current_id, current_name),
+                                         RANKING_TIMEOUT_S)
+    except Exception:
+        logger.warning("Re-ranking hospitals at pickup did not finish; the plan stands")
+        return
+    if ranking is None:
+        return
+    async with _INCIDENTS_LOCK:
+        incident = next((i for i in ACTIVE_INCIDENTS if i["incident_id"] == incident_id), None)
+        # Attach only if the call is still in transport to the same hospital.
+        if incident is None or incident.get("status") != "patient_picked_up":
+            return
+        if (incident.get("citizen_view") or {}).get("hospital_location") != destination:
+            return
+        incident["pickup_ranking"] = ranking
+        await commit(incident)
+
+
 @router.post("/change_hospital")
 async def change_hospital(payload: HospitalChangePayload, request: Request = None):
-    require_staff(request, "unit")
+    who = require_staff(request, "unit")
     from agents.hospital_intelligence import hospital_agent
     from routers.hospital import _resolve
 
@@ -204,7 +324,11 @@ async def change_hospital(payload: HospitalChangePayload, request: Request = Non
         incident = _incident(payload.incident_id)
         if incident.get("status") != "patient_picked_up":
             raise HTTPException(status_code=409, detail="A destination can be changed only during transport")
-        candidates = (incident.get("action_plan") or {}).get("all_hospitals") or []
+        on_call = {incident.get("assigned_unit"), *_assignments(incident).values()} - {None, ""}
+        if who[0] == "unit" and on_call and who[1] not in on_call:
+            raise HTTPException(status_code=403, detail="Only a unit on this call can change its destination")
+        candidates = ((incident.get("action_plan") or {}).get("all_hospitals") or []) + \
+            ((incident.get("pickup_ranking") or {}).get("hospitals") or [])
         hospital = next((h for h in candidates if payload.hospital_name in {h.get("name"), h.get("hospital_id")}), None)
         if not hospital or not hospital.get("location"):
             raise HTTPException(status_code=422, detail="Choose a hospital from the incident's reviewed destinations")
@@ -225,6 +349,11 @@ async def change_hospital(payload: HospitalChangePayload, request: Request = Non
         view.update(route)
         view.update({"hospital_name": hospital["name"], "hospital_location": hospital["location"],
                      "message": f"Rerouted by driver to {hospital['name']}."})
+        ranking = incident.get("pickup_ranking")
+        if ranking:
+            for h in ranking["hospitals"]:
+                h["current"] = _is_current(h, canonical or hospital.get("hospital_id"), hospital["name"])
+            _summarise(ranking)
         incident.update({"hospital_name": hospital["name"], "approved_hospital_id": canonical or hospital.get("hospital_id"),
                          "citizen_view": view})
         await commit(incident)

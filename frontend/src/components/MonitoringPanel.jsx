@@ -162,6 +162,20 @@ export default function MonitoringPanel({ incident, onChanged }) {
           </div>
         )}
 
+        {incident.pickup_ranking && (
+          <div className="rounded-sm border border-rule bg-paper-sunk p-3 text-[12.5px]">
+            <div className="t-meta mb-1 font-bold uppercase tracking-[0.1em] text-text-faint">Hospitals from the scene, at pickup</div>
+            <p className="text-text">{incident.pickup_ranking.summary}</p>
+            <ol className="mt-1.5 space-y-0.5 text-text-muted">
+              {incident.pickup_ranking.hospitals.slice(0, 3).map((h) => (
+                <li key={h.hospital_id}>
+                  {h.name}{Number.isFinite(h.road_eta_min) ? ` · ${h.road_eta_min} min` : ''}{h.current ? ' · current' : ''}
+                </li>
+              ))}
+            </ol>
+          </div>
+        )}
+
         {decided.length > 0 && (
           <ul className="space-y-1 text-[12px] text-text-muted">
             {decided.map((a) => (
