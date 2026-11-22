@@ -191,7 +191,9 @@ export default function CitizenDashboard() {
           // A signed-in caller's account details replace these on the server.
           citizen_name: citizenInfo?.name ?? 'Anonymous',
           citizen_phone: citizenInfo?.phone ?? 'Unregistered',
-          anonymous: !citizenInfo?.registered,
+          // Only an explicit "Report without an account" choice; a fresh tab
+          // with a valid sign-in still reports under the account.
+          anonymous: citizenInfo?.anonymousChoice === true,
           vehicle_required: service,
           location: coords,
           input_modality: voice ? 'voice' : 'text',

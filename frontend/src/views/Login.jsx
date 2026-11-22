@@ -296,10 +296,12 @@ export default function Login() {
                   <CitizenAccess
                     onSignedIn={(profile) => enter('citizen', profile)}
                     onAnonymous={async () => {
-                      // A shared phone: end any earlier caller's session first.
-                      await fetch('/api/citizens/session', { method: 'DELETE' }).catch(() => {});
+                      // A shared phone: end any earlier caller's session first,
+                      // and go on only if that worked.
+                      const res = await fetch('/api/citizens/session', { method: 'DELETE' });
+                      if (!res.ok) throw new Error('Could not end the earlier sign-in on this phone. Try again.');
                       try { sessionStorage.removeItem('rapidgrid_my_incident'); } catch { /* storage off */ }
-                      enter('citizen', { name: 'Anonymous', phone: null, registered: false });
+                      enter('citizen', { name: 'Anonymous', phone: null, registered: false, anonymousChoice: true });
                     }}
                   />
                 </>

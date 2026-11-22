@@ -109,7 +109,8 @@ def test_full_approval_pickup_handover_survives_persistence(client, mocked_route
     })
     assert approved.status_code == 200
     assert approved.json()["citizen_view"]["phase1_eta_minutes"] == 4
-    payload = {"incident_id": "INC-review", "driver_id": "unit-review"}
+    # The unit dispatch assigned is the one that claims the call.
+    payload = {"incident_id": "INC-review", "driver_id": approved.json()["assigned_unit"]}
     assert client.post("/api/driver/claim", json=payload).status_code == 200
     assert client.post("/api/driver/arrived_pickup", json=payload).status_code == 200
     incident.ACTIVE_INCIDENTS.clear()

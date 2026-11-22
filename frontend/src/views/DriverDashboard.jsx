@@ -96,7 +96,8 @@ export default function DriverDashboard() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           incident_id: active.incident_id,
-          driver_id: driverInfo?.unitId ?? 'drv-11',
+          // Without a unit profile (local open demo), act as the unit dispatch assigned.
+          driver_id: driverInfo?.unitId ?? active?.assigned_unit ?? 'drv-11',
           unit_type: unitType,
         }),
       });
