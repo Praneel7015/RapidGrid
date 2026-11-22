@@ -962,3 +962,52 @@ def test_traffic_factor_is_neutral_and_labelled_when_the_city_model_is_absent(cl
     traffic = next(f for f in plan.factor_breakdown if f.factor == "Traffic Conditions")
     assert traffic.score == 0.5
     assert "unavailable" in plan.explanation and "Clear" not in plan.explanation
+
+
+# --- Response profiles: police, fire and rescue respond to the scene ------------
+
+def _run_report(vehicle, backup=False, incident_id="INC-scene"):
+    seed("processing", incident_id=incident_id, vehicle_required=vehicle,
+         include_ambulance_backup=backup, action_plan=None, citizen_view=None)
+    payload = incident.IncidentReportPayload(
+        citizen_text="Test scenario: fire in a warehouse near Hebbal", vehicle_required=vehicle,
+        include_ambulance_backup=backup, location={"lat": 13.035, "lng": 77.597})
+    asyncio.run(incident.run_pipeline(incident_id, payload))
+    return next(i for i in incident.ACTIVE_INCIDENTS if i["incident_id"] == incident_id)
+
+
+@pytest.mark.parametrize("vehicle", ["Police Cruiser", "Fire Engine", "Disaster Rescue"])
+def test_non_medical_calls_plan_a_scene_response_without_hospitals(client, mocked_route, monkeypatch, vehicle):
+    monkeypatch.setattr(incident, "_INCIDENTS_LOCK", asyncio.Lock())
+    monkeypatch.setattr(incident.fusion_engine, "fuse", AsyncMock(side_effect=AssertionError("ranked hospitals")))
+    report = _run_report(vehicle)
+    plan, view = report["action_plan"], report["citizen_view"]
+    assert report["status"] == "awaiting_dispatcher_approval"
+    assert plan["response_profile"] == "scene" and plan["recommended_hospital"] is None
+    assert plan["all_hospitals"] == [] and view["hospital_name"] is None
+    assert view["route_coordinates"] == [] and len(view["phase1_route_coordinates"]) >= 2
+    assert "hospital" not in view["message"].lower()
+
+    monkeypatch.setattr(incident, "_INCIDENTS_LOCK", asyncio.Lock())
+    approved = client.post("/api/incidents/INC-scene/approve", json={"dispatcher_id": "test", "approved_route": ""})
+    assert approved.status_code == 200, approved.text
+    assert approved.json()["status"] == "dispatched"
+    assert approved.json()["approved_hospital_id"] is None
+
+
+def test_a_non_medical_call_with_an_ambulance_backup_still_ranks_hospitals(client, mocked_route, monkeypatch):
+    # The backup ambulance carries the patient, so hospital ranking must run.
+    monkeypatch.setattr(incident, "_INCIDENTS_LOCK", asyncio.Lock())
+    ranking = AsyncMock(side_effect=RuntimeError("stop after ranking"))
+    monkeypatch.setattr(incident.fusion_engine, "fuse", ranking)
+    monkeypatch.setattr(incident, "_mark_failed", AsyncMock())
+    report = _run_report("Fire Engine", backup=True)
+    ranking.assert_awaited_once()
+    assert (report.get("action_plan") or {}).get("response_profile") != "scene"
+
+
+def test_an_ambulance_call_still_needs_a_hospital_to_approve(client, mocked_route, monkeypatch):
+    monkeypatch.setattr(incident, "_INCIDENTS_LOCK", asyncio.Lock())
+    seed()
+    response = client.post("/api/incidents/INC-review/approve", json={"dispatcher_id": "test", "approved_route": ""})
+    assert response.status_code == 422

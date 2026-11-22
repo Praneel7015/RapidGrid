@@ -166,6 +166,28 @@ load_db()
 
 
 MEDICAL_UNITS = {"Ambulance", "Medical"}
+
+# What each kind of unit does once it reaches the scene. Only an ambulance
+# carries a patient on to a hospital; police, fire and rescue units respond
+# to the scene and finish there (unless an ambulance backup is added, which
+# then needs a receiving hospital). Kept as data so a new unit type is one
+# entry, not new branches through the code.
+RESPONSE_PROFILES: dict[str, dict] = {
+    "Ambulance": {"to_hospital": True, "label": "Ambulance"},
+    "Medical": {"to_hospital": True, "label": "Ambulance"},
+    "Fire Engine": {"to_hospital": False, "label": "Fire engine"},
+    "Police Cruiser": {"to_hospital": False, "label": "Police unit"},
+    "Disaster Rescue": {"to_hospital": False, "label": "Rescue unit"},
+}
+
+
+def response_profile(vehicle: str | None) -> dict:
+    return RESPONSE_PROFILES.get(vehicle or "Ambulance", RESPONSE_PROFILES["Ambulance"])
+
+
+def needs_hospital(vehicle: str | None, ambulance_backup: bool) -> bool:
+    """A call needs a receiving hospital when its unit, or its backup, is medical."""
+    return response_profile(vehicle)["to_hospital"] or bool(ambulance_backup)
 VehicleType = Literal["Ambulance", "Medical", "Fire Engine", "Police Cruiser", "Disaster Rescue"]
 
 # The offline road graph covers this box; a small margin admits callers on its
@@ -203,7 +225,8 @@ def wants_backup(payload: IncidentReportPayload) -> bool:
 
 class ApprovePayload(BaseModel):
     dispatcher_id: str = Field(min_length=1, max_length=100)
-    approved_hospital: str = Field(min_length=1, max_length=200)
+    # Required for calls that carry a patient; scene-only calls have none.
+    approved_hospital: Optional[str] = Field(default=None, min_length=1, max_length=200)
     approved_route: str = Field(max_length=200)
 
 # Demo click-to-call numbers (no live hospital/unit directory feed).
@@ -279,6 +302,80 @@ def snapshot(value):
     return copy.deepcopy(value)
 
 
+async def _phase1(veh_type: str, location) -> tuple[dict, list, int | None, object | None]:
+    """Nearest station of this unit type and its route to the scene."""
+    hub = find_nearest_hub(veh_type, location.lat, location.lng)
+    try:
+        route = await asyncio.to_thread(route_agent.compute_route, RouteRequest(
+            origin=Coordinate(lat=hub["lat"], lng=hub["lng"]),
+            destination=location,
+        ))
+        if route.confidence <= 0 or len(route.coordinates) < 2:
+            raise ValueError("No usable hub-to-scene route")
+        return hub, [{"lat": c.lat, "lng": c.lng} for c in route.coordinates], max(1, int(route.eta // 60)), route
+    except Exception:
+        return hub, [], None, None
+
+
+async def _plan_scene_response(incident_id: str, payload, access_res) -> None:
+    """Plan a police, fire or rescue call: station to scene, no hospital."""
+    veh_type = payload.vehicle_required or "Ambulance"
+    profile = response_profile(veh_type)
+    hub, coords, eta, route = await _phase1(veh_type, payload.location)
+    unit_phone = hub.get("phone") or DEMO_UNIT_PHONE
+    where = f"{hub['name']} to the scene"
+    explanation = (
+        f"{profile['label']} from {where}"
+        + (f", about {eta} min by road." if eta else ". No road route was found; check the location before dispatching.")
+        + " No hospital leg: this unit responds to the scene."
+    )
+    plan = {
+        "response_profile": "scene",
+        "incident_id": incident_id,
+        "vehicle_required": veh_type,
+        "recommended_hospital": None,
+        "all_hospitals": [],
+        "recommended_route": None if route is None else {
+            "route_id": getattr(route, "route_id", None),
+            "coordinates": coords,
+            "eta": route.eta,
+            "distance": route.distance,
+            "data_freshness": str(getattr(getattr(route, "data_freshness", None), "value", "") or "") or None,
+        },
+        "explanation": explanation,
+        "overall_confidence": route.confidence if route is not None else 0.0,
+    }
+    view = {
+        "message": f"Dispatching a {profile['label'].lower()} from {where}.",
+        "eta_minutes": eta,
+        "route_degraded": eta is None,
+        "response_profile": "scene",
+        "hospital_name": None,
+        "hospital_location": None,
+        "hospital_phone": None,
+        "unit_phone": unit_phone,
+        "origin": {"lat": payload.location.lat, "lng": payload.location.lng},
+        "route_coordinates": [],
+        "phase1_hub": hub,
+        "phase1_route_coordinates": coords,
+        "phase1_eta_minutes": eta,
+        "phase1_route_degraded": eta is None,
+        "distance_meters": route.distance if route is not None else None,
+        "emergency_type": access_res.incident_report.incident_type.value,
+        "severity": access_res.incident_report.severity_estimate,
+        "vehicle_required": veh_type,
+        "include_ambulance_backup": False,
+    }
+    async with _INCIDENTS_LOCK:
+        for inc in ACTIVE_INCIDENTS:
+            if inc["incident_id"] == incident_id and inc.get("status") == "processing":
+                inc.update({"action_plan": plan, "unit_phone": unit_phone, "hospital_phone": None,
+                            "citizen_view": view, "status": "awaiting_dispatcher_approval"})
+                await commit(inc)
+                return
+    logger.warning("Pipeline: incident %s no longer present after scene planning — aborting", log_safe(incident_id))
+
+
 async def run_pipeline(incident_id: str, payload: IncidentReportPayload):
     """Background task simulating the event-driven bus pipeline."""
     try:
@@ -312,6 +409,11 @@ async def run_pipeline(incident_id: str, payload: IncidentReportPayload):
                 logger.warning("Pipeline: incident %s no longer present after accessibility step — aborting", incident_id)
                 return
 
+        veh_type = payload.vehicle_required or "Ambulance"
+        if not needs_hospital(veh_type, wants_backup(payload)):
+            await _plan_scene_response(incident_id, payload, access_res)
+            return
+
         fusion_req = FusionRequest(
             incident_id=incident_id,
             incident_location=payload.location,
@@ -325,23 +427,9 @@ async def run_pipeline(incident_id: str, payload: IncidentReportPayload):
 
         # Compute phase-1 route (hub → patient) outside the lock.
         hosp = fusion_res.recommended_hospital
-        veh_type = payload.vehicle_required or "Ambulance"
-        nearest_hub = find_nearest_hub(veh_type, payload.location.lat, payload.location.lng)
+        nearest_hub, p1_coords, p1_eta, _ = await _phase1(veh_type, payload.location)
         unit_phone = nearest_hub.get("phone") or DEMO_UNIT_PHONE
         hospital_phone = _hospital_phone(hosp.name)
-
-        try:
-            p1_route = await asyncio.to_thread(route_agent.compute_route, RouteRequest(
-                origin=Coordinate(lat=nearest_hub["lat"], lng=nearest_hub["lng"]),
-                destination=payload.location
-            ))
-            if p1_route.confidence <= 0 or len(p1_route.coordinates) < 2:
-                raise ValueError("No usable hub-to-patient route")
-            p1_coords = [{"lat": c.lat, "lng": c.lng} for c in p1_route.coordinates]
-            p1_eta = max(1, int(p1_route.eta // 60))
-        except Exception:
-            p1_coords = []
-            p1_eta = None
 
         route_coords = [
             {"lat": c.lat, "lng": c.lng}
@@ -355,6 +443,7 @@ async def run_pipeline(incident_id: str, payload: IncidentReportPayload):
         route_degraded = plan_route.confidence <= 0 or plan_route.eta <= 0 or len(route_coords) < 2
         new_citizen_view = {
             "message": f"Dispatching from {nearest_hub['name']}. Destination Hospital: {hosp.name}.",
+            "response_profile": "hospital",
             # No usable route means no ETA to show; approval re-routes and refuses if it still fails.
             "eta_minutes": None if route_degraded else max(1, int(plan_route.eta // 60)),
             "route_degraded": route_degraded,
@@ -480,6 +569,20 @@ async def approve_incident(incident_id: str, payload: ApprovePayload):
         if inc.get("status") != "awaiting_dispatcher_approval":
             raise HTTPException(status_code=409, detail="Only a report awaiting approval can be dispatched")
         plan = inc.get("action_plan") or {}
+        if plan.get("response_profile") == "scene":
+            view = dict(inc.get("citizen_view") or {})
+            view.update({"status": "dispatched",
+                         "message": f"Help is on the way: {response_profile(inc.get('vehicle_required'))['label'].lower()} dispatched to the scene."})
+            inc.update({"status": "dispatched", "driver_stage": "pickup", "dispatcher_id": payload.dispatcher_id,
+                        "approved_hospital_id": None, "citizen_view": view})
+            inc["unit_statuses"] = {unit: "dispatched" for unit in required_units(inc)}
+            view["unit_statuses"] = inc["unit_statuses"]
+            await commit(inc)
+            logger.info("PLAN_APPROVED for %s by %s: scene response",
+                        log_safe(incident_id), log_safe(payload.dispatcher_id))
+            return inc
+        if not payload.approved_hospital:
+            raise HTTPException(status_code=422, detail="Choose a hospital from the reviewed plan")
         candidates = plan.get("all_hospitals") or []
         target = next((h for h in candidates if payload.approved_hospital in {h.get("hospital_id"), h.get("name")}), None)
         recommended = plan.get("recommended_hospital") or {}

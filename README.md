@@ -130,6 +130,7 @@ plain pipeline:
 | Hospital ranking | `hospital_intelligence.py` | Scores curated capability, road time over the offline graph, and only ER-desk-entered bed figures. Diverted hospitals are excluded; specialty-bypass gate for cardiac, stroke and trauma. **This step chooses the hospital.** |
 | Routing | `route_optimization.py`, `local_router.py` | Google Routes when configured (4 s timeout), otherwise A* over the offline graph (see tiers above). While a closure or incident is drawn, always the offline graph, so routes respect it. |
 | Plan | `decision_fusion.py` | Packages the top-ranked hospital, the route and an explanation. Its five weighted factors describe the plan; they do not change which hospital is chosen. |
+| Response profile | `routers/incident.py` (`RESPONSE_PROFILES`) | What the unit does after the scene. Ambulances go on to a ranked hospital; police, fire and rescue units respond to the scene only, with no hospital ranking, unless an ambulance backup is added. One table, so a new unit type is one entry. |
 | City model | `city_state.py` | Hour, weather and drawn closures, applied to the offline graph. Also the source of the traffic factor shown in the plan. |
 
 Supporting modules: `clinical_outcome.py` (illustrative estimate) and
