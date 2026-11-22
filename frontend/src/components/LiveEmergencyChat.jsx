@@ -10,6 +10,7 @@ import { Send } from 'lucide-react';
 import { Panel, PanelHead } from './ui';
 import MicButton from './MicButton';
 import CallButton from './CallButton';
+import useIncidentContacts, { callTargets as targetsFor } from '../hooks/useIncidentContacts';
 import useSpeechToText from '../hooks/useSpeechToText';
 
 const ROLE_LABEL = {
@@ -17,6 +18,7 @@ const ROLE_LABEL = {
   driver: 'Responder',
   dispatcher: 'Dispatch',
   hospital: 'ER desk',
+  system: 'Route monitoring',
 };
 
 export default function LiveEmergencyChat(props) {
@@ -30,7 +32,6 @@ function IncidentChannel({
   senderRole = 'citizen',
   senderName,
   height = '260px',
-  contacts = null,
 }) {
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState('');
@@ -175,18 +176,9 @@ function IncidentChannel({
     offline: { label: 'Offline', tone: 'text-critical' },
   }[transport];
 
-  const callTargets = [];
-  if (contacts) {
-    if (senderRole !== 'driver' && contacts.unit) {
-      callTargets.push({ phone: contacts.unit, label: 'Unit' });
-    }
-    if (senderRole !== 'hospital' && contacts.hospital) {
-      callTargets.push({ phone: contacts.hospital, label: 'ER' });
-    }
-    if (senderRole !== 'citizen' && contacts.citizen) {
-      callTargets.push({ phone: contacts.citizen, label: 'Caller' });
-    }
-  }
+  // Numbers come from the server by role (never from incident records).
+  const directory = useIncidentContacts(incidentId);
+  const callTargets = targetsFor(directory, senderRole);
 
   return (
     <Panel className="flex min-w-0 flex-col overflow-hidden">
@@ -215,6 +207,21 @@ function IncidentChannel({
         ) : (
           messages.map((m, i) => {
             const mine = m.sender_role === senderRole;
+            if (m.sender_role === 'system') {
+              // From the server only (users cannot post as "system"): the
+              // monitoring agent's update or a dispatch decision.
+              return (
+                <div key={m.id ?? i} className="flex justify-center">
+                  <div className="max-w-[92%] rounded-sm border border-signal-edge bg-signal-wash px-3 py-2 text-[12.5px] leading-relaxed text-text">
+                    <span className="t-meta mr-1.5 font-bold uppercase tracking-[0.1em] text-signal-hover">
+                      {m.sender_name || ROLE_LABEL.system}
+                    </span>
+                    {m.timestamp && <span className="t-meta mr-1.5 text-text-faint">{m.timestamp}</span>}
+                    <span className="[overflow-wrap:anywhere] whitespace-pre-wrap">{m.message}</span>
+                  </div>
+                </div>
+              );
+            }
             return (
               <div key={m.id ?? i} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
                 <div className={`max-w-[82%] ${mine ? 'text-right' : ''}`}>

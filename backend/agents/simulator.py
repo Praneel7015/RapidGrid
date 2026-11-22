@@ -197,10 +197,20 @@ async def supersede_stale_alerts() -> None:
                 await incident_router.commit(inc)
 
 
+def caller_safe_summary(alert: dict) -> str:
+    """One line for everyone on the call: what happened and the new ETA."""
+    what = "left its planned route" if alert.get("trigger") == "deviation" else "has a disruption on its route"
+    cause = (alert.get("cause") or {}).get("text") or "cause being checked"
+    eta = alert.get("new_eta_s")
+    eta_text = f" New estimated arrival in {eta / 60:.0f} min." if eta else " Dispatch is finding a way through."
+    return f"{alert.get('unit_id', 'The unit')} {what}: {cause}.{eta_text}"
+
+
 async def store_alerts(alerts: list[tuple[str, dict]]) -> None:
     """Keep each incident's newest alerts (up to 10) with the incident."""
     from routers import incident as incident_router
 
+    stored: list[tuple[str, dict]] = []
     async with incident_router._INCIDENTS_LOCK:
         for incident_id, alert in alerts:
             inc = next((i for i in incident_router.ACTIVE_INCIDENTS if i["incident_id"] == incident_id), None)
@@ -209,6 +219,13 @@ async def store_alerts(alerts: list[tuple[str, dict]]) -> None:
             monitoring = inc.setdefault("monitoring", {"alerts": []})
             monitoring["alerts"] = [alert] + monitoring.get("alerts", [])[:9]
             await incident_router.commit(inc)
+            stored.append((incident_id, alert))
+    from routers.chat import post_system_message
+
+    # The channel includes the caller: post the facts (cause, new ETA), not the
+    # dispatcher's advice (backup, hold), which stays on the dispatch screen.
+    for incident_id, alert in stored:
+        await post_system_message(incident_id, caller_safe_summary(alert))
 
 
 async def run() -> None:

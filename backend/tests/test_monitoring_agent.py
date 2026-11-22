@@ -278,3 +278,19 @@ def test_a_reroute_keeps_the_phone_tracking_decision(city):
     view["phase1_route_coordinates"] = view["phase1_route_coordinates"][3:]  # an accepted reroute
     monitor.tick([incident])
     assert monitor._watches["AMB-01"].started_near_station is False
+
+
+def test_alerts_and_decisions_are_posted_to_the_incident_channel(city):
+    from routers import chat
+
+    incident = call_to((12.985, 77.594), ASTER_HUB)
+    alert = _alert_on_closure(incident)
+    messages = chat.manager.history("INC-mon")
+    system = [m for m in messages if m["sender_role"] == "system"]
+    assert system and "disruption on its route" in system[0]["message"]
+    # The caller sees the facts, not the dispatcher's advice.
+    assert "Backup" not in system[0]["message"] and "dispatch AMB" not in system[0]["message"]
+    TestClient(app).post(f"/api/incidents/INC-mon/alerts/{alert['alert_id']}/accept", json={"route_index": 0})
+    assert any("Dispatcher accepted" in m["message"] for m in chat.manager.history("INC-mon"))
+    # Users cannot post as the agent.
+    assert "system" not in chat.CHAT_ROLES

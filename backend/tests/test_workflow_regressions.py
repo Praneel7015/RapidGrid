@@ -72,13 +72,6 @@ def seed(status="awaiting_dispatcher_approval", **extra):
     return report
 
 
-def test_hospital_phone_never_selects_another_branch_or_a_placeholder():
-    assert incident._hospital_phone("ASTER CMI HOSPITAL (HEBBAL)") == "+91 80 4342 0107"
-    assert incident._hospital_phone("St Johns Medical College Hospital") == "+91 80 2206 5000"
-    assert incident._hospital_phone("Aster CMI Hospital (Hebbal) Annex") is None
-    assert incident._hospital_phone("Aster") is None
-    assert incident._hospital_phone("Unknown hospital") is None
-
 
 def test_pipeline_exception_cannot_overwrite_dispatcher_rejection(client, monkeypatch):
     import asyncio
@@ -341,42 +334,6 @@ def test_incident_with_no_candidates_ends_failed_with_readable_error(client, mon
     assert "No hospital is currently accepting patients" in report["error"]
 
 
-# --- Demo ER phone numbers ------------------------------------------------------
-
-def test_demo_phone_keys_are_curated_hospital_names_and_resolve():
-    curated = {h["name"] for h in hospital_agent._load_capabilities().values()}
-    assert set(incident.DEMO_HOSPITAL_PHONES) <= curated
-    for name in curated:
-        expected = incident.DEMO_HOSPITAL_PHONES.get(name)
-        assert incident._hospital_phone(name) == expected
-    assert incident._hospital_phone("NIMHANS (National Institute of Mental Health and Neurosciences)") == "+91 80 2699 5000"
-
-
-# --- ER number follows a diversion ---------------------------------------------
-
-@pytest.mark.parametrize("destination,expected", [
-    ("blr-001", "+91 80 2502 4444"),  # Manipal Hospital (Old Airport Road)
-    ("blr-013", None),               # Sparsh Hospital: curated, but no demo number
-])
-def test_diversion_updates_incident_level_er_phone(client, monkeypatch, destination, expected):
-    report = seed("patient_picked_up", hospital_phone="+91 80 4342 0107")
-    report["citizen_view"]["hospital_phone"] = "+91 80 4342 0107"
-    report["action_plan"]["all_hospitals"] += [
-        {"hospital_id": "blr-001", "name": "Manipal Hospital (Old Airport Road)", "location": {"lat": 12.9583, "lng": 77.6483}},
-        {"hospital_id": "blr-013", "name": "Sparsh Hospital (Palace Road)", "location": {"lat": 12.9868, "lng": 77.5855}},
-    ]
-
-    async def route(origin, destination):
-        return {"route_coordinates": [origin, destination], "eta_minutes": 5, "distance_meters": 2000}
-
-    monkeypatch.setattr(driver, "_route", route)
-    response = client.post("/api/driver/change_hospital", json={"incident_id": "INC-review", "hospital_name": destination})
-    assert response.status_code == 200
-    assert report["hospital_phone"] == expected
-    assert report["citizen_view"]["hospital_phone"] == expected
-    assert response.json()["citizen_view"]["hospital_phone"] == expected
-
-
 # --- Log injection --------------------------------------------------------------
 
 def test_reject_log_line_cannot_be_forged_by_dispatcher_id(client, caplog):
@@ -603,13 +560,26 @@ def test_backup_ambulance_is_only_added_beside_a_non_medical_unit(client, monkey
     assert incident.required_units(by_id[medical]) == {"primary"}  # the call can still complete
 
 
-def test_reroute_response_carries_the_new_er_number(client, mocked_route):
+def test_contacts_follow_a_diversion_to_the_new_er(client, mocked_route, monkeypatch):
+    import json as _json
+    import contacts
+
+    monkeypatch.setenv("RAPIDGRID_CONTACTS", _json.dumps({"hospitals": [
+        {"hospital_id": "blr-001", "name": "Manipal Hospital (Old Airport Road)",
+         "emergency_phone": "+91 80 1111 2222", "icu_phone": "+91 80 1111 3333"}]}))
+    contacts.reload()
     other = {"hospital_id": "blr-001", "name": "Manipal Hospital (Old Airport Road)",
              "location": {"lat": 12.9585, "lng": 77.6483}}
-    report = seed("patient_picked_up", hospital_phone="+91 80 4342 0107")
+    report = seed("patient_picked_up")
     report["action_plan"]["all_hospitals"].append(other)
     body = client.post("/api/driver/change_hospital", json={"incident_id": "INC-review", "hospital_name": other["name"]}).json()
-    assert body["hospital_phone"] == "+91 80 2502 4444" == body["citizen_view"]["hospital_phone"]
+    assert "hospital_phone" not in body and "hospital_phone" not in body["citizen_view"]
+    # An operator session counts as staff even with staff sign-in off.
+    monkeypatch.setenv("RAPIDGRID_OPERATOR_TOKEN", "test-operator")
+    listed = client.get("/api/incidents/INC-review/contacts",
+                        headers={"Authorization": "Bearer test-operator"}).json()
+    assert listed["hospital"] == {"name": "Manipal Hospital (Old Airport Road)",
+                                  "emergency_phone": "+91 80 1111 2222", "icu_phone": "+91 80 1111 3333"}
 
 
 # --- Row-level persistence -------------------------------------------------------

@@ -139,6 +139,13 @@ def load_db():
         raise RuntimeError("Stored incidents must be a list of records with an incident_id")
     ACTIVE_INCIDENTS.clear()
     ACTIVE_INCIDENTS.extend(data)
+    # Records saved before the contacts directory carried demo phone numbers;
+    # they are not part of a record any more.
+    for incident in ACTIVE_INCIDENTS:
+        for key in ("unit_phone", "hospital_phone"):
+            incident.pop(key, None)
+            if isinstance(incident.get("citizen_view"), dict):
+                incident["citizen_view"].pop(key, None)
     # An in-process task cannot survive a restart. Fail interrupted reports
     # visibly so a citizen can retry instead of polling forever.
     for incident in ACTIVE_INCIDENTS:
@@ -233,40 +240,11 @@ class ApprovePayload(BaseModel):
     approved_hospital: Optional[str] = Field(default=None, min_length=1, max_length=200)
     approved_route: str = Field(max_length=200)
 
-# Demo click-to-call numbers (no live hospital/unit directory feed).
-DEMO_HOSPITAL_PHONES = {
-    "Aster CMI Hospital (Hebbal)": "+91 80 4342 0107",
-    "Manipal Hospital (Old Airport Road)": "+91 80 2502 4444",
-    "Fortis Hospital (Bannerghatta Road)": "+91 80 6621 4444",
-    "Sri Jayadeva Institute of Cardiovascular Sciences and Research": "+91 80 2297 7200",
-    "NIMHANS (National Institute of Mental Health and Neurosciences)": "+91 80 2699 5000",
-    "St. John's Medical College Hospital": "+91 80 2206 5000",
-    "Victoria Hospital (BMCRI)": "+91 80 2670 1150",
-}
-DEMO_UNIT_PHONE = "+91 98001 10004"
-
-
 def _resolve_modality(raw: str) -> AccessibilityInputModality:
     try:
         return AccessibilityInputModality(str(raw or "text").strip().lower())
     except ValueError:
         return AccessibilityInputModality.TEXT
-
-
-def _hospital_phone(name: str | None) -> str | None:
-    """Only expose a demo directory number for an exact normalized name."""
-    if not name:
-        return None
-
-    def normalize(value: str) -> str:
-        value = re.sub("['’]", "", value.lower())
-        return re.sub(r"[^a-z0-9]+", " ", value).strip()
-
-    requested = normalize(name)
-    for key, phone in DEMO_HOSPITAL_PHONES.items():
-        if normalize(key) == requested:
-            return phone
-    return None
 
 
 # Waits between attempts to store a pipeline failure. The last value repeats.
@@ -303,7 +281,9 @@ async def _mark_failed(incident_id: str, exc: Exception) -> None:
 # Caller details are personal data: no incident response carries them. They
 # are read through GET /{incident_id}/caller, which checks who is asking and
 # records every reveal (OWASP A01).
-_PRIVATE_FIELDS = ("citizen_name", "citizen_phone", "citizen_id", "caller_reveals")
+_PRIVATE_FIELDS = ("citizen_name", "citizen_phone", "citizen_id", "caller_reveals",
+                   # Phone numbers come from GET /{incident_id}/contacts, by role.
+                   "unit_phone", "hospital_phone")
 
 
 def security_same_origin(request) -> bool:
@@ -317,6 +297,10 @@ def public_incident(incident: dict) -> dict:
     copy_ = copy.deepcopy(incident)
     for key in _PRIVATE_FIELDS:
         copy_.pop(key, None)
+    view = copy_.get("citizen_view")
+    if isinstance(view, dict):
+        for key in ("unit_phone", "hospital_phone"):  # records saved before contacts existed
+            view.pop(key, None)
     copy_["caller_hidden"] = True
     return copy_
 
@@ -347,7 +331,6 @@ async def _plan_scene_response(incident_id: str, payload, access_res) -> None:
     veh_type = payload.vehicle_required or "Ambulance"
     profile = response_profile(veh_type)
     hub, coords, eta, route = await _phase1(veh_type, payload.location)
-    unit_phone = hub.get("phone") or DEMO_UNIT_PHONE
     where = f"{hub['name']} to the scene"
     explanation = (
         f"{profile['label']} from {where}"
@@ -377,8 +360,6 @@ async def _plan_scene_response(incident_id: str, payload, access_res) -> None:
         "response_profile": "scene",
         "hospital_name": None,
         "hospital_location": None,
-        "hospital_phone": None,
-        "unit_phone": unit_phone,
         "origin": {"lat": payload.location.lat, "lng": payload.location.lng},
         "route_coordinates": [],
         "phase1_hub": hub,
@@ -394,8 +375,7 @@ async def _plan_scene_response(incident_id: str, payload, access_res) -> None:
     async with _INCIDENTS_LOCK:
         for inc in ACTIVE_INCIDENTS:
             if inc["incident_id"] == incident_id and inc.get("status") == "processing":
-                inc.update({"action_plan": plan, "unit_phone": unit_phone, "hospital_phone": None,
-                            "citizen_view": view, "status": "awaiting_dispatcher_approval"})
+                inc.update({"action_plan": plan, "citizen_view": view, "status": "awaiting_dispatcher_approval"})
                 await commit(inc)
                 return
     logger.warning("Pipeline: incident %s no longer present after scene planning — aborting", log_safe(incident_id))
@@ -453,8 +433,6 @@ async def run_pipeline(incident_id: str, payload: IncidentReportPayload):
         # Compute phase-1 route (hub → patient) outside the lock.
         hosp = fusion_res.recommended_hospital
         nearest_hub, p1_coords, p1_eta, _ = await _phase1(veh_type, payload.location)
-        unit_phone = nearest_hub.get("phone") or DEMO_UNIT_PHONE
-        hospital_phone = _hospital_phone(hosp.name)
 
         route_coords = [
             {"lat": c.lat, "lng": c.lng}
@@ -474,8 +452,6 @@ async def run_pipeline(incident_id: str, payload: IncidentReportPayload):
             "route_degraded": route_degraded,
             "hospital_name": hosp.name,
             "hospital_location": {"lat": hosp.location.lat, "lng": hosp.location.lng},
-            "hospital_phone": hospital_phone,
-            "unit_phone": unit_phone,
             "origin": {"lat": payload.location.lat, "lng": payload.location.lng},
             "route_coordinates": route_coords,
             "phase1_hub": nearest_hub,
@@ -498,8 +474,6 @@ async def run_pipeline(incident_id: str, payload: IncidentReportPayload):
                     # citizen_view, or a "awaiting_dispatcher_approval" status
                     # with neither field populated.
                     inc["action_plan"] = fusion_res.model_dump(mode="json")
-                    inc["unit_phone"] = unit_phone
-                    inc["hospital_phone"] = hospital_phone
                     inc["citizen_view"] = new_citizen_view
                     inc["status"] = "awaiting_dispatcher_approval"
                     found = True
@@ -629,6 +603,74 @@ async def reveal_caller(incident_id: str, response: Response, request: Request =
                 "registered": bool(inc.get("citizen_id"))}
 
 
+@router.get("/{incident_id}/contacts")
+async def incident_contacts(incident_id: str, response: Response, request: Request = None):
+    """Who to call about this incident, by who is asking.
+
+    Everyone: the 112 line. The signed-in caller: also their unit and
+    dispatch. Dispatch and the units on the call: also the receiving
+    hospital's ER and ICU. The receiving hospital: the unit and dispatch.
+    Numbers come from the private contacts directory; nothing is invented.
+    An anonymous caller gets only 112: incident ids are visible in the open
+    incident list, so knowing one proves nothing.
+    """
+    import contacts
+    import security
+    import staff
+    from citizens import current_async as current_citizen
+    from routers.driver import _assignments
+
+    response.headers["Cache-Control"] = "no-store"
+    async with _INCIDENTS_LOCK:
+        inc = next((i for i in ACTIVE_INCIDENTS if i["incident_id"] == incident_id), None)
+        if inc is None:
+            raise HTTPException(status_code=404, detail="Incident not found")
+        on_call = {inc.get("assigned_unit"), *_assignments(inc).values()} - {None, ""}
+        raw_hospital = inc.get("approved_hospital_id") or (
+            ((inc.get("action_plan") or {}).get("recommended_hospital") or {}).get("hospital_id"))
+        owner_id = inc.get("citizen_id")
+    from routers.hospital import _resolve
+
+    hospital_id = (_resolve(str(raw_hospital)) or raw_hospital) if raw_hospital else None
+
+    def allowed(role: str, subject: str | None = None) -> bool:
+        # Staff numbers need a real staff (or operator) sign-in. With staff
+        # sign-in off (no PINs configured), nobody is treated as staff here:
+        # an open demo must not hand every number to every visitor.
+        if not staff.enabled():
+            return bool(request is not None and security.authenticated(request))
+        try:
+            staff.require(request, role, subject)
+        except HTTPException:
+            return False
+        return True
+
+    me = await current_citizen(request)
+    is_owner = bool(me and owner_id and me["id"] == owner_id)
+    is_dispatch = allowed("dispatcher")
+    is_unit = any(allowed("unit", u) for u in sorted(on_call))
+    is_hospital = bool(hospital_id) and allowed("hospital", hospital_id)
+    is_staff = is_dispatch or is_unit or is_hospital
+
+    result: dict = {"hotline_112": contacts.hotline(), "dispatch": None, "unit": None, "hospital": None}
+    directory = contacts.directory()
+    if is_owner or is_dispatch or is_unit or is_hospital:
+        if directory.dispatch:
+            result["dispatch"] = {"name": directory.dispatch.name, "phone": directory.dispatch.phone}
+        unit = fleet.unit_for_incident(incident_id)
+        entry = contacts.unit(unit["unit_id"]) if unit else None
+        if entry:
+            result["unit"] = {"unit_id": entry.unit_id, "phone": entry.phone}
+            if is_staff:  # the crew's name only for staff, not the caller
+                result["unit"]["crew"] = entry.crew or None
+    if (is_dispatch or is_unit) and hospital_id:
+        entry = contacts.hospital(hospital_id)
+        if entry:
+            result["hospital"] = {"name": entry.name, "emergency_phone": entry.emergency_phone,
+                                  "icu_phone": entry.icu_phone}
+    return result
+
+
 @router.get("/")
 async def get_all_incidents():
     """For Dispatcher to see all active incidents."""
@@ -710,14 +752,12 @@ async def approve_incident(incident_id: str, payload: ApprovePayload, request: R
             "status": "dispatched",
             "message": f"Help is being dispatched. Approved Hospital: {target['name']}.",
             "hospital_name": target["name"], "hospital_location": destination,
-            "hospital_phone": _hospital_phone(target["name"]),
-            "unit_phone": inc.get("unit_phone") or DEMO_UNIT_PHONE,
             "origin": origin, "emergency_type": inc.get("emergency_type", "general"),
             "severity": inc.get("severity", 0.5),
         })
         inc.update({"status": "dispatched", "driver_stage": "pickup", "dispatcher_id": payload.dispatcher_id,
                     "approved_hospital_id": canonical or target.get("hospital_id"),
-                    "hospital_phone": view["hospital_phone"], "citizen_view": view})
+                    "citizen_view": view})
         inc["unit_statuses"] = {unit: "dispatched" for unit in required_units(inc)}
         view["unit_statuses"] = inc["unit_statuses"]
         _assign_unit(inc)
@@ -868,11 +908,11 @@ async def request_ambulance_backup(incident_id: str, request: Request = None):
                 view.update({
                     "hospital_name": hospital["name"],
                     "hospital_location": hospital["location"],
-                    "hospital_phone": _hospital_phone(hospital["name"]),
                 })
-                inc["hospital_phone"] = view["hospital_phone"]
                 if inc.get("status") != "awaiting_dispatcher_approval":
-                    inc["approved_hospital_id"] = hospital.get("hospital_id")
+                    from routers.hospital import _resolve
+
+                    inc["approved_hospital_id"] = _resolve(str(hospital.get("hospital_id", ""))) or hospital.get("hospital_id")
             inc["include_ambulance_backup"] = True
             inc["unit_statuses"] = unit_statuses(inc)
             if "citizen_view" in inc:
