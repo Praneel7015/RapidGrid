@@ -12,6 +12,7 @@ Run with:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -45,7 +46,9 @@ from agents.local_router import local_router
 from agents.prediction import prediction_agent
 from agents.route_optimization import route_agent
 from agents.traffic_intelligence import traffic_agent
-from routers import chat, city, fusion, hospital, routing, incident, driver
+from routers import chat, city, fusion, hospital, routing, incident, driver, units
+import fleet
+from agents import simulator
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -130,8 +133,14 @@ async def lifespan(app: FastAPI):
     # 4. Publish initial traffic snapshot
     await traffic_agent.publish_snapshot()
 
+    # Units from the contacts directory, with their stored assignments, and
+    # the simulator that moves units without a phone sending GPS.
+    fleet.load()
+    sim_task = asyncio.create_task(simulator.run())
+
     logger.info("All agents initialised and registered ✓")
     yield  # ← app runs
+    sim_task.cancel()
     logger.info("GeoAgentic backend shutting down …")
 
 
@@ -183,6 +192,7 @@ app.include_router(incident.router)
 app.include_router(driver.router)
 app.include_router(chat.router)
 app.include_router(city.router)
+app.include_router(units.router)
 
 
 # ---------------------------------------------------------------------------
