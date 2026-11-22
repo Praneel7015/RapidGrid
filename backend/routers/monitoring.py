@@ -169,6 +169,40 @@ def edges_to_close(route: list[dict], start: int, position: dict) -> list[int]:
     return []
 
 
+def wrong_turn_path(route: list[dict], index: int, position: dict) -> list[dict]:
+    """A detour that really leaves the route: try both sides of the road at
+    two distances and keep the first path that gets at least 200 m off the
+    planned route within its first 1.5 km."""
+    a, b = route[index], route[min(index + 1, len(route) - 1)]
+    dx, dy = b["lng"] - a["lng"], b["lat"] - a["lat"]
+    norm = math.hypot(dx, dy) or 1.0
+    # Make the route's own roads very expensive, so the "driver" turns off at
+    # the next junction instead of carrying on along the main road (which,
+    # at rush hour, is otherwise the quickest way anywhere nearby).
+    avoid: dict[int, float] = {}
+    for p in route[index:]:
+        node = local_router.nearest_node(p["lat"], p["lng"])
+        if node is None:
+            continue
+        for slot in range(local_router._adj_start[node], local_router._adj_start[node + 1]):
+            avoid[local_router._adj_edges[slot]] = 50.0
+    for reach in (0.006, 0.011):
+        for side in (1, -1):
+            target = (position["lat"] + side * (dx / norm) * reach, position["lng"] - side * (dy / norm) * reach)
+            path = local_router.find_path((position["lat"], position["lng"]), target, penalty=avoid)
+            if not path:
+                continue
+            travelled, furthest = 0.0, 0.0
+            for p, q in zip(path["coordinates"], path["coordinates"][1:]):
+                travelled += monitor._dist(p, q)
+                furthest = max(furthest, monitor.project(route, q)[0])
+                if travelled > 1500:
+                    break
+            if furthest >= 200:
+                return path["coordinates"]
+    return []
+
+
 @router.post("/api/monitoring/demo/{incident_id}")
 async def stage_disruption(incident_id: str, demo: DemoAction, request: Request = None):
     require_staff(request, "dispatcher")
@@ -189,16 +223,10 @@ async def stage_disruption(incident_id: str, demo: DemoAction, request: Request 
     _off, index = monitor.project(route, position)
 
     if demo.action == "wrong_turn":
-        # Head ~600 m away from the route, perpendicular to the current direction.
-        a, b = route[index], route[min(index + 1, len(route) - 1)]
-        dx, dy = b["lng"] - a["lng"], b["lat"] - a["lat"]
-        norm = math.hypot(dx, dy) or 1.0
-        target = {"lat": position["lat"] + (dx / norm) * 0.0055, "lng": position["lng"] - (dy / norm) * 0.0055}
-        path = await asyncio.to_thread(local_router.find_path, (position["lat"], position["lng"]),
-                                       (target["lat"], target["lng"]))
+        path = await asyncio.to_thread(wrong_turn_path, route, index, position)
         if not path:
             raise HTTPException(status_code=409, detail="No side road found for a wrong turn here")
-        simulator.set_detour(unit["unit_id"], snapshot, path["coordinates"])
+        simulator.set_detour(unit["unit_id"], snapshot, path)
         monitor._log(incident_id, unit["unit_id"], "demo", f"Demo: {unit['unit_id']} takes a wrong turn.")
         return {"status": "staged", "action": demo.action}
 
