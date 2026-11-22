@@ -95,16 +95,26 @@ export default function CitizenDashboard() {
   }, []);
 
   useEffect(() => {
-    if (stage !== 'home' || !citizenInfo?.phone) return;
+    if (stage !== 'home') return;
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch('/api/incidents/');
-        if (!res.ok) return;
-        const { incidents = [] } = await res.json();
-        const mine = incidents.filter(
-          (i) => i.citizen_phone?.trim() === citizenInfo.phone.trim(),
-        );
+        // A signed-in caller's own reports come from their account; an
+        // anonymous caller's last report is remembered by this browser only.
+        // Nobody can list other callers' reports.
+        // The server knows whether this browser is signed in (the account
+        // cookie), even in a new tab; ask it rather than tab storage.
+        let mine = [];
+        const res0 = await fetch('/api/citizens/me/incidents');
+        if (res0.ok) mine = (await res0.json()).incidents ?? [];
+        if (!mine.length) {
+          let lastId = null;
+          try { lastId = sessionStorage.getItem('rapidgrid_my_incident'); } catch { /* storage off */ }
+          if (lastId) {
+            const res = await fetch(`/api/incidents/${encodeURIComponent(lastId)}`);
+            if (res.ok) mine = [await res.json()];
+          }
+        }
         const latest = mine[mine.length - 1];
         // Only rejoin in-flight work. Failed/completed reports must not trap the home screen.
         const active = latest && !['failed', 'completed', 'arrived'].includes(latest.status) ? latest : null;
@@ -178,8 +188,10 @@ export default function CitizenDashboard() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           citizen_text: reportText || `Emergency reported, ${service} requested.`,
+          // A signed-in caller's account details replace these on the server.
           citizen_name: citizenInfo?.name ?? 'Anonymous',
           citizen_phone: citizenInfo?.phone ?? 'Unregistered',
+          anonymous: !citizenInfo?.registered,
           vehicle_required: service,
           location: coords,
           input_modality: voice ? 'voice' : 'text',
@@ -188,6 +200,7 @@ export default function CitizenDashboard() {
       });
       const data = await res.json();
       if (res.ok || res.status === 202) {
+        try { sessionStorage.setItem('rapidgrid_my_incident', data.incident_id); } catch { /* storage off */ }
         setPollUrl(data.poll_url ?? `/api/incidents/${data.incident_id}`);
       } else {
         setError(typeof data.detail === 'string' ? data.detail : `Dispatch rejected the report (HTTP ${res.status}). Try again.`);
@@ -505,7 +518,7 @@ export default function CitizenDashboard() {
         <LiveEmergencyChat
           incidentId={incident.incident_id}
           senderRole="citizen"
-          senderName={citizenInfo?.name}
+          senderName="Caller"
           contacts={{
             unit: unitPhone,
             hospital: hospitalPhone,

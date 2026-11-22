@@ -13,6 +13,7 @@ import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { Radio, Truck, PlusSquare, Heart, ChevronRight, ChevronLeft, Info } from 'lucide-react';
 import { Panel, PanelHead } from '../components/ui';
+import CitizenAccess from '../components/CitizenAccess';
 
 const ROLES = [
   {
@@ -48,11 +49,6 @@ const ROLES = [
   },
 ];
 
-const CITIZENS = [
-  { name: 'Ananya Sharma', phone: '+91 98765 43210' },
-  { name: 'Rahul Verma', phone: '+91 91234 56789' },
-  { name: 'Priya Patel', phone: '+91 99887 76655' },
-];
 
 const TYPE_LABEL = {
   Ambulance: 'Ambulance',
@@ -296,21 +292,15 @@ export default function Login() {
             <Panel className="overflow-hidden">
               {picking === 'citizen' && (
                 <>
-                  <PanelHead label="Citizen profile" />
-                  <OptionList
-                    items={CITIZENS}
-                    onPick={(c) => enter('citizen', c)}
-                    getKey={(c) => c.phone}
-                    render={(c) => (
-                      <span className="min-w-0">
-                        <span className="block text-[13.5px] font-semibold text-text">
-                          {c.name}
-                        </span>
-                        <span className="mt-0.5 block font-mono text-[11px] text-text-faint">
-                          {c.phone}
-                        </span>
-                      </span>
-                    )}
+                  <PanelHead label="Citizen" />
+                  <CitizenAccess
+                    onSignedIn={(profile) => enter('citizen', profile)}
+                    onAnonymous={async () => {
+                      // A shared phone: end any earlier caller's session first.
+                      await fetch('/api/citizens/session', { method: 'DELETE' }).catch(() => {});
+                      try { sessionStorage.removeItem('rapidgrid_my_incident'); } catch { /* storage off */ }
+                      enter('citizen', { name: 'Anonymous', phone: null, registered: false });
+                    }}
                   />
                 </>
               )}

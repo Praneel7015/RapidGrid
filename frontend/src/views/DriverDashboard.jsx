@@ -11,6 +11,7 @@ import React, { useState, useEffect } from 'react';
 import { Check, ChevronLeft, Building2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import MapOverlay from '../components/MapOverlay';
+import CallerDetails from '../components/CallerDetails';
 import useUnitTrack from '../hooks/useUnitTrack';
 import useShareLocation from '../hooks/useShareLocation';
 import LiveEmergencyChat from '../components/LiveEmergencyChat';
@@ -251,7 +252,7 @@ export default function DriverDashboard() {
 
   const destination =
     stage === 'pickup'
-      ? { label: sceneResponse ? 'Incident location' : 'Patient location', name: active.citizen_name ?? 'Reported location' }
+      ? { label: sceneResponse ? 'Incident location' : 'Patient location', name: 'Reported location' }
       : { label: 'Receiving ER', name: view.hospital_name ?? 'Destination' };
 
   return (
@@ -298,6 +299,10 @@ export default function DriverDashboard() {
             <Stat ink label="Call" value={active.incident_id} tone="muted" />
           </div>
         </div>
+      </Panel>
+
+      <Panel className="p-3">
+        <CallerDetails key={active.incident_id} incidentId={active.incident_id} />
       </Panel>
 
       <Panel className="overflow-hidden">
@@ -394,7 +399,6 @@ export default function DriverDashboard() {
         senderName={driverInfo?.unitId ?? 'Responder'}
         height="min(32vh, 260px)"
         contacts={{
-          citizen: active.citizen_phone,
           hospital: active.hospital_phone ?? view?.hospital_phone,
           unit: driverInfo?.phone ?? active.unit_phone ?? view?.unit_phone,
         }}

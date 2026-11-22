@@ -741,6 +741,33 @@ def test_official_scenario_route_blocked_ahead_is_explained_and_rerouted(context
     context.request.post(server + "/api/city/clear", headers={"Authorization": f"Bearer {ACCESS_TOKEN}"})
     context.request.post(server + "/api/incidents/clear", headers={"Authorization": f"Bearer {ACCESS_TOKEN}"})
 
+
+def test_citizen_registers_reports_and_finds_the_call_again(context, server):
+    unlock(context, server)
+    page = context.new_page()
+    page.goto(server + "/login")
+    page.get_by_role("button").filter(has_text="Citizen").click()
+    page.get_by_role("tab", name="New here").click()
+    page.get_by_label("Your name").fill("Browser Citizen")
+    page.get_by_label("Phone number").fill("+91 98000 55501")
+    page.get_by_label("Choose a 6-digit PIN").fill("135790")
+    page.get_by_role("button", name="Create account").click()
+    page.wait_for_url("**/citizen")
+    page.get_by_role("button", name="SOS").click()
+    page.locator("textarea").fill("Test scenario: chest pain near Hebbal.")
+    with page.expect_response(lambda r: r.request.method == "POST" and r.url.endswith("/api/incidents")) as created:
+        page.get_by_role("button", name="Send emergency report", exact=True).click()
+    incident_id = created.value.json()["incident_id"]
+    poll_incident(context, server, incident_id, "awaiting_dispatcher_approval")
+    # A fresh tab (no remembered report id): the account finds the call.
+    other = context.new_page()
+    other.add_init_script("try { sessionStorage.removeItem('rapidgrid_my_incident'); } catch (e) {}")
+    other.goto(server + "/citizen")
+    expect(other.get_by_text(incident_id, exact=False).first).to_be_visible(timeout=15000)
+    # Nobody else's list contains this caller's details.
+    listing = context.request.get(server + "/api/incidents/").text()
+    assert "Browser Citizen" not in listing and "55501" not in listing
+
 # --- Progressive web app ---------------------------------------------------------
 
 @pytest.fixture

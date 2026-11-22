@@ -507,6 +507,12 @@ one application process per data directory.
   account being guessed (no global lock-out), and staff actions must come
   from the app's own pages (Origin check). Phone numbers and PINs live in a
   private contacts directory (`RAPIDGRID_CONTACTS`), never in the repository.
+- **Citizen accounts and caller privacy:** callers can register with a phone
+  number and a 6-digit PIN (stored as scrypt of a keyed hash, never in
+  clear), or report without an account. No incident response carries a
+  caller's name or number. Dispatch, the unit on that call, or the caller
+  can ask for them with **Show caller details**; each reveal is recorded on
+  the incident. (In a local open demo with no staff PINs, anyone can.) Numbers are not verified by SMS.
 - **Wrong tokens are throttled:** 10 per client and 200 in total per 10
   minutes, for the unlock form and `Bearer` headers alike.
 - **Hidden until unlock** in operator mode: the API docs and the routing and
