@@ -84,7 +84,7 @@ def test_staff_actions_need_the_right_sign_in(with_pins):
     assert sign_in(unit, "unit", "AMB-01", "222222").status_code == 200
     assert unit.post("/api/city/conditions", json={"hour": 9}).status_code == 403
     # Passes the role check; fails later only because the incident does not exist.
-    assert unit.post("/api/driver/arrived_pickup", json={"incident_id": "x", "driver_id": "y"}).status_code not in (401, 403)
+    assert unit.post("/api/driver/arrived_pickup", json={"incident_id": "x", "driver_id": "AMB-01"}).status_code not in (401, 403)
 
 
 def test_a_hospital_can_change_only_its_own_capacity(with_pins):
@@ -158,7 +158,9 @@ def test_invalid_pins_in_the_directory_are_rejected(monkeypatch):
     bad = dict(DIRECTORY, dispatch={"name": "Dispatch", "staff_pin": "12"})
     monkeypatch.setenv("RAPIDGRID_CONTACTS", json.dumps(bad))
     contacts.reload()
-    assert not contacts.staff_pins_configured()  # whole file refused, nothing half-loaded
+    # Whole file refused, nothing half-loaded, and staff sign-in locked.
+    assert contacts.directory().invalid and contacts.staff_pin("dispatcher", "dispatch") is None
+    assert staff.enabled()
 
 
 def test_staff_actions_without_an_origin_header_are_refused(with_pins):
@@ -168,3 +170,33 @@ def test_staff_actions_without_an_origin_header_are_refused(with_pins):
     assert dispatcher.post("/api/city/conditions", json={"hour": 9},
                            headers={"Origin": "https://evil.example"}).status_code == 403
     assert dispatcher.post("/api/city/conditions", json={"hour": 9}, headers=ORIGIN).status_code == 200
+
+
+def test_a_broken_configured_directory_locks_staff_actions(monkeypatch):
+    monkeypatch.setenv("RAPIDGRID_CONTACTS", "{not json")
+    contacts.reload()
+    assert staff.enabled()  # fail closed, not an open demo
+    assert fresh().post("/api/city/conditions", json={"hour": 9}).status_code == 401
+    assert sign_in(fresh(), "dispatcher", "dispatch", "111111").status_code == 401
+
+
+def test_a_missing_configured_contacts_file_locks_staff_actions(monkeypatch, tmp_path):
+    monkeypatch.delenv("RAPIDGRID_CONTACTS", raising=False)
+    monkeypatch.setenv("RAPIDGRID_CONTACTS_FILE", str(tmp_path / "missing.json"))
+    contacts.reload()
+    assert staff.enabled()
+    assert fresh().post("/api/city/conditions", json={"hour": 9}).status_code == 401
+
+
+def test_a_hospital_sign_in_matches_its_own_name_or_id(with_pins):
+    hospital = fresh()
+    sign_in(hospital, "hospital", "blr-007", "444444")
+    assert hospital.patch("/api/hospital/Aster CMI Hospital (Hebbal)/resources",
+                          json={"beds_available": 2}).status_code == 200
+
+
+def test_a_unit_cannot_act_for_another_unit_through_the_body(with_pins):
+    unit = fresh()
+    sign_in(unit, "unit", "AMB-01", "222222")
+    assert unit.post("/api/driver/arrived_pickup", json={"incident_id": "x", "driver_id": "AMB-02"}).status_code == 403
+    assert unit.post("/api/driver/arrived_pickup", json={"incident_id": "x", "driver_id": "AMB-01"}).status_code not in (401, 403)

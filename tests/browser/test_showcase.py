@@ -634,8 +634,10 @@ def test_staff_sign_in_with_a_pin_scopes_the_session(browser, staff_server):
         page.get_by_label("AMB-01: 6-digit PIN").fill("234234")
         page.get_by_role("button", name="Sign in").click()
         page.wait_for_url("**/driver")
-        # The unit's session cannot act as dispatch.
-        assert ctx.request.post(staff_server + "/api/city/conditions", data={"hour": 9}).status == 403
+        # The unit's session cannot act as dispatch (Origin sent, so the
+        # request reaches the role check rather than the CSRF check).
+        assert ctx.request.post(staff_server + "/api/city/conditions", data={"hour": 9},
+                                headers={"Origin": staff_server}).status == 403
         assert ctx.request.get(staff_server + "/api/staff/session").json()["subject"] == "AMB-01"
         # No phone numbers or PINs reach the browser's directory.
         directory = ctx.request.get(staff_server + "/api/staff/directory").text()
