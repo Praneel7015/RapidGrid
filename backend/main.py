@@ -136,6 +136,8 @@ async def lifespan(app: FastAPI):
     # Units from the contacts directory, with their stored assignments, and
     # the simulator that moves units without a phone sending GPS.
     fleet.load()
+    fleet.reconcile({i["incident_id"] for i in incident.ACTIVE_INCIDENTS
+                     if i.get("status") not in incident._FINISHED})
     sim_task = asyncio.create_task(simulator.run())
 
     logger.info("All agents initialised and registered ✓")

@@ -997,10 +997,26 @@ def test_non_medical_calls_plan_a_scene_response_without_hospitals(client, mocke
     assert approved.json()["assigned_unit"] == expected_unit
     import fleet
     assert fleet.get(expected_unit)["incident_id"] == "INC-scene"
-    # Clearing all incidents parks every unit again.
-    monkeypatch.setenv("RAPIDGRID_MODE", "demo")
+    # Releasing the call parks its unit again.
     fleet.release("INC-scene")
     assert fleet.get(expected_unit)["status"] == "available"
+
+
+def test_clearing_all_incidents_parks_every_unit(client, monkeypatch):
+    import fleet
+
+    monkeypatch.setenv("RAPIDGRID_OPERATOR_TOKEN", "test-clear-token")
+    fleet.assign("INC-a", "Ambulance", {"lat": 13.035, "lng": 77.597})
+    cleared = client.post("/api/incidents/clear", headers={"Authorization": "Bearer test-clear-token"})
+    assert cleared.status_code == 200, cleared.text
+    assert all(u["status"] == "available" for u in fleet.units())
+
+
+def test_startup_frees_units_whose_call_is_gone(client):
+    import fleet
+
+    fleet.assign("INC-gone", "Ambulance", {"lat": 13.035, "lng": 77.597})
+    assert fleet.reconcile(set()) and fleet.unit_for_incident("INC-gone") is None
 
 
 def test_a_non_medical_call_with_an_ambulance_backup_still_ranks_hospitals(client, mocked_route, monkeypatch):

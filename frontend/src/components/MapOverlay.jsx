@@ -140,6 +140,9 @@ export default function MapOverlay({
         map.current.remove();
         map.current = null;
         layers.current = null;
+        unitLayer.current = null;
+        unitMarker.current = null;
+        trailLine.current = null;
       }
     };
   }, []);
@@ -260,27 +263,6 @@ export default function MapOverlay({
     pin(origin, 'patient', 'P', popup(['Patient location', 'b']));
     pin(hospital, 'hospital', 'ER', popup([hospital?.name ?? 'Destination hospital', 'b'], ['Receiving ER']));
 
-    // The responding unit: where it has been, and where it is now. Not part
-    // of the fit, so a moving unit never re-zooms the map.
-    const path = toLatLngs(trail);
-    if (path.length >= 2) {
-      L.polyline(path, { color: COLOR.trail, weight: 3, opacity: 0.55, lineCap: 'round' })
-        .bindPopup(popup(['Trajectory', 'b'], [`${path.length} position fixes`]))
-        .addTo(group);
-    }
-    const pos = unit?.position;
-    if (pos && Number.isFinite(pos.lat) && Number.isFinite(pos.lng)) {
-      const source =
-        pos.source === 'gps'
-          ? `Live GPS${Number.isFinite(pos.accuracy_m) ? ` ±${Math.round(pos.accuracy_m)} m` : ''}`
-          : pos.source === 'simulated'
-            ? `Simulated GPS${simSpeed ? ` ×${simSpeed}` : ''}`
-            : 'At station';
-      L.marker([pos.lat, pos.lng], { icon: marker('unit', 'U'), zIndexOffset: 1000 })
-        .bindPopup(popup([unit.unit_id ?? 'Unit', 'b'], [source]))
-        .addTo(group);
-    }
-
     if (bounds.length >= 2) {
       try {
         // Only auto-fit on the first load with real data, or when the route
@@ -295,7 +277,53 @@ export default function MapOverlay({
         /* bounds can be degenerate while data is still arriving */
       }
     }
-  }, [routeCoordinates, phase1Coordinates, origin, hospital, hub, closures, congestion, activePhase, unit, trail, simSpeed]);
+  }, [routeCoordinates, phase1Coordinates, origin, hospital, hub, closures, congestion, activePhase]);
+
+  // The responding unit and its trajectory live on their own layer and are
+  // moved in place on every poll, so an open popup stays open. Not part of
+  // the fit, so a moving unit never re-zooms the map.
+  const unitLayer = useRef(null);
+  const unitMarker = useRef(null);
+  const trailLine = useRef(null);
+  useEffect(() => {
+    if (!map.current) return;
+    if (!unitLayer.current) unitLayer.current = L.layerGroup().addTo(map.current);
+
+    const path = toLatLngs(trail);
+    if (path.length >= 2) {
+      if (trailLine.current) trailLine.current.setLatLngs(path);
+      else {
+        trailLine.current = L.polyline(path, { color: COLOR.trail, weight: 3, opacity: 0.55, lineCap: 'round' })
+          .bindPopup(popup(['Trajectory', 'b'], ['Recent position fixes']))
+          .addTo(unitLayer.current);
+      }
+    } else if (trailLine.current) {
+      trailLine.current.remove();
+      trailLine.current = null;
+    }
+
+    const pos = unit?.position;
+    if (pos && Number.isFinite(pos.lat) && Number.isFinite(pos.lng)) {
+      const source =
+        pos.source === 'gps'
+          ? `Live GPS${Number.isFinite(pos.accuracy_m) ? ` ±${Math.round(pos.accuracy_m)} m` : ''}`
+          : pos.source === 'simulated'
+            ? `Simulated GPS${simSpeed ? ` ×${simSpeed}` : ''}`
+            : 'At station';
+      const content = popup([unit.unit_id ?? 'Unit', 'b'], [source]);
+      if (unitMarker.current) {
+        unitMarker.current.setLatLng([pos.lat, pos.lng]);
+        unitMarker.current.setPopupContent(content);
+      } else {
+        unitMarker.current = L.marker([pos.lat, pos.lng], { icon: marker('unit', 'U'), zIndexOffset: 1000 })
+          .bindPopup(content)
+          .addTo(unitLayer.current);
+      }
+    } else if (unitMarker.current) {
+      unitMarker.current.remove();
+      unitMarker.current = null;
+    }
+  }, [unit, trail, simSpeed]);
 
   return (
     <div

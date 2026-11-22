@@ -153,3 +153,14 @@ def test_track_shows_the_unit_and_plan_without_crew_details():
     finally:
         incident_router.ACTIVE_INCIDENTS[:] = [i for i in incident_router.ACTIVE_INCIDENTS
                                                if i["incident_id"] != "INC-track"]
+
+
+def test_a_unit_away_from_the_leg_start_drives_from_where_it_is():
+    fleet.assign("INC-1", "Ambulance", HEBBAL, prefer_station="Aster CMI Emergency Ambulance Hub")
+    fleet.record_position("AMB-01", 13.0300, 77.6000, source="simulated")  # 2 km from the leg start
+    route = [{"lat": 13.0473, "lng": 77.5908}, HEBBAL]
+    incident = {"incident_id": "INC-1", "status": "dispatched",
+                "citizen_view": {"phase1_route_coordinates": route, "phase1_eta_minutes": 5}}
+    simulator.step([incident], dt_s=0.1)
+    pos = fleet.get("AMB-01")["position"]
+    assert abs(pos["lat"] - 13.0300) < 0.002 and abs(pos["lng"] - 77.6000) < 0.002  # no jump back

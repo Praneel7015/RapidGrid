@@ -1,28 +1,37 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+
+const EMPTY = { incidentId: null, unit: null, trail: [], simSpeed: null };
 
 /**
  * Live position of the unit on a call: polls /api/incidents/{id}/track every
- * 2 s while the call is active. Returns { unit, trail, simSpeed } or nulls.
+ * 2 s while the call is active. Returns { unit, trail, simSpeed }.
+ *
+ * The snapshot is tied to its incident, so switching calls never shows the
+ * previous call's unit, and only the newest request may update it (a slow
+ * older response cannot overwrite a newer one).
  */
 export default function useUnitTrack(incidentId, active) {
-  const [track, setTrack] = useState({ unit: null, trail: [], simSpeed: null });
+  const [track, setTrack] = useState(EMPTY);
+  const latest = useRef(0);
 
   useEffect(() => {
     if (!incidentId || !active) {
-      setTrack({ unit: null, trail: [], simSpeed: null });
+      setTrack(EMPTY);
       return undefined;
     }
     let cancelled = false;
     const load = async () => {
+      const request = ++latest.current;
       try {
         const res = await fetch(`/api/incidents/${encodeURIComponent(incidentId)}/track`, {
           signal: AbortSignal.timeout(5000),
         });
         if (!res.ok) return;
         const data = await res.json();
-        if (!cancelled) setTrack({ unit: data.unit, trail: data.trail ?? [], simSpeed: data.sim_speed ?? null });
+        if (cancelled || request !== latest.current) return;
+        setTrack({ incidentId, unit: data.unit, trail: data.trail ?? [], simSpeed: data.sim_speed ?? null });
       } catch {
-        // Keep the last known position; the next poll retries.
+        // Keep the last known position for this same call; the next poll retries.
       }
     };
     load();
@@ -33,5 +42,5 @@ export default function useUnitTrack(incidentId, active) {
     };
   }, [incidentId, active]);
 
-  return track;
+  return track.incidentId === incidentId ? track : EMPTY;
 }
