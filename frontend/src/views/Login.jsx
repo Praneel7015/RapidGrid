@@ -1,11 +1,14 @@
 /**
- * Role selection.
+ * Role selection and staff sign-in.
  *
- * Demonstration sign-in: choosing a role grants it, with no credential check.
- * Profiles carry demo phone numbers for click-to-call.
+ * Units and hospitals come from the server's contacts directory (never phone
+ * numbers or PINs). When the directory holds staff PINs, the dispatcher, each
+ * unit and each hospital sign in with their own 6-digit PIN; the server then
+ * scopes every staff action to that sign-in. Without PINs (a local demo),
+ * choosing a role grants it, as before.
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { Radio, Truck, PlusSquare, Heart, ChevronRight, ChevronLeft, Info } from 'lucide-react';
@@ -45,36 +48,117 @@ const ROLES = [
   },
 ];
 
-const UNITS = [
-  { unitId: 'AMB-UNIT-04', vehicleType: 'Ambulance', driverName: 'Suresh Kumar', hubName: 'Aster CMI Emergency Ambulance Hub', phone: '+91 98001 10004' },
-  { unitId: 'AMB-UNIT-01', vehicleType: 'Ambulance', driverName: 'Ramesh Gowda', hubName: 'Manipal Ambulance Base Depot', phone: '+91 98001 10001' },
-  { unitId: 'AMB-UNIT-02', vehicleType: 'Ambulance', driverName: 'Vijay Naik', hubName: 'Victoria Hospital Paramedic Base', phone: '+91 98001 10002' },
-  { unitId: 'FIRE-UNIT-09', vehicleType: 'Fire Engine', driverName: 'Capt. Rajesh Rao', hubName: 'Hebbal Fire & Rescue Station #4', phone: '+91 98001 20009' },
-  { unitId: 'POLICE-UNIT-02', vehicleType: 'Police Cruiser', driverName: 'Insp. Vikram Singh', hubName: 'Hebbal Police Patrol Base', phone: '+91 98001 30002' },
-  { unitId: 'RESCUE-UNIT-01', vehicleType: 'Disaster Rescue', driverName: 'Cmdr. Arjun Reddy', hubName: 'NDRF Disaster Rescue Hub North', phone: '+91 98001 40001' },
-];
-
 const CITIZENS = [
   { name: 'Ananya Sharma', phone: '+91 98765 43210' },
   { name: 'Rahul Verma', phone: '+91 91234 56789' },
   { name: 'Priya Patel', phone: '+91 99887 76655' },
 ];
 
-const HOSPITALS = [
-  { id: 'all', name: 'All receiving facilities', phone: null },
-  { id: 'blr-007', name: 'Aster CMI Hospital (Hebbal)', phone: '+91 80 4342 0107' },
-  { id: 'blr-001', name: 'Manipal Hospital (Old Airport Road)', phone: '+91 80 2502 4444' },
-  { id: 'blr-002', name: 'Fortis Hospital (Bannerghatta Road)', phone: '+91 80 6621 4444' },
-  { id: 'blr-019', name: 'Sri Jayadeva Institute of Cardiovascular Sciences', phone: '+91 80 2297 7200' },
-  { id: 'blr-010', name: 'NIMHANS', phone: '+91 80 2699 5000' },
-  { id: 'blr-005', name: "St. John's Medical College Hospital", phone: '+91 80 2206 5000' },
-  { id: 'blr-022', name: 'Victoria Hospital (BMCRI)', phone: '+91 80 2670 1150' },
-];
+const TYPE_LABEL = {
+  Ambulance: 'Ambulance',
+  'Fire Engine': 'Fire engine',
+  'Police Cruiser': 'Police unit',
+  'Disaster Rescue': 'Rescue unit',
+};
+
+function PinForm({ label, onSubmit, onCancel }) {
+  const [pin, setPin] = useState('');
+  const [error, setError] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const submit = async (e) => {
+    e.preventDefault();
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await onSubmit(pin);
+    } catch (err) {
+      setError(err.message || 'Sign-in failed.');
+      setPin('');
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <form onSubmit={submit} className="space-y-3 px-4 py-4">
+      <label htmlFor="staff-pin" className="eyebrow block">
+        {label}: 6-digit PIN
+      </label>
+      <input
+        id="staff-pin"
+        type="password"
+        inputMode="numeric"
+        autoComplete="current-password"
+        pattern="[0-9]{6}"
+        maxLength={6}
+        required
+        value={pin}
+        onChange={(e) => setPin(e.target.value.replace(/[^0-9]/g, ''))}
+        className="w-full rounded-sm border border-rule bg-paper px-3 py-2.5 font-mono text-[16px] tracking-[0.3em] text-text"
+      />
+      {error && (
+        <p role="alert" className="text-[12.5px] text-critical">
+          {error}
+        </p>
+      )}
+      <div className="flex gap-2">
+        <button
+          type="submit"
+          disabled={busy || pin.length !== 6}
+          className="flex-1 rounded-sm bg-ink px-3 py-2.5 text-[13px] font-semibold text-on-ink disabled:opacity-50"
+        >
+          {busy ? 'Signing in…' : 'Sign in'}
+        </button>
+        <button type="button" onClick={onCancel} className="rounded-sm border border-rule px-3 py-2.5 text-[13px] text-text">
+          Back
+        </button>
+      </div>
+    </form>
+  );
+}
 
 export default function Login() {
   const { login } = useAuth();
   const navigate = useNavigate();
   const [picking, setPicking] = useState(null);
+  const [directory, setDirectory] = useState({ enabled: false, units: [], hospitals: [] });
+  const [needsPin, setNeedsPin] = useState(null); // { role, subject, profile, label }
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/staff/directory')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => { if (data && !cancelled) setDirectory(data); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  const units = directory.units.map((u) => ({
+    unitId: u.unit_id,
+    vehicleType: u.type,
+    driverName: TYPE_LABEL[u.type] ?? u.type,
+    hubName: u.station,
+  }));
+  const hospitals = directory.enabled
+    ? directory.hospitals.map((h) => ({ id: h.hospital_id, name: h.name }))
+    : [{ id: 'all', name: 'All receiving facilities' },
+       ...directory.hospitals.map((h) => ({ id: h.hospital_id, name: h.name }))];
+
+  const signIn = async (role, subject, pin) => {
+    const res = await fetch('/api/staff/session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role, subject, pin }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(typeof data.detail === 'string' ? data.detail : `Sign-in failed (HTTP ${res.status})`);
+  };
+
+  // Staff roles need a PIN once the server has staff sign-in on.
+  const enterStaff = (role, subject, profile, label) => {
+    if (directory.enabled) setNeedsPin({ role, subject, profile, label });
+    else enter(role === 'unit' ? 'driver' : role, profile);
+  };
 
   const enter = (roleId, profile = null) => {
     login(roleId, profile);
@@ -83,6 +167,7 @@ export default function Login() {
 
   const choose = (role) => {
     if (role.needsProfile) setPicking(role.id);
+    else if (role.id === 'dispatcher') enterStaff('dispatcher', 'dispatch', null, 'City dispatch');
     else enter(role.id);
   };
 
@@ -119,11 +204,27 @@ export default function Login() {
           <p className="mt-1.5 text-[13px] leading-relaxed text-text-muted">
             {picking
               ? 'Pick who you are signing in as for this session.'
-              : 'Four roles share one incident. Open several tabs to watch a call move between them. No credential check.'}
+              : directory.enabled
+                ? 'Four roles share one incident. Staff sign in with their own PIN.'
+                : 'Four roles share one incident. Open several tabs to watch a call move between them. No credential check.'}
           </p>
         </header>
 
-        {!picking ? (
+        {needsPin ? (
+          <Panel className="overflow-hidden">
+            <PanelHead label="Staff sign-in" />
+            <PinForm
+              label={needsPin.label}
+              onCancel={() => setNeedsPin(null)}
+              onSubmit={async (pin) => {
+                await signIn(needsPin.role, needsPin.subject, pin);
+                const role = needsPin.role === 'unit' ? 'driver' : needsPin.role;
+                setNeedsPin(null);
+                enter(role, needsPin.profile);
+              }}
+            />
+          </Panel>
+        ) : !picking ? (
           <>
             <div className="space-y-2">
               {ROLES.map((role) => (
@@ -149,9 +250,18 @@ export default function Login() {
             <div className="mt-5 flex items-start gap-2.5 rounded-sm border border-rule bg-paper-sunk px-3.5 py-3">
               <Info size={14} className="mt-px shrink-0 text-text-faint" />
               <p className="text-[11.5px] leading-relaxed text-text-muted">
-                <span className="font-semibold text-text">Demonstration sign-in.</span> Selecting a
-                role grants it — there is no password check, and no identity is verified. A
-                production deployment would put real authentication and authorisation here.
+                {directory.enabled ? (
+                  <>
+                    <span className="font-semibold text-text">Staff sign-in.</span> Dispatch, each unit
+                    and each hospital use their own PIN; the server limits every action to that
+                    role.
+                  </>
+                ) : (
+                  <>
+                    <span className="font-semibold text-text">Demonstration sign-in.</span> Selecting a
+                    role grants it; there is no password check. Staff PINs switch this on.
+                  </>
+                )}
               </p>
             </div>
           </>
@@ -190,8 +300,8 @@ export default function Login() {
                 <>
                   <PanelHead label="Responding unit" />
                   <OptionList
-                    items={UNITS}
-                    onPick={(u) => enter('driver', u)}
+                    items={units}
+                    onPick={(u) => enterStaff('unit', u.unitId, u, u.unitId)}
                     getKey={(u) => u.unitId}
                     render={(u) => (
                       <span className="min-w-0">
@@ -203,12 +313,7 @@ export default function Login() {
                             {u.vehicleType}
                           </span>
                         </span>
-                        <span className="mt-1 block text-[12px] text-text-muted">
-                          {u.driverName} · {u.hubName}
-                        </span>
-                        <span className="mt-0.5 block font-mono text-[11px] text-text-faint">
-                          {u.phone}
-                        </span>
+                        <span className="mt-1 block text-[12px] text-text-muted">{u.hubName}</span>
                       </span>
                     )}
                   />
@@ -219,17 +324,12 @@ export default function Login() {
                 <>
                   <PanelHead label="Emergency department" />
                   <OptionList
-                    items={HOSPITALS}
-                    onPick={(h) => enter('hospital', h)}
+                    items={hospitals}
+                    onPick={(h) => (h.id === 'all' ? enter('hospital', h) : enterStaff('hospital', h.id, h, h.name))}
                     getKey={(h) => h.id}
                     render={(h) => (
                       <span className="min-w-0">
                         <span className="block text-[13px] font-semibold text-text">{h.name}</span>
-                        {h.phone && (
-                          <span className="mt-0.5 block font-mono text-[11px] text-text-faint">
-                            {h.phone}
-                          </span>
-                        )}
                       </span>
                     )}
                   />

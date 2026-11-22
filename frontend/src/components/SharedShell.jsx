@@ -123,8 +123,12 @@ export default function SharedShell({ children }) {
                 setLoggingOut(true);
                 setLogoutError(null);
                 try {
-                  const res = await fetch('/api/session', { method: 'DELETE' });
-                  if (!res.ok) throw new Error();
+                  // End the staff sign-in and the showcase session on the server.
+                  const [staffRes, res] = await Promise.all([
+                    fetch('/api/staff/session', { method: 'DELETE' }),
+                    fetch('/api/session', { method: 'DELETE' }),
+                  ]);
+                  if (!res.ok || !staffRes.ok) throw new Error();
                   logout();
                   navigate('/', { replace: true });
                   window.dispatchEvent(new Event('rapidgrid-session-changed'));

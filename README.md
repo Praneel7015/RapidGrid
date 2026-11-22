@@ -454,6 +454,14 @@ one application process per data directory.
 - **Sessions** are HttpOnly, `SameSite=Strict` cookies that expire after 8
   hours. Signing out revokes the session on the server and closes its chat
   connections, so a copied cookie stops working.
+- **Staff sign-in:** when the contacts directory holds staff PINs, the
+  dispatcher, each unit and each hospital sign in with their own 6-digit PIN.
+  The server scopes every staff action to that sign-in: a unit cannot act as
+  dispatch, a hospital can change only its own capacity, and the role always
+  comes from the session, never the request. Wrong PINs slow down only the
+  account being guessed (no global lock-out), and staff actions must come
+  from the app's own pages (Origin check). Phone numbers and PINs live in a
+  private contacts directory (`RAPIDGRID_CONTACTS`), never in the repository.
 - **Wrong tokens are throttled:** 10 per client and 200 in total per 10
   minutes, for the unlock form and `Bearer` headers alike.
 - **Hidden until unlock** in operator mode: the API docs and the routing and

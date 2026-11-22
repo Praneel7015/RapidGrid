@@ -583,6 +583,66 @@ def test_police_call_is_a_scene_response_without_hospitals(context, server):
     page.get_by_role("button", name="Approve and dispatch", exact=True).click()
     poll_incident(context, server, incident_id, "dispatched")
 
+
+STAFF_DIRECTORY = {
+    "dispatch": {"name": "Dispatch", "staff_pin": "481516"},
+    "units": [{"unit_id": "AMB-01", "type": "Ambulance", "station": "Aster CMI Emergency Ambulance Hub",
+               "crew": "Test crew", "staff_pin": "234234"}],
+    "hospitals": [{"hospital_id": "blr-007", "name": "Aster CMI Hospital (Hebbal)", "staff_pin": "777777"}],
+}
+
+
+@pytest.fixture(scope="module")
+def staff_server(tmp_path_factory):
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+    directory = tmp_path_factory.mktemp("rapidgrid-staff")
+    env = dict(os.environ, RAPIDGRID_MODE="demo", RAPIDGRID_DATA_DIR=str(directory),
+               RAPIDGRID_CONTACTS=json.dumps(STAFF_DIRECTORY), RAPIDGRID_SECRET="browser-test-secret",
+               GOOGLE_ROUTES_API_KEY="", OPENWEATHER_API_KEY="")
+    env.pop("RAPIDGRID_OPERATOR_TOKEN", None)
+    base = f"http://127.0.0.1:{port}"
+    with (directory / "server.log").open("w") as log:
+        process = subprocess.Popen([sys.executable, str(Path(__file__).with_name("server.py")), str(port)],
+                                   cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT)
+        try:
+            for _ in range(120):
+                try:
+                    with urllib.request.urlopen(base + "/health/live", timeout=1):
+                        break
+                except (OSError, urllib.error.URLError):
+                    time.sleep(0.25)
+            yield base
+        finally:
+            process.terminate()
+            process.wait(timeout=10)
+
+
+def test_staff_sign_in_with_a_pin_scopes_the_session(browser, staff_server):
+    ctx = browser.new_context(service_workers="block")
+    try:
+        # Without a sign-in, a staff action is refused by the server.
+        assert ctx.request.post(staff_server + "/api/city/conditions", data={"hour": 9}).status == 401
+        page = ctx.new_page()
+        page.goto(staff_server + "/login")
+        page.get_by_role("button").filter(has_text="Field unit").click()
+        page.get_by_role("button").filter(has_text="AMB-01").click()
+        page.get_by_label("AMB-01: 6-digit PIN").fill("000000")
+        page.get_by_role("button", name="Sign in").click()
+        expect(page.get_by_role("alert")).to_contain_text("Wrong sign-in details")
+        page.get_by_label("AMB-01: 6-digit PIN").fill("234234")
+        page.get_by_role("button", name="Sign in").click()
+        page.wait_for_url("**/driver")
+        # The unit's session cannot act as dispatch.
+        assert ctx.request.post(staff_server + "/api/city/conditions", data={"hour": 9}).status == 403
+        assert ctx.request.get(staff_server + "/api/staff/session").json()["subject"] == "AMB-01"
+        # No phone numbers or PINs reach the browser's directory.
+        directory = ctx.request.get(staff_server + "/api/staff/directory").text()
+        assert "234234" not in directory and "481516" not in directory
+    finally:
+        ctx.close()
+
 # --- Progressive web app ---------------------------------------------------------
 
 @pytest.fixture

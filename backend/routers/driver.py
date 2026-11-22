@@ -4,7 +4,8 @@ from __future__ import annotations
 import asyncio
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
+from staff import require as require_staff
 from pydantic import BaseModel, Field
 
 from models.schemas import Coordinate, RouteRequest
@@ -116,7 +117,8 @@ def _active_dispatches(destination_on_divert) -> list[dict]:
 
 
 @router.post("/claim")
-async def claim_dispatch(payload: ClaimPayload):
+async def claim_dispatch(payload: ClaimPayload, request: Request = None):
+    require_staff(request, "unit")
     async with _INCIDENTS_LOCK:
         incident = _incident(payload.incident_id)
         if incident.get("status") not in {"dispatched", "patient_picked_up"}:
@@ -133,7 +135,8 @@ async def claim_dispatch(payload: ClaimPayload):
 
 
 @router.post("/arrived_pickup")
-async def arrived_pickup(payload: ClaimPayload):
+async def arrived_pickup(payload: ClaimPayload, request: Request = None):
+    require_staff(request, "unit")
     async with _INCIDENTS_LOCK:
         incident = _incident(payload.incident_id)
         _require_driver(incident, payload.driver_id, payload.unit_type)
@@ -179,7 +182,8 @@ async def arrived_pickup(payload: ClaimPayload):
 
 
 @router.post("/change_hospital")
-async def change_hospital(payload: HospitalChangePayload):
+async def change_hospital(payload: HospitalChangePayload, request: Request = None):
+    require_staff(request, "unit")
     from agents.hospital_intelligence import hospital_agent
     from routers.hospital import _resolve
 

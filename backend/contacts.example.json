@@ -1,0 +1,18 @@
+{
+  "_note": "Placeholders only. Copy to backend/contacts.json (git-ignored) or set RAPIDGRID_CONTACTS on the server, then add real numbers and 6-digit staff PINs. Without any staff_pin, staff sign-in is off (open local demo).",
+  "hotline_112": { "name": "112 emergency line", "phone": null },
+  "dispatch": { "name": "City dispatch", "phone": null, "staff_pin": null },
+  "units": [
+    { "unit_id": "AMB-01", "type": "Ambulance", "station": "Aster CMI Emergency Ambulance Hub", "crew": "", "phone": null, "staff_pin": null },
+    { "unit_id": "AMB-02", "type": "Ambulance", "station": "Manipal Ambulance Base Depot", "crew": "", "phone": null, "staff_pin": null },
+    { "unit_id": "AMB-03", "type": "Ambulance", "station": "Victoria Hospital Paramedic Base", "crew": "", "phone": null, "staff_pin": null },
+    { "unit_id": "FIRE-01", "type": "Fire Engine", "station": "Hebbal Fire & Rescue Station #4", "crew": "", "phone": null, "staff_pin": null },
+    { "unit_id": "POLICE-01", "type": "Police Cruiser", "station": "Hebbal Police Patrol Base", "crew": "", "phone": null, "staff_pin": null },
+    { "unit_id": "RESCUE-01", "type": "Disaster Rescue", "station": "NDRF Disaster Rescue Hub North", "crew": "", "phone": null, "staff_pin": null }
+  ],
+  "hospitals": [
+    { "hospital_id": "blr-007", "name": "Aster CMI Hospital (Hebbal)", "emergency_phone": null, "icu_phone": null, "staff_pin": null },
+    { "hospital_id": "blr-001", "name": "Manipal Hospital (Old Airport Road)", "emergency_phone": null, "icu_phone": null, "staff_pin": null },
+    { "hospital_id": "blr-009", "name": "MS Ramaiah Memorial Hospital", "emergency_phone": null, "icu_phone": null, "staff_pin": null }
+  ]
+}
