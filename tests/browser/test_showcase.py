@@ -533,6 +533,9 @@ def test_map_popups_show_names_as_text_not_markup(context, server):
     assert page.evaluate("window.__popupInjected") is None, "the name's markup ran"
     assert content.locator("img").count() == 0
     expect(content).to_contain_text(hostile)
+    # The screen keeps polling; stop rewriting responses before the context
+    # closes, or a late fetch fails during teardown.
+    page.unroute_all(behavior="ignoreErrors")
 
 
 def test_driver_outage_is_not_shown_as_no_calls(context, server):
