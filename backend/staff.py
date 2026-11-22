@@ -32,6 +32,7 @@ from starlette.requests import HTTPConnection
 
 import contacts
 import security
+from logsafe import log_safe
 
 logger = logging.getLogger("geoagentic.staff")
 
@@ -237,14 +238,14 @@ async def staff_login(payload: StaffLogin, request: Request, response: Response)
     ok = hmac.compare_digest(_digest(payload.pin), reference) and expected is not None
     if not ok:
         _fail(account, client)
-        logger.warning("Wrong staff PIN for %s", account)
+        logger.warning("Wrong staff PIN for %s", log_safe(account))
         raise HTTPException(status_code=401, detail="Wrong sign-in details")
     _succeed(account)
     secure = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
     response.set_cookie(COOKIE_NAME, _cookie_value(payload.role, subject), max_age=SESSION_SECONDS,
                         httponly=True, secure=secure, samesite="strict", path="/")
     response.headers["Cache-Control"] = "no-store"
-    logger.info("Staff sign-in: %s", account)
+    logger.info("Staff sign-in: %s", log_safe(account))
     return {"enabled": True, "role": payload.role, "subject": subject}
 
 

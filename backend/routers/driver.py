@@ -116,9 +116,16 @@ def _active_dispatches(destination_on_divert) -> list[dict]:
     return list(reversed(active))
 
 
+def _require_unit(request, driver_id: str) -> None:
+    """A unit session may act only as itself, whatever the body says."""
+    who = require_staff(request, "unit")
+    if who[0] == "unit" and driver_id != who[1]:
+        raise HTTPException(status_code=403, detail="This sign-in cannot act for another unit")
+
+
 @router.post("/claim")
 async def claim_dispatch(payload: ClaimPayload, request: Request = None):
-    require_staff(request, "unit")
+    _require_unit(request, payload.driver_id)
     async with _INCIDENTS_LOCK:
         incident = _incident(payload.incident_id)
         if incident.get("status") not in {"dispatched", "patient_picked_up"}:
@@ -136,7 +143,7 @@ async def claim_dispatch(payload: ClaimPayload, request: Request = None):
 
 @router.post("/arrived_pickup")
 async def arrived_pickup(payload: ClaimPayload, request: Request = None):
-    require_staff(request, "unit")
+    _require_unit(request, payload.driver_id)
     async with _INCIDENTS_LOCK:
         incident = _incident(payload.incident_id)
         _require_driver(incident, payload.driver_id, payload.unit_type)
