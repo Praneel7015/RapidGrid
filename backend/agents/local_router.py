@@ -231,9 +231,14 @@ class LocalGraphRouter:
         self,
         origin: tuple[float, float],
         destination: tuple[float, float],
+        penalty: dict[int, float] | None = None,
     ) -> dict[str, Any] | None:
         """
         A* shortest-time path.
+
+        ``penalty`` multiplies chosen edges' cost during the search only (to
+        find alternatives that avoid a previous route); the returned travel
+        time is always the real, unpenalised cost.
 
         Returns a dict with coordinates, travel time, distance and the road
         names traversed — or None if either endpoint can't be snapped or no
@@ -283,7 +288,10 @@ class LocalGraphRouter:
                 neighbour = edge_to[edge_id]
                 if neighbour in closed:
                     continue
-                tentative = current_g + self._edge_cost(edge_id)
+                cost = self._edge_cost(edge_id)
+                if penalty:
+                    cost *= penalty.get(edge_id, 1.0)
+                tentative = current_g + cost
                 if tentative < g_score.get(neighbour, float("inf")):
                     g_score[neighbour] = tentative
                     came_from[neighbour] = (current, edge_id)
@@ -307,7 +315,7 @@ class LocalGraphRouter:
 
         coordinates = [{"lat": self.lat[n], "lng": self.lng[n]} for n in node_path]
         distance_m = sum(self.edge_len[e] for e in edge_path)
-        travel_time_s = g_score[goal]
+        travel_time_s = sum(self._edge_cost(e) for e in edge_path) if penalty else g_score[goal]
 
         # Ordered, de-duplicated road names for a human-readable description.
         roads: list[str] = []

@@ -140,6 +140,30 @@ Every map shows the unit and its trajectory; `GET /api/incidents/{id}/track`
 serves them without crew names or numbers. Trails are kept in memory, never
 written to disk.
 
+## The monitoring agent (the brief's scenario)
+
+`agents/monitor.py` watches every unit on a call. It is a rule-based agent:
+an observe-decide-act loop every 2 seconds, with every decision logged and a
+dispatcher approving every action. There is no language model.
+
+| Objective | What it does |
+| --- | --- |
+| Detect deviation | The unit's fix is projected onto its planned leg. More than 75 m plus the fix's accuracy off it, three fixes in a row, is a deviation. A closure or accident on the road ahead is flagged before the unit reaches it. |
+| Find the cause | Closures and accidents on the remaining route, then within 500 m; otherwise the worst congestion on the route with the city model's dominant cause (displaced traffic, rush hour, rain). "No disruption found" when there is none. |
+| Predict delay and ETA | The leg's planned remaining time against the best route from the unit's position under current conditions. |
+| Reroute | The best route and up to two alternatives that differ from it by at least 30%. The junctions on the new route are listed as a green-corridor request for traffic police (advice; there is no live signal control). |
+| Keep or send a backup | On the way to the scene, the nearest free unit of the same type is compared; a backup is recommended when it would arrive at least 3 minutes and 20% sooner. With the patient on board, the unit is always kept. |
+| Explain | One plain-English paragraph per alert, built from those facts, and a control-room log of every decision. |
+
+The dispatcher sees the alert with **Accept recommended route**, the
+alternatives, **Send** (the backup) and **Dismiss**. For a live demo, the
+same panel can stage a disruption ahead of the moving unit: **Close road
+ahead**, **Accident ahead** or **Wrong turn**. A simulated unit stops before
+a closed road rather than driving through it.
+
+All delays and ETAs come from the modelled city, not live traffic, and are
+labelled as modelled.
+
 ## How a report becomes a plan
 
 The code is organised as modules called "agents", but the decision path is a

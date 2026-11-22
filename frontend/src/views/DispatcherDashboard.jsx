@@ -15,6 +15,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { AlertTriangle, Check, CornerUpRight, X } from 'lucide-react';
 import MapOverlay from '../components/MapOverlay';
 import useUnitTrack from '../hooks/useUnitTrack';
+import MonitoringPanel from '../components/MonitoringPanel';
+import ControlRoomLog from '../components/ControlRoomLog';
 import AIRationale from '../components/AIRationale';
 import CityControls from '../components/CityControls';
 import LiveEmergencyChat from '../components/LiveEmergencyChat';
@@ -229,6 +231,7 @@ export default function DispatcherDashboard() {
   const plan = selected?.action_plan ?? null;
   const sceneOnly = plan?.response_profile === 'scene';
   const track = useUnitTrack(selected?.incident_id, ['dispatched', 'patient_picked_up'].includes(selected?.status));
+  const openAlert = selected?.monitoring?.alerts?.find((a) => a.status === 'open') ?? null;
   const routeCoords = view.route_coordinates ?? plan?.recommended_route?.coordinates ?? [];
 
   const queue = incidents.filter(
@@ -366,7 +369,9 @@ export default function DispatcherDashboard() {
 
         {/* ---- Map + actions --------------------------------------------- */}
         {selected ? (
-          <div className="flex min-w-0 min-h-[520px] flex-col gap-3">
+          // On desktop the map column stays in view at screen height while the
+          // long rationale column scrolls, so routes and alerts stay visible.
+          <div className="flex min-w-0 min-h-[520px] flex-col gap-3 lg:sticky lg:top-3 lg:h-[calc(100vh-1.5rem)] lg:self-start">
             <Panel className="flex min-h-0 flex-1 flex-col overflow-hidden">
               <PanelHead
                 label="Tactical map"
@@ -417,6 +422,10 @@ export default function DispatcherDashboard() {
                     unit={track.unit}
                     trail={track.trail}
                     simSpeed={track.simSpeed}
+                    proposals={openAlert?.routes ?? []}
+                    alertPoint={openAlert?.position ?? null}
+                    corridor={openAlert?.corridor ?? []}
+                    focusKey={openAlert?.alert_id ?? null}
                     className="!rounded-none !border-0"
                   />
                 ) : (
@@ -571,7 +580,9 @@ export default function DispatcherDashboard() {
 
         {/* ---- Rationale -------------------------------------------------- */}
         <div className="grid min-w-0 content-start gap-3 md:col-span-2 md:grid-cols-2 xl:col-span-1 xl:grid-cols-1">
+          {selected && <MonitoringPanel incident={selected} onChanged={loadOverlay} />}
           <CityControls onChange={loadOverlay} />
+          <ControlRoomLog />
 
           {sceneOnly ? (
             // Police, fire and rescue respond to the scene: no hospital to rank.

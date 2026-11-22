@@ -46,7 +46,7 @@ from agents.local_router import local_router
 from agents.prediction import prediction_agent
 from agents.route_optimization import route_agent
 from agents.traffic_intelligence import traffic_agent
-from routers import chat, city, fusion, hospital, routing, incident, driver, units
+from routers import chat, city, fusion, hospital, routing, incident, driver, units, monitoring
 import fleet
 from agents import simulator
 
@@ -195,6 +195,7 @@ app.include_router(driver.router)
 app.include_router(chat.router)
 app.include_router(city.router)
 app.include_router(units.router)
+app.include_router(monitoring.router)
 
 
 # ---------------------------------------------------------------------------
