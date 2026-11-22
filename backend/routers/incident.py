@@ -626,6 +626,8 @@ async def incident_contacts(incident_id: str, response: Response, request: Reque
         if inc is None:
             raise HTTPException(status_code=404, detail="Incident not found")
         on_call = {inc.get("assigned_unit"), *_assignments(inc).values()} - {None, ""}
+        # The unit whose number is disclosed, read with the same snapshot.
+        current_unit = fleet.unit_for_incident(incident_id)
         raw_hospital = inc.get("approved_hospital_id") or (
             ((inc.get("action_plan") or {}).get("recommended_hospital") or {}).get("hospital_id"))
         owner_id = inc.get("citizen_id")
@@ -657,7 +659,7 @@ async def incident_contacts(incident_id: str, response: Response, request: Reque
     if is_owner or is_dispatch or is_unit or is_hospital:
         if directory.dispatch:
             result["dispatch"] = {"name": directory.dispatch.name, "phone": directory.dispatch.phone}
-        unit = fleet.unit_for_incident(incident_id)
+        unit = current_unit
         entry = contacts.unit(unit["unit_id"]) if unit else None
         if entry:
             result["unit"] = {"unit_id": entry.unit_id, "phone": entry.phone}

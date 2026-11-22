@@ -127,6 +127,13 @@ async def dispatch_backup(incident_id: str, alert_id: str, request: Request = No
         view["phase1_hub"] = {"name": candidate["station"], **candidate["station_location"]}
         _set_leg(inc, "to_scene", backup["route"])
         inc["assigned_unit"] = view["assigned_unit"] = unit["unit_id"]
+        # The released unit's claim goes with it: it no longer acts for, or
+        # sees the contacts of, this call, and the backup can claim it.
+        released = alert["unit_id"]
+        inc["unit_assignments"] = {k: v for k, v in (inc.get("unit_assignments") or {}).items() if v != released}
+        if inc.get("assigned_driver") == released:
+            inc.pop("assigned_driver", None)
+            inc["driver_claimed"] = False
         alert.update(status="backup_dispatched", decided_at=time.time(), decided_by=who[1])
         await incident_router.commit(inc)
     monitor.clear_alert(alert["unit_id"])

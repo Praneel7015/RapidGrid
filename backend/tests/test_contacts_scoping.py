@@ -100,6 +100,24 @@ def test_a_unit_not_on_the_call_gets_only_112(call):
     assert seen["unit"] is None and seen["hospital"] is None
 
 
+def test_a_unit_replaced_by_a_backup_loses_access_to_the_call(call):
+    incident_id, _ = call
+    stored = incident_router.ACTIVE_INCIDENTS[-1]
+    stored["unit_assignments"] = {"primary": "AMB-01"}  # AMB-01 had claimed the call
+    old = staff_client("unit", "AMB-01", "222222")
+    assert contacts_for(old, incident_id)["hospital"] is not None
+    # Monitoring hands the call to AMB-02, as the backup endpoint does.
+    from routers import monitoring
+    fleet.swap(incident_id, "AMB-02")
+    stored["assigned_unit"] = "AMB-02"
+    stored["unit_assignments"] = {k: v for k, v in stored["unit_assignments"].items() if v != "AMB-01"}
+    seen = contacts_for(old, incident_id)
+    assert seen["unit"] is None and seen["hospital"] is None
+    new = contacts_for(staff_client("unit", "AMB-02", "333333"), incident_id)
+    assert new["unit"]["unit_id"] == "AMB-02" and new["hospital"] is not None
+    assert monitoring  # the endpoint's clean-up is covered in test_monitoring_agent
+
+
 def test_the_receiving_hospital_gets_the_unit_and_dispatch(call):
     incident_id, _ = call
     seen = contacts_for(staff_client("hospital", "blr-007", "444444"), incident_id)
@@ -108,6 +126,10 @@ def test_the_receiving_hospital_gets_the_unit_and_dispatch(call):
 
 def test_no_phone_number_is_in_any_incident_response(call):
     incident_id, _ = call
+    # Legacy records carried phone fields; response redaction must drop them.
+    stored = incident_router.ACTIVE_INCIDENTS[-1]
+    stored.update(unit_phone="+91 90000 00201", hospital_phone="+91 80 0000 0701")
+    stored.setdefault("citizen_view", {}).update(unit_phone="+91 90000 00201", hospital_phone="+91 80 0000 0701")
     c = staff_client("dispatcher", "dispatch", "111111")
     for text in (c.get("/api/incidents/").text, c.get(f"/api/incidents/{incident_id}").text,
                  c.get("/api/driver/active").text, c.get("/api/hospital/incoming/all").text):

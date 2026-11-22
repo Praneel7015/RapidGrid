@@ -218,14 +218,33 @@ async def store_alerts(alerts: list[tuple[str, dict]]) -> None:
                 continue
             monitoring = inc.setdefault("monitoring", {"alerts": []})
             monitoring["alerts"] = [alert] + monitoring.get("alerts", [])[:9]
-            await incident_router.commit(inc)
+            try:
+                await incident_router.commit(inc)
+            except Exception:  # one incident's save failing must not drop the others' alerts
+                logger.exception("Could not save a monitoring alert")
             stored.append((incident_id, alert))
+    if stored:
+        # The channel includes the caller: post the facts (cause, new ETA),
+        # not the dispatcher's advice (backup, hold), which stays on the
+        # dispatch screen. In the background, with a time limit, so a slow
+        # chat client never holds up the simulator tick.
+        task = asyncio.create_task(_post_alerts(stored))
+        _POSTING.add(task)
+        task.add_done_callback(_POSTING.discard)
+
+
+_POSTING: set = set()
+POST_TIMEOUT_S = 5.0
+
+
+async def _post_alerts(stored: list[tuple[str, dict]]) -> None:
     from routers.chat import post_system_message
 
-    # The channel includes the caller: post the facts (cause, new ETA), not the
-    # dispatcher's advice (backup, hold), which stays on the dispatch screen.
     for incident_id, alert in stored:
-        await post_system_message(incident_id, caller_safe_summary(alert))
+        try:
+            await asyncio.wait_for(post_system_message(incident_id, caller_safe_summary(alert)), POST_TIMEOUT_S)
+        except Exception:
+            logger.warning("Posting a monitoring alert to the incident channel timed out or failed")
 
 
 async def run() -> None:

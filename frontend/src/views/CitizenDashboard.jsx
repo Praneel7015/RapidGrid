@@ -446,7 +446,9 @@ export default function CitizenDashboard() {
   // their unit and dispatch; everyone gets 112.
   const unitPhone = callContacts?.unit?.phone ?? null;
   const dispatchPhone = callContacts?.dispatch?.phone ?? null;
-  const hotline = callContacts?.hotline_112?.phone || '112';
+  // Before the directory answers, 112 works anywhere in India; if the
+  // directory says there is no hotline (null), no button is shown.
+  const hotline = callContacts === null || callContacts === undefined ? '112' : callContacts.hotline_112?.phone;
 
   return shell(
     <div className="space-y-3">
