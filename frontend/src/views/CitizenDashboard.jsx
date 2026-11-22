@@ -13,6 +13,7 @@ import useUnitTrack from '../hooks/useUnitTrack';
 import LiveEmergencyChat from '../components/LiveEmergencyChat';
 import MicButton from '../components/MicButton';
 import CallButton from '../components/CallButton';
+import useIncidentContacts from '../hooks/useIncidentContacts';
 import useSpeechToText from '../hooks/useSpeechToText';
 import { Panel, PanelHead, Button, Stat, StatusTag } from '../components/ui';
 import { fmt } from '../components/ui';
@@ -54,6 +55,7 @@ export default function CitizenDashboard() {
   const [incident, setIncident] = useState(null);
   const [sending, setSending] = useState(false); // double-submit guard
   const view = incident?.citizen_view ?? null;
+  const callContacts = useIncidentContacts(incident?.incident_id);
   const track = useUnitTrack(incident?.incident_id, ['dispatched', 'patient_picked_up'].includes(incident?.status));
 
   const speech = useSpeechToText({ lang: 'en-IN' });
@@ -440,8 +442,13 @@ export default function CitizenDashboard() {
   const dispatched = ['dispatched', 'claimed', 'patient_picked_up', 'arrived', 'completed'].includes(
     incident?.status,
   );
-  const unitPhone = incident?.unit_phone ?? view?.unit_phone ?? null;
-  const hospitalPhone = incident?.hospital_phone ?? view?.hospital_phone ?? null;
+  // From the server's private directory, by role: a signed-in caller gets
+  // their unit and dispatch; everyone gets 112.
+  const unitPhone = callContacts?.unit?.phone ?? null;
+  const dispatchPhone = callContacts?.dispatch?.phone ?? null;
+  // Before the directory answers, 112 works anywhere in India; if the
+  // directory says there is no hotline (null), no button is shown.
+  const hotline = callContacts === null || callContacts === undefined ? '112' : callContacts.hotline_112?.phone;
 
   return shell(
     <div className="space-y-3">
@@ -468,8 +475,8 @@ export default function CitizenDashboard() {
           )}
           <div className="mt-3 flex flex-wrap gap-2">
             <CallButton phone={unitPhone} label="Call unit" variant="primary" />
-            <CallButton phone={hospitalPhone} label="Call ER" />
-            <CallButton phone="112" label="Call 112" />
+            <CallButton phone={dispatchPhone} label="Call dispatch" />
+            <CallButton phone={hotline} label={callContacts?.hotline_112?.phone ? `Call ${callContacts.hotline_112.name}` : 'Call 112'} />
           </div>
         </div>
 
@@ -521,11 +528,6 @@ export default function CitizenDashboard() {
           incidentId={incident.incident_id}
           senderRole="citizen"
           senderName="Caller"
-          contacts={{
-            unit: unitPhone,
-            hospital: hospitalPhone,
-            citizen: citizenInfo?.phone,
-          }}
         />
       )}
 

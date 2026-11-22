@@ -1,5 +1,6 @@
 # Real-time WebSocket Emergency Chat Router
 from __future__ import annotations
+import logging
 import uuid
 from typing import Dict, List, Literal, Set
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException
@@ -9,6 +10,8 @@ import asyncio
 
 import storage
 from routers.incident import ACTIVE_INCIDENTS, persistence_path
+
+logger = logging.getLogger("geoagentic.chat")
 
 router = APIRouter(prefix="/api/chat", tags=["Realtime Emergency Chat"])
 
@@ -84,11 +87,32 @@ def incident_exists(incident_id: str) -> bool:
     return any(i.get("incident_id") == incident_id for i in ACTIVE_INCIDENTS)
 
 
+RESERVED_NAMES = {"route monitoring", "dispatch decision"}
+
+
+def safe_sender_name(name: str) -> str:
+    """User names may not imitate the system's senders."""
+    return "User" if (name or "").strip().casefold() in RESERVED_NAMES else name
+
+
 class ChatMessagePayload(BaseModel):
     incident_id: str = Field(max_length=100)
     sender_role: Literal["citizen", "dispatcher", "driver", "hospital"]
     sender_name: str = Field(min_length=1, max_length=MAX_NAME_CHARS)
     message: str = Field(max_length=MAX_MESSAGE_CHARS)
+
+async def post_system_message(incident_id: str, text: str, sender: str = "Route monitoring") -> None:
+    """A message from the monitoring agent or a dispatch decision, into the
+    incident's channel, so the crew, the hospital and the caller see it.
+    Not postable by users: CHAT_ROLES excludes "system", and user names that
+    imitate the system senders are refused."""
+    if not incident_exists(incident_id):
+        return
+    try:
+        await manager.broadcast(incident_id, _build_message(incident_id, "system", sender, text[:MAX_MESSAGE_CHARS]))
+    except Exception:
+        logger.exception("Could not post a monitoring message")
+
 
 def _build_message(incident_id: str, sender_role: str, sender_name: str, message: str) -> Dict:
     return {
@@ -121,7 +145,7 @@ async def send_chat_message(incident_id: str, payload: ChatMessagePayload):
     msg_data = _build_message(
         incident_id,
         payload.sender_role,
-        payload.sender_name,
+        safe_sender_name(payload.sender_name),
         body,
     )
     await manager.broadcast(incident_id, msg_data)

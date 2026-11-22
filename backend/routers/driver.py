@@ -221,16 +221,13 @@ async def change_hospital(payload: HospitalChangePayload, request: Request = Non
             raise HTTPException(status_code=409, detail="The incident changed while routing; refresh the call")
         if canonical in hospital_agent.diverted:
             raise HTTPException(status_code=409, detail="The hospital went on divert; select another destination")
-        from routers.incident import _hospital_phone
         view = dict(incident.get("citizen_view") or {})
         view.update(route)
         view.update({"hospital_name": hospital["name"], "hospital_location": hospital["location"],
-                     "hospital_phone": _hospital_phone(hospital["name"]),
                      "message": f"Rerouted by driver to {hospital['name']}."})
         incident.update({"hospital_name": hospital["name"], "approved_hospital_id": canonical or hospital.get("hospital_id"),
-                         "hospital_phone": view["hospital_phone"], "citizen_view": view})
+                         "citizen_view": view})
         await commit(incident)
         from routers.hospital import destination_on_divert
         return {"status": "rerouted", "citizen_view": view, "hospital_name": hospital["name"],
-                "hospital_phone": view["hospital_phone"],
                 "destination_on_divert": destination_on_divert(incident)}

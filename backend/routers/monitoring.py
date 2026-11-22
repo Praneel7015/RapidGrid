@@ -95,9 +95,12 @@ async def accept_reroute(incident_id: str, alert_id: str, choice: AcceptRoute, r
         alert.update(status="rerouted", decided_at=time.time(), decided_by=who[1], route_index=choice.route_index)
         await incident_router.commit(inc)
     monitor.clear_alert(alert["unit_id"])
-    monitor._log(incident_id, alert["unit_id"], "decision",
-                 f"Dispatcher accepted {route['label'].lower()} for {alert['unit_id']}; "
-                 f"new ETA {route['eta_s'] / 60:.1f} min.", alert_id=alert_id)
+    text = (f"Dispatcher accepted {route['label'].lower()} for {alert['unit_id']}; "
+            f"new ETA {route['eta_s'] / 60:.1f} min.")
+    monitor._log(incident_id, alert["unit_id"], "decision", text, alert_id=alert_id)
+    from routers.chat import post_system_message
+
+    await post_system_message(incident_id, text, sender="Dispatch decision")
     return {"status": "rerouted", "route": route["label"]}
 
 
@@ -124,12 +127,22 @@ async def dispatch_backup(incident_id: str, alert_id: str, request: Request = No
         view["phase1_hub"] = {"name": candidate["station"], **candidate["station_location"]}
         _set_leg(inc, "to_scene", backup["route"])
         inc["assigned_unit"] = view["assigned_unit"] = unit["unit_id"]
+        # The released unit's claim goes with it: it no longer acts for, or
+        # sees the contacts of, this call, and the backup can claim it.
+        released = alert["unit_id"]
+        inc["unit_assignments"] = {k: v for k, v in (inc.get("unit_assignments") or {}).items() if v != released}
+        if inc.get("assigned_driver") == released:
+            inc.pop("assigned_driver", None)
+            inc["driver_claimed"] = False
         alert.update(status="backup_dispatched", decided_at=time.time(), decided_by=who[1])
         await incident_router.commit(inc)
     monitor.clear_alert(alert["unit_id"])
-    monitor._log(incident_id, backup["unit_id"], "decision",
-                 f"Dispatcher sent backup {backup['unit_id']} from {backup['station']}; "
-                 f"{alert['unit_id']} released.", alert_id=alert_id)
+    text = (f"Dispatcher sent backup {backup['unit_id']} from {backup['station']}; "
+            f"{alert['unit_id']} released.")
+    monitor._log(incident_id, backup["unit_id"], "decision", text, alert_id=alert_id)
+    from routers.chat import post_system_message
+
+    await post_system_message(incident_id, text, sender="Dispatch decision")
     return {"status": "backup_dispatched", "unit_id": backup["unit_id"]}
 
 

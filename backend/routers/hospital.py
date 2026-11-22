@@ -123,7 +123,6 @@ def _incoming(hospital_id: str) -> list[dict]:
             "hospital_name": hospital_name, "eta_minutes": view.get("eta_minutes"),
             "patient_summary": incident.get("details") or incident.get("citizen_text"),
             "assigned_driver": (incident.get("unit_assignments") or {}).get(medical_unit) or (incident.get("assigned_driver") if medical_unit == "primary" else None),
-            "unit_phone": incident.get("unit_phone") or view.get("unit_phone"),
             "destination_on_divert": destination_on_divert(incident),
         })
     return incoming

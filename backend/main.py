@@ -284,7 +284,7 @@ async def websocket_chat_endpoint(websocket: WebSocket, incident_id: str):
                 msg_data = chat._build_message(
                     incident_id,
                     role,
-                    str(payload.get("sender_name") or "Anonymous")[: chat.MAX_NAME_CHARS],
+                    chat.safe_sender_name(str(payload.get("sender_name") or "Anonymous")[: chat.MAX_NAME_CHARS]),
                     body,
                 )
                 await chat.manager.broadcast(incident_id, msg_data)

@@ -325,10 +325,6 @@ export default function HospitalDashboard() {
                           senderRole="hospital"
                           senderName={hospitalInfo?.name ?? 'ER desk'}
                           height="180px"
-                          contacts={{
-                            unit: c.unit_phone ?? c.citizen_view?.unit_phone,
-                            hospital: hospitalInfo?.phone ?? c.hospital_phone,
-                          }}
                         />
                       </div>
                     )}
