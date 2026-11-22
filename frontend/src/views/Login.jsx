@@ -109,7 +109,12 @@ function PinForm({ label, onSubmit, onCancel }) {
         >
           {busy ? 'Signing in…' : 'Sign in'}
         </button>
-        <button type="button" onClick={onCancel} className="rounded-sm border border-rule px-3 py-2.5 text-[13px] text-text">
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={busy}
+          className="rounded-sm border border-rule px-3 py-2.5 text-[13px] text-text disabled:opacity-50"
+        >
           Back
         </button>
       </div>
@@ -122,14 +127,21 @@ export default function Login() {
   const navigate = useNavigate();
   const [picking, setPicking] = useState(null);
   const [directory, setDirectory] = useState({ enabled: false, units: [], hospitals: [] });
+  // Staff roles open without a PIN only once the server has said sign-in is
+  // off; while loading, or if the check failed, they stay closed.
+  const [directoryState, setDirectoryState] = useState('loading'); // loading | ready | error
   const [needsPin, setNeedsPin] = useState(null); // { role, subject, profile, label }
 
   useEffect(() => {
     let cancelled = false;
     fetch('/api/staff/directory')
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => { if (data && !cancelled) setDirectory(data); })
-      .catch(() => {});
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error())))
+      .then((data) => {
+        if (cancelled) return;
+        setDirectory(data);
+        setDirectoryState('ready');
+      })
+      .catch(() => { if (!cancelled) setDirectoryState('error'); });
     return () => { cancelled = true; };
   }, []);
 
@@ -156,6 +168,7 @@ export default function Login() {
 
   // Staff roles need a PIN once the server has staff sign-in on.
   const enterStaff = (role, subject, profile, label) => {
+    if (directoryState !== 'ready') return;
     if (directory.enabled) setNeedsPin({ role, subject, profile, label });
     else enter(role === 'unit' ? 'driver' : role, profile);
   };
@@ -210,6 +223,11 @@ export default function Login() {
           </p>
         </header>
 
+        {directoryState === 'error' && (
+          <p role="alert" className="mb-3 rounded-sm border border-critical bg-critical-wash px-3 py-2 text-[12.5px] text-critical">
+            Could not reach the server to check staff sign-in. Staff portals stay closed; reload to try again.
+          </p>
+        )}
         {needsPin ? (
           <Panel className="overflow-hidden">
             <PanelHead label="Staff sign-in" />
@@ -217,10 +235,11 @@ export default function Login() {
               label={needsPin.label}
               onCancel={() => setNeedsPin(null)}
               onSubmit={async (pin) => {
-                await signIn(needsPin.role, needsPin.subject, pin);
-                const role = needsPin.role === 'unit' ? 'driver' : needsPin.role;
+                // Use the selection captured now; Back is disabled while busy.
+                const chosen = needsPin;
+                await signIn(chosen.role, chosen.subject, pin);
                 setNeedsPin(null);
-                enter(role, needsPin.profile);
+                enter(chosen.role === 'unit' ? 'driver' : chosen.role, chosen.profile);
               }}
             />
           </Panel>

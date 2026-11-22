@@ -153,7 +153,11 @@ async def get_hospital(hospital_id: str):
 
 @router.patch("/{hospital_id}/resources")
 async def update_hospital_resources(hospital_id: str, update: HospitalResourceUpdate, request: Request = None):
-    require_staff(request, "hospital", _resolve(hospital_id) or hospital_id)
+    who = require_staff(request, "hospital")
+    if who[0] == "hospital" and (_resolve(who[1]) or who[1]) != (_resolve(hospital_id) or hospital_id):
+        # Both sides in the same canonical form (curated id), so a name or an
+        # alias of the signed-in hospital matches, and nothing else does.
+        raise HTTPException(status_code=403, detail="This sign-in cannot do that")
     key = _resolve(hospital_id)
     if key is None:
         raise HTTPException(status_code=404, detail="Choose a specific hospital before changing capacity")

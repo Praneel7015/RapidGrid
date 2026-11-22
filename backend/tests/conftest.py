@@ -25,8 +25,10 @@ def _testserver_is_an_allowed_host(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _example_contacts(monkeypatch):
+    # Always the committed example, never a developer's private contacts.json.
     monkeypatch.delenv("RAPIDGRID_CONTACTS", raising=False)
-    monkeypatch.delenv("RAPIDGRID_CONTACTS_FILE", raising=False)
+    monkeypatch.setenv("RAPIDGRID_CONTACTS_FILE",
+                       str(Path(contacts.__file__).with_name("contacts.example.json")))
     contacts.directory.cache_clear()
     yield
     contacts.directory.cache_clear()

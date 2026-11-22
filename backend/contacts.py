@@ -84,6 +84,10 @@ class Hospital(BaseModel):
 
 
 class Directory(BaseModel):
+    # Set when a configured directory could not be loaded. Staff sign-in then
+    # stays ON with no valid PIN (fail closed), instead of looking like an
+    # intentionally open demo.
+    invalid: bool = False
     hotline_112: Optional[Person] = None
     dispatch: Optional[Dispatch] = None
     units: list[Unit] = Field(default_factory=list, max_length=200)
@@ -98,27 +102,44 @@ class Directory(BaseModel):
         return units
 
 
-def _raw() -> tuple[str, str]:
+class _Missing(Exception):
+    """A contacts source was configured but cannot be read."""
+
+
+def _raw() -> tuple[str, str, bool]:
+    """(text, source name, whether the source was configured explicitly)."""
     inline = os.getenv("RAPIDGRID_CONTACTS", "").strip()
     if inline:
-        return inline, "RAPIDGRID_CONTACTS"
-    for candidate in (os.getenv("RAPIDGRID_CONTACTS_FILE", ""), str(_HERE / "contacts.json"),
-                      str(_HERE / "contacts.example.json")):
-        if candidate and Path(candidate).is_file():
-            return Path(candidate).read_text(encoding="utf-8"), Path(candidate).name
-    return "{}", "empty"
+        return inline, "RAPIDGRID_CONTACTS", True
+    configured = os.getenv("RAPIDGRID_CONTACTS_FILE", "").strip()
+    if configured:
+        path = Path(configured)
+        if not path.is_file():
+            raise _Missing(path.name)
+        return path.read_text(encoding="utf-8"), path.name, True
+    private = _HERE / "contacts.json"
+    if private.is_file():
+        return private.read_text(encoding="utf-8"), private.name, True
+    example = _HERE / "contacts.example.json"
+    if example.is_file():
+        return example.read_text(encoding="utf-8"), example.name, False
+    return "{}", "empty", False
 
 
 @lru_cache(maxsize=1)
 def directory() -> Directory:
-    text, source = _raw()
+    try:
+        text, source, configured = _raw()
+    except (_Missing, OSError):
+        logger.error("Configured contacts file cannot be read; staff sign-in locked")
+        return Directory(invalid=True)
     try:
         loaded = Directory.model_validate(json.loads(text))
     except (json.JSONDecodeError, ValidationError) as error:
         # Never echo the content: it holds phone numbers and PINs.
-        logger.error("Contacts directory from %s is invalid (%s error(s)); using none",
+        logger.error("Contacts directory from %s is invalid (%s error(s)); staff sign-in locked",
                      source, getattr(error, "error_count", lambda: 1)())
-        return Directory()
+        return Directory(invalid=configured)
     logger.info("Contacts directory loaded from %s: %d units, %d hospitals",
                 source, len(loaded.units), len(loaded.hospitals))
     return loaded
@@ -131,6 +152,8 @@ def reload() -> Directory:
 
 def staff_pins_configured() -> bool:
     d = directory()
+    if d.invalid:
+        return True  # locked: sign-in required, and no PIN can match
     return bool((d.dispatch and d.dispatch.staff_pin)
                 or any(u.staff_pin for u in d.units)
                 or any(h.staff_pin for h in d.hospitals))
