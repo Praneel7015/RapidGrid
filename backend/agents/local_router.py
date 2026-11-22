@@ -125,6 +125,7 @@ class LocalGraphRouter:
         edge_from = data["edge_from"]
 
         self._build_adjacency(edge_from)
+        self._build_core(edge_from)
         self._build_spatial_index()
 
         self._loaded = True
@@ -150,6 +151,62 @@ class LocalGraphRouter:
         for edge_id, src in enumerate(edge_from):
             self._adj_edges[cursor[src]] = edge_id
             cursor[src] += 1
+
+    def _build_core(self, edge_from: list[int]) -> None:
+        """Mark the largest strongly connected component: the roads from which
+        every other core road can be reached, and vice versa, by legal driving.
+
+        OpenStreetMap one-ways leave pockets you can drive into but not out of
+        (and the reverse). A point snapped into one gets "no route" to
+        anywhere. Snapping only onto the core avoids that. Kosaraju's
+        algorithm, iterative; about a second for the whole city.
+        """
+        n = len(self.lat)
+        adj_start, adj_edges, edge_to = self._adj_start, self._adj_edges, self.edge_to
+        # Reverse adjacency.
+        rev: list[list[int]] = [[] for _ in range(n)]
+        for e, src in enumerate(edge_from):
+            rev[edge_to[e]].append(src)
+        # Pass 1: finishing order on the forward graph.
+        seen = bytearray(n)
+        order: list[int] = []
+        for root in range(n):
+            if seen[root]:
+                continue
+            seen[root] = 1
+            stack = [(root, adj_start[root])]
+            while stack:
+                node, slot = stack[-1]
+                if slot < adj_start[node + 1]:
+                    stack[-1] = (node, slot + 1)
+                    nxt = edge_to[adj_edges[slot]]
+                    if not seen[nxt]:
+                        seen[nxt] = 1
+                        stack.append((nxt, adj_start[nxt]))
+                else:
+                    stack.pop()
+                    order.append(node)
+        # Pass 2: components on the reverse graph, in reverse finishing order.
+        comp = [-1] * n
+        sizes: list[int] = []
+        for root in reversed(order):
+            if comp[root] != -1:
+                continue
+            label = len(sizes)
+            comp[root] = label
+            stack = [root]
+            size = 0
+            while stack:
+                node = stack.pop()
+                size += 1
+                for prev in rev[node]:
+                    if comp[prev] == -1:
+                        comp[prev] = label
+                        stack.append(prev)
+            sizes.append(size)
+        main = max(range(len(sizes)), key=sizes.__getitem__) if sizes else -1
+        self._in_core = bytearray(1 if c == main else 0 for c in comp)
+        logger.info("Routing core: %d of %d junctions are mutually reachable", sizes[main] if sizes else 0, n)
 
     def _build_spatial_index(self) -> None:
         """Grid-bucket every node so nearest-node snapping is O(1)-ish."""
@@ -227,44 +284,100 @@ class LocalGraphRouter:
 
         return best_id
 
+    SNAP_LIMIT_M = 300.0
+
+    def nearest_nodes(self, lat: float, lng: float, k: int = 4, within_m: float = SNAP_LIMIT_M) -> list[int]:
+        """Snap candidates for a coordinate, nearest first: the plain nearest
+        node, plus nodes on the mutually reachable core within `within_m`.
+        A core node further away is never used, so a pin is never moved far."""
+        nearest = self.nearest_node(lat, lng)
+        if nearest is None:
+            return []
+        core = getattr(self, "_in_core", None)
+        if core is None or core[nearest]:
+            return [nearest]
+        gy, gx = int(lat / _GRID), int(lng / _GRID)
+        found: list[tuple[float, int]] = []
+        for dy in (-1, 0, 1):  # one ring of cells (about 550 m) covers 300 m
+            for dx in (-1, 0, 1):
+                for node_id in self._grid.get((gy + dy, gx + dx), ()):
+                    if core[node_id]:
+                        d = haversine(lat, lng, self.lat[node_id], self.lng[node_id])
+                        if d <= within_m:
+                            found.append((d, node_id))
+        found.sort()
+        return [nearest] + [n for _d, n in found[: max(0, k - 1)]]
+
     def find_path(
         self,
         origin: tuple[float, float],
         destination: tuple[float, float],
         penalty: dict[int, float] | None = None,
     ) -> dict[str, Any] | None:
+        """A* shortest-time path between two coordinates.
+
+        Each point snaps to its nearest road node. OpenStreetMap one-ways
+        leave pockets you can drive into but not out of; for a point there,
+        nearby nodes on the mutually reachable core (within SNAP_LIMIT_M) are
+        candidates too. One search starts from all start candidates at once
+        and stops at the first goal candidate reached, so even "no route"
+        costs a single search. Both snap distances are reported.
         """
-        A* shortest-time path.
+        if not self._loaded:
+            return None
+        starts = self.nearest_nodes(*origin)
+        goals = self.nearest_nodes(*destination)
+        if not starts or not goals:
+            logger.warning("Could not snap origin/destination onto the road graph")
+            return None
+        if starts[0] == goals[0]:
+            return None  # the same road node: no route to compute
+        # A start whose every outgoing road is closed cannot be left.
+        blocked = self._blocked
+        open_starts = [n for n in starts
+                       if any(self._adj_edges[slot] not in blocked
+                              for slot in range(self._adj_start[n], self._adj_start[n + 1]))]
+        if not open_starts:
+            return None
+        result = self._search(open_starts, set(goals), destination, penalty)
+        if result is None:
+            logger.warning("No connected path found between the snapped endpoints")
+            return None
+        start, goal = result["node_ids"][0], result["node_ids"][-1]
+        result["snap_distance_m"] = round(haversine(origin[0], origin[1], self.lat[start], self.lng[start]), 1)
+        result["dest_snap_distance_m"] = round(
+            haversine(destination[0], destination[1], self.lat[goal], self.lng[goal]), 1)
+        return result
+
+    def _search(
+        self,
+        starts: list[int],
+        goals: set[int],
+        destination: tuple[float, float],
+        penalty: dict[int, float] | None = None,
+    ) -> dict[str, Any] | None:
+        """
+        A* shortest-time search from any of `starts` to any of `goals`.
 
         ``penalty`` multiplies chosen edges' cost during the search only (to
         find alternatives that avoid a previous route); the returned travel
         time is always the real, unpenalised cost.
 
         Returns a dict with coordinates, travel time, distance and the road
-        names traversed — or None if either endpoint can't be snapped or no
-        connected path exists.
+        names traversed, or None if no connected path exists.
         """
-        if not self._loaded:
-            return None
-
-        start = self.nearest_node(*origin)
-        goal = self.nearest_node(*destination)
-        if start is None or goal is None:
-            logger.warning("Could not snap origin/destination onto the road graph")
-            return None
-        if start == goal:
-            return None
-
-        goal_lat, goal_lng = self.lat[goal], self.lng[goal]
+        goal_lat, goal_lng = destination
 
         def heuristic(node: int) -> float:
             return haversine(
                 self.lat[node], self.lng[node], goal_lat, goal_lng
             ) / _MAX_SPEED_MS
 
-        g_score: dict[int, float] = {start: 0.0}
+        g_score: dict[int, float] = {s: 0.0 for s in starts}
         came_from: dict[int, tuple[int, int]] = {}  # node -> (prev_node, edge_id)
-        open_heap: list[tuple[float, int]] = [(heuristic(start), start)]
+        open_heap: list[tuple[float, int]] = [(heuristic(s), s) for s in starts]
+        heapq.heapify(open_heap)
+        goal = None
         closed: set[int] = set()
         expansions = 0
 
@@ -275,7 +388,8 @@ class LocalGraphRouter:
             _, current = heapq.heappop(open_heap)
             if current in closed:
                 continue
-            if current == goal:
+            if current in goals:
+                goal = current
                 break
             closed.add(current)
             expansions += 1
@@ -297,15 +411,14 @@ class LocalGraphRouter:
                     came_from[neighbour] = (current, edge_id)
                     heapq.heappush(open_heap, (tentative + heuristic(neighbour), neighbour))
 
-        if goal not in g_score:
-            logger.warning("No connected path found between the snapped endpoints")
+        if goal is None:
             return None
 
         # Walk the predecessor chain back to the origin.
         node_path: list[int] = [goal]
         edge_path: list[int] = []
         cursor = goal
-        while cursor != start:
+        while cursor in came_from:
             prev, edge_id = came_from[cursor]
             edge_path.append(edge_id)
             node_path.append(prev)
@@ -332,9 +445,6 @@ class LocalGraphRouter:
             "edge_ids": edge_path,
             "node_ids": node_path,
             "nodes_expanded": expansions,
-            "snap_distance_m": round(
-                haversine(origin[0], origin[1], self.lat[start], self.lng[start]), 1
-            ),
         }
 
 
