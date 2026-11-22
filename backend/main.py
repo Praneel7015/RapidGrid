@@ -40,6 +40,7 @@ from security import (
 )
 from logsafe import log_safe
 from staff import router as staff_router
+from citizens import router as citizens_router
 
 from agents.city_state import city_state
 from agents.local_router import local_router
@@ -187,6 +188,7 @@ async def validation_error(request: Request, exc: RequestValidationError):
 # Mount routers
 app.include_router(session_router)
 app.include_router(staff_router)
+app.include_router(citizens_router)
 app.include_router(routing.router)
 app.include_router(hospital.router)
 app.include_router(fusion.router)

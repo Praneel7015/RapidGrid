@@ -34,6 +34,7 @@ _SCHEMA = (
     "CREATE TABLE IF NOT EXISTS chat_messages ("
     "id INTEGER PRIMARY KEY AUTOINCREMENT, incident_id TEXT NOT NULL, payload TEXT NOT NULL)",
     "CREATE INDEX IF NOT EXISTS chat_by_incident ON chat_messages (incident_id, id)",
+    "CREATE TABLE IF NOT EXISTS citizens (citizen_id TEXT PRIMARY KEY, payload TEXT NOT NULL)",
 )
 
 
@@ -184,3 +185,17 @@ def load_chat_migrating(incident_id: str, *, database: Path | None = None) -> li
 def clear_chat(*, database: Path | None = None) -> None:
     with _connection(database) as connection:
         connection.execute("DELETE FROM chat_messages")
+
+
+def load_citizen(citizen_id: str, *, database: Path | None = None) -> str | None:
+    with _connection(database) as connection:
+        row = connection.execute("SELECT payload FROM citizens WHERE citizen_id = ?", (citizen_id,)).fetchone()
+    return row[0] if row else None
+
+
+def insert_citizen(citizen_id: str, payload: str, *, database: Path | None = None) -> bool:
+    """Create an account; False if that id already exists (no overwrite)."""
+    with _connection(database) as connection:
+        cursor = connection.execute(
+            "INSERT OR IGNORE INTO citizens (citizen_id, payload) VALUES (?, ?)", (citizen_id, payload))
+        return cursor.rowcount == 1

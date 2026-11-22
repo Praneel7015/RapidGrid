@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import copy
 import os
+import time
 import uuid
 import asyncio
 import logging
@@ -213,6 +214,7 @@ def in_service_area(lat: float, lng: float) -> bool:
 class IncidentReportPayload(BaseModel):
     citizen_text: str = Field(min_length=1, max_length=2000)
     citizen_name: Optional[str] = Field(default=None, max_length=100)
+    anonymous: bool = False
     citizen_phone: Optional[str] = Field(default=None, max_length=32)
     vehicle_required: Optional[VehicleType] = "Ambulance"
     include_ambulance_backup: Optional[bool] = False
@@ -296,6 +298,27 @@ async def _mark_failed(incident_id: str, exc: Exception) -> None:
         delay = _FAIL_RETRY_DELAYS[min(attempt, len(_FAIL_RETRY_DELAYS) - 1)]
         attempt += 1
         await asyncio.sleep(delay)
+
+
+# Caller details are personal data: no incident response carries them. They
+# are read through GET /{incident_id}/caller, which checks who is asking and
+# records every reveal (OWASP A01).
+_PRIVATE_FIELDS = ("citizen_name", "citizen_phone", "citizen_id", "caller_reveals")
+
+
+def security_same_origin(request) -> bool:
+    import security
+
+    return bool(request.headers.get("origin")) and security.same_origin(request)
+
+
+def public_incident(incident: dict) -> dict:
+    """A deep copy without caller details or the reveal log."""
+    copy_ = copy.deepcopy(incident)
+    for key in _PRIVATE_FIELDS:
+        copy_.pop(key, None)
+    copy_["caller_hidden"] = True
+    return copy_
 
 
 def snapshot(value):
@@ -489,7 +512,7 @@ async def run_pipeline(incident_id: str, payload: IncidentReportPayload):
         await _mark_failed(incident_id, exc)
 
 @router.post("")
-async def report_incident(payload: IncidentReportPayload, response: Response):
+async def report_incident(payload: IncidentReportPayload, response: Response, request: Request = None):
     """Step 1 - Citizen raises emergency. Returns 202 immediately."""
     if not payload.citizen_text.strip():
         raise HTTPException(status_code=422, detail="Describe the emergency")
@@ -499,13 +522,20 @@ async def report_incident(payload: IncidentReportPayload, response: Response):
             detail="That location is outside the Bengaluru area this service covers. Call 112.",
         )
     incident_id = f"INC-{uuid.uuid4().hex}"
-    
+    # A signed-in citizen's report carries their account's name and number;
+    # an anonymous report keeps whatever the caller typed (it is never refused).
+    from citizens import current as current_citizen
+
+    # An explicitly anonymous report never carries an account's details,
+    # even if this browser is still signed in (a shared phone).
+    me = None if payload.anonymous else current_citizen(request)
     incident = {
         "incident_id": incident_id,
         "location": payload.location.model_dump(),
         "citizen_text": payload.citizen_text,
-        "citizen_name": payload.citizen_name or "Anonymous Citizen",
-        "citizen_phone": payload.citizen_phone or "Unregistered",
+        "citizen_id": me["id"] if me else None,
+        "citizen_name": me["name"] if me else (payload.citizen_name or "Anonymous Citizen"),
+        "citizen_phone": me["phone"] if me else (payload.citizen_phone or "Unregistered"),
         "vehicle_required": payload.vehicle_required or "Ambulance",
         "include_ambulance_backup": wants_backup(payload),
         "input_modality": _resolve_modality(payload.input_modality).value,
@@ -545,14 +575,64 @@ async def get_incident(incident_id: str):
     async with _INCIDENTS_LOCK:  # waits for any write in progress to commit or roll back
         for inc in ACTIVE_INCIDENTS:
             if inc["incident_id"] == incident_id:
-                return snapshot(inc)
+                return public_incident(inc)
     raise HTTPException(status_code=404, detail="Incident not found")
+
+@router.post("/{incident_id}/caller")
+async def reveal_caller(incident_id: str, response: Response, request: Request = None):
+    """The caller's name and number, for dispatch, a unit on this call (the
+    assigned unit, the one that claimed it, or its backup), or the caller.
+    Every reveal is recorded on the incident. A POST, because it writes that
+    record; never cached.
+
+    With staff sign-in switched off (a local open demo, no staff PINs
+    configured) the staff checks allow everyone, so anyone can reveal; the
+    README says so. The hosted showcase runs with staff PINs."""
+    import staff
+    from citizens import current as current_citizen
+    from routers.driver import _assignments
+
+    response.headers["Cache-Control"] = "no-store"
+    if request is not None and not security_same_origin(request):
+        raise HTTPException(status_code=403, detail="Cross-origin or origin-less request refused")
+    me = current_citizen(request)
+    async with _INCIDENTS_LOCK:
+        inc = next((i for i in ACTIVE_INCIDENTS if i["incident_id"] == incident_id), None)
+        if inc is None:
+            raise HTTPException(status_code=404, detail="Incident not found")
+        owner = bool(me and inc.get("citizen_id") == me["id"])
+        if owner:
+            who = ("citizen", "self")
+        else:
+            who = None
+            last: HTTPException = HTTPException(status_code=401, detail="Staff sign-in required")
+            on_call = {inc.get("assigned_unit"), *_assignments(inc).values()} - {None, ""}
+            try:
+                who = staff.require(request, "dispatcher")
+            except HTTPException as denied:
+                last = denied
+                for unit_id in sorted(on_call):
+                    try:
+                        who = staff.require(request, "unit", unit_id)
+                        break
+                    except HTTPException as refused:
+                        last = refused
+            if who is None:
+                raise last
+        inc.setdefault("caller_reveals", []).append(
+            {"at": time.time(), "role": who[0], "by": who[1]})
+        inc["caller_reveals"] = inc["caller_reveals"][-50:]
+        await commit(inc)
+        logger.info("Caller details revealed for %s to %s", log_safe(incident_id), log_safe(who[0]))
+        return {"name": inc.get("citizen_name"), "phone": inc.get("citizen_phone"),
+                "registered": bool(inc.get("citizen_id"))}
+
 
 @router.get("/")
 async def get_all_incidents():
     """For Dispatcher to see all active incidents."""
     async with _INCIDENTS_LOCK:
-        incidents = snapshot(ACTIVE_INCIDENTS)
+        incidents = [public_incident(i) for i in ACTIVE_INCIDENTS]
     for inc in incidents:
         inc.setdefault("severity", 0.5)  # the dispatcher queue sorts by it
     return {"incidents": incidents}
@@ -600,7 +680,7 @@ async def approve_incident(incident_id: str, payload: ApprovePayload, request: R
             await commit(inc)
             logger.info("PLAN_APPROVED for %s by %s: scene response",
                         log_safe(incident_id), log_safe(payload.dispatcher_id))
-            return inc
+            return public_incident(inc)
         if not payload.approved_hospital:
             raise HTTPException(status_code=422, detail="Choose a hospital from the reviewed plan")
         candidates = plan.get("all_hospitals") or []
@@ -643,7 +723,7 @@ async def approve_incident(incident_id: str, payload: ApprovePayload, request: R
         await commit(inc)
         logger.info("PLAN_APPROVED for %s by %s: hospital=%s",
                     log_safe(incident_id), log_safe(payload.dispatcher_id), log_safe(target["name"]))
-        return inc
+        return public_incident(inc)
 
 
 @router.post("/{incident_id}/reject")
