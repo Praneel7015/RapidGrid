@@ -1011,3 +1011,20 @@ def test_an_ambulance_call_still_needs_a_hospital_to_approve(client, mocked_rout
     seed()
     response = client.post("/api/incidents/INC-review/approve", json={"dispatcher_id": "test", "approved_route": ""})
     assert response.status_code == 422
+
+
+def test_a_backup_added_to_a_scene_call_gets_a_ranked_hospital(client, mocked_route, monkeypatch):
+    monkeypatch.setattr(incident, "_INCIDENTS_LOCK", asyncio.Lock())
+    monkeypatch.setattr(incident.fusion_engine, "fuse", AsyncMock(side_effect=AssertionError("ranked at report")))
+    _run_report("Fire Engine")
+    monkeypatch.setattr(incident, "_INCIDENTS_LOCK", asyncio.Lock())
+    added = client.post("/api/incidents/INC-scene/request_ambulance")
+    assert added.status_code == 200, added.text
+    report = next(i for i in incident.ACTIVE_INCIDENTS if i["incident_id"] == "INC-scene")
+    hospital = report["action_plan"]["recommended_hospital"]
+    assert hospital and hospital["hospital_id"] not in hospital_agent.diverted
+    assert report["citizen_view"]["hospital_name"] == hospital["name"]
+    assert len(report["citizen_view"]["route_coordinates"]) >= 2
+    approved = client.post("/api/incidents/INC-scene/approve", json={"dispatcher_id": "test", "approved_route": ""})
+    assert approved.status_code == 200, approved.text
+    assert approved.json()["approved_hospital_id"] == hospital["hospital_id"]
