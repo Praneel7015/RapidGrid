@@ -1023,3 +1023,131 @@ def test_a_backup_added_to_a_scene_call_gets_a_ranked_hospital(client, mocked_ro
     approved = client.post("/api/incidents/INC-scene/approve", json={"dispatcher_id": "test", "approved_route": ""})
     assert approved.status_code == 200, approved.text
     assert approved.json()["approved_hospital_id"] == hospital["hospital_id"]
+
+
+def _wait_for_ranking(timeout=10.0):
+    import time as _t
+    end = _t.monotonic() + timeout
+    while _t.monotonic() < end:
+        ranking = incident.ACTIVE_INCIDENTS[0].get("pickup_ranking")
+        if ranking:
+            return ranking
+        _t.sleep(0.05)
+    return None
+
+
+def _picked_up(client):
+    seed()
+    approved = client.post("/api/incidents/INC-review/approve", json={
+        "dispatcher_id": "reviewer", "approved_hospital": "blr-007", "approved_route": "review-route"})
+    payload = {"incident_id": "INC-review", "driver_id": approved.json()["assigned_unit"]}
+    client.post("/api/driver/claim", json=payload)
+    return client.post("/api/driver/arrived_pickup", json=payload)
+
+
+def test_pickup_reranks_hospitals_from_the_scene(client, mocked_route, monkeypatch):
+    # A client that keeps its event loop running between requests, as the
+    # real server does, so the background re-ranking can finish.
+    monkeypatch.setattr(incident, "_INCIDENTS_LOCK", asyncio.Lock())
+    import agents.hospital_intelligence as hi
+
+    class NoNetwork:
+        def __init__(self, *a, **k):
+            raise httpx.ConnectError("no network in tests")
+
+    monkeypatch.setattr(hi.httpx, "AsyncClient", NoNetwork)  # OSM lookup fails fast; curated list used
+    hospital_agent._fetch_cache.clear()
+    with TestClient(app) as live:
+        assert _picked_up(live).status_code == 200
+        ranking = _wait_for_ranking()
+        _check_ranking_and_change(live, ranking)
+
+
+def _check_ranking_and_change(client, ranking):
+    assert ranking and 1 <= len(ranking["hospitals"]) <= 5 and ranking["summary"]
+    assert sum(h["current"] for h in ranking["hospitals"]) <= 1
+    assert any(h["current"] for h in ranking["hospitals"]) or "not in the top five" in ranking["summary"]
+    other = next(h for h in ranking["hospitals"] if not h["current"])
+    changed = client.post("/api/driver/change_hospital", json={"incident_id": "INC-review", "hospital_name": other["name"]})
+    assert changed.status_code == 200, changed.text
+    # The stored ranking now marks the new destination as current.
+    updated = incident.ACTIVE_INCIDENTS[0]["pickup_ranking"]
+    assert next(h for h in updated["hospitals"] if h["name"] == other["name"])["current"]
+    assert client.post("/api/driver/change_hospital", json={"incident_id": "INC-review", "hospital_name": "Nowhere"}).status_code == 422
+
+
+def test_a_slow_ranking_never_holds_up_pickup(client, mocked_route, monkeypatch):
+    import time as _t
+
+    async def slow(*_a, **_k):
+        await asyncio.sleep(30)
+
+    monkeypatch.setattr(driver, "RANKING_TIMEOUT_S", 0.2)
+    monkeypatch.setattr(hospital_agent, "rank_hospitals", slow)
+    started = _t.monotonic()
+    assert _picked_up(client).status_code == 200
+    assert _t.monotonic() - started < 3
+    _t.sleep(0.5)
+    assert "pickup_ranking" not in incident.ACTIVE_INCIDENTS[0]
+
+
+def test_pickup_still_works_if_reranking_fails(client, mocked_route, monkeypatch):
+    monkeypatch.setattr(hospital_agent, "rank_hospitals", AsyncMock(side_effect=RuntimeError("down")))
+    assert _picked_up(client).status_code == 200
+    import time as _t
+    _t.sleep(0.3)
+    assert "pickup_ranking" not in incident.ACTIVE_INCIDENTS[0]
+
+
+def test_ranking_flags_and_summaries():
+    entries = [
+        {"hospital_id": "osm-1", "name": "Local ER", "road_eta_min": 4.0, "current": False},
+        {"hospital_id": "blr-007", "name": "Aster CMI Hospital (Hebbal)", "road_eta_min": 9.0, "current": False},
+    ]
+    # A hospital found only on OpenStreetMap still matches by raw id or name.
+    assert driver._is_current(entries[0], "osm-1", None)
+    assert driver._is_current(entries[0], None, "Local ER")
+    for h in entries:
+        h["current"] = driver._is_current(h, "blr-007", "Aster CMI Hospital (Hebbal)")
+    ranking = {"hospitals": entries}
+    driver._summarise(ranking)
+    assert not ranking["current_still_first"] and "saves 5.0 min" in ranking["summary"]
+    entries[0]["current"], entries[1]["current"] = True, False
+    driver._summarise(ranking)
+    assert ranking["current_still_first"] and "still the best" in ranking["summary"]
+
+
+def test_a_diverted_hospital_is_left_out_of_the_pickup_ranking(monkeypatch):
+    from types import SimpleNamespace
+
+    def entry(hid, name):
+        data = {"hospital_id": hid, "name": name, "location": {"lat": 13.0, "lng": 77.6},
+                "score": 0.8, "road_eta_seconds": 300, "reasoning": ""}
+        return SimpleNamespace(model_dump=lambda mode=None, d=data: d)
+
+    monkeypatch.setattr(hospital_agent, "rank_hospitals", AsyncMock(return_value=SimpleNamespace(
+        ranked_hospitals=[entry("blr-007", "Aster CMI Hospital (Hebbal)"), entry("blr-001", "Manipal Hospital (Old Airport Road)")])))
+    monkeypatch.setattr(hospital_agent, "_on_divert", {"blr-007"})
+    ranking = asyncio.run(driver._rank_from_scene({"lat": 13.03, "lng": 77.59}, "road_accident", None, None))
+    assert [h["hospital_id"] for h in ranking["hospitals"]] == ["blr-001"]
+
+
+def test_a_unit_not_on_the_call_cannot_change_its_destination(monkeypatch):
+    import json as _json
+    import contacts
+    import staff as _staff
+
+    monkeypatch.setenv("RAPIDGRID_MODE", "demo")
+    monkeypatch.setenv("RAPIDGRID_SECRET", "test-only-secret")
+    monkeypatch.setenv("RAPIDGRID_CONTACTS", _json.dumps({"units": [
+        {"unit_id": "AMB-01", "type": "Ambulance", "station": "Aster CMI Emergency Ambulance Hub", "staff_pin": "222222"},
+        {"unit_id": "AMB-02", "type": "Ambulance", "station": "Manipal Ambulance Base Depot", "staff_pin": "333333"}]}))
+    contacts.reload()
+    _staff.reset_throttle()
+    incident.ACTIVE_INCIDENTS.clear()
+    seed("patient_picked_up", assigned_unit="AMB-01")
+    other = TestClient(app, base_url="http://testserver", headers={"Origin": "http://testserver"})
+    other.post("/api/staff/session", json={"role": "unit", "subject": "AMB-02", "pin": "333333"})
+    response = other.post("/api/driver/change_hospital", json={"incident_id": "INC-review", "hospital_name": "blr-007"})
+    assert response.status_code == 403
+    incident.ACTIVE_INCIDENTS.clear()
