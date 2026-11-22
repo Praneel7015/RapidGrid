@@ -695,10 +695,6 @@ export default function DispatcherDashboard() {
               senderRole="dispatcher"
               senderName="Dispatch"
               height="220px"
-              contacts={{
-                unit: selected.unit_phone ?? view?.unit_phone,
-                hospital: selected.hospital_phone ?? view?.hospital_phone,
-              }}
             />
           )}
         </div>

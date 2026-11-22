@@ -164,10 +164,13 @@ def test_dispatcher_actions_reroute_or_swap_the_unit(city):
     asyncio.run(simulator.store_alerts(alerts))
     alert_id = alerts[0][1]["alert_id"]
     client = TestClient(app)
+    incident["unit_assignments"] = {"primary": "AMB-01"}  # AMB-01's crew had claimed the call
 
     swapped = client.post(f"/api/incidents/INC-mon/alerts/{alert_id}/backup")
     assert swapped.status_code == 200, swapped.text
     assert fleet.unit_for_incident("INC-mon")["unit_id"] == "AMB-02"
+    # The released unit's claim goes with it, so the backup can claim the call.
+    assert "AMB-01" not in incident.get("unit_assignments", {}).values()
     assert fleet.get("AMB-01")["status"] == "available"
     assert client.post(f"/api/incidents/INC-mon/alerts/{alert_id}/dismiss").status_code == 409  # already decided
     log = client.get("/api/monitoring/log").json()["decisions"]
@@ -236,7 +239,12 @@ def _alert_on_closure(incident):
     _off, index = monitor.project(route, unit["position"])
     city_state.close_road(monitoring.edges_to_close(route, index, unit["position"]), "test closure")
     alerts = monitor.tick([incident])
-    asyncio.run(simulator.store_alerts(alerts))
+
+    async def store_and_post():
+        await simulator.store_alerts(alerts)
+        await asyncio.gather(*simulator._POSTING)  # channel posts run in the background
+
+    asyncio.run(store_and_post())
     return alerts[0][1]
 
 
@@ -278,3 +286,22 @@ def test_a_reroute_keeps_the_phone_tracking_decision(city):
     view["phase1_route_coordinates"] = view["phase1_route_coordinates"][3:]  # an accepted reroute
     monitor.tick([incident])
     assert monitor._watches["AMB-01"].started_near_station is False
+
+
+def test_alerts_and_decisions_are_posted_to_the_incident_channel(city):
+    from routers import chat
+
+    chat.manager.chat_history.pop("INC-mon", None)  # only this test's messages
+    incident = call_to((12.985, 77.594), ASTER_HUB)
+    alert = _alert_on_closure(incident)
+    messages = chat.manager.history("INC-mon")
+    system = [m for m in messages if m["sender_role"] == "system"]
+    assert system and "disruption on its route" in system[0]["message"]
+    # The caller sees the facts, not the dispatcher's advice.
+    assert "Backup" not in system[0]["message"] and "dispatch AMB" not in system[0]["message"]
+    before = len(chat.manager.history("INC-mon"))
+    accepted = TestClient(app).post(f"/api/incidents/INC-mon/alerts/{alert['alert_id']}/accept", json={"route_index": 0})
+    assert accepted.status_code == 200, accepted.text
+    assert any("Dispatcher accepted" in m["message"] for m in chat.manager.history("INC-mon")[before:])
+    # Users cannot post as the agent.
+    assert "system" not in chat.CHAT_ROLES
