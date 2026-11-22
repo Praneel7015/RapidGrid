@@ -9,6 +9,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { MapPin, Phone, Check, AlertTriangle, ChevronLeft } from 'lucide-react';
 import MapOverlay from '../components/MapOverlay';
+import useUnitTrack from '../hooks/useUnitTrack';
 import LiveEmergencyChat from '../components/LiveEmergencyChat';
 import MicButton from '../components/MicButton';
 import CallButton from '../components/CallButton';
@@ -53,6 +54,7 @@ export default function CitizenDashboard() {
   const [incident, setIncident] = useState(null);
   const [sending, setSending] = useState(false); // double-submit guard
   const view = incident?.citizen_view ?? null;
+  const track = useUnitTrack(incident?.incident_id, ['dispatched', 'patient_picked_up'].includes(incident?.status));
 
   const speech = useSpeechToText({ lang: 'en-IN' });
   const mounted = useRef(true);
@@ -491,6 +493,9 @@ export default function CitizenDashboard() {
             }
             hub={view.phase1_hub}
             activePhase={incident?.status === 'patient_picked_up' ? 2 : 1}
+            unit={track.unit}
+            trail={track.trail}
+            simSpeed={track.simSpeed}
             className="!rounded-none !border-0"
           />
         </Panel>

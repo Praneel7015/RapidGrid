@@ -993,6 +993,14 @@ def test_non_medical_calls_plan_a_scene_response_without_hospitals(client, mocke
     assert approved.status_code == 200, approved.text
     assert approved.json()["status"] == "dispatched"
     assert approved.json()["approved_hospital_id"] is None
+    expected_unit = {"Police Cruiser": "POLICE-01", "Fire Engine": "FIRE-01", "Disaster Rescue": "RESCUE-01"}[vehicle]
+    assert approved.json()["assigned_unit"] == expected_unit
+    import fleet
+    assert fleet.get(expected_unit)["incident_id"] == "INC-scene"
+    # Clearing all incidents parks every unit again.
+    monkeypatch.setenv("RAPIDGRID_MODE", "demo")
+    fleet.release("INC-scene")
+    assert fleet.get(expected_unit)["status"] == "available"
 
 
 def test_a_non_medical_call_with_an_ambulance_backup_still_ranks_hospitals(client, mocked_route, monkeypatch):

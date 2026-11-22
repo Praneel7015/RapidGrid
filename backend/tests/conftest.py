@@ -32,3 +32,20 @@ def _example_contacts(monkeypatch):
     contacts.directory.cache_clear()
     yield
     contacts.directory.cache_clear()
+
+
+@pytest.fixture(autouse=True)
+def _fresh_fleet(monkeypatch, tmp_path):
+    """Each test gets its own data directory and a fleet rebuilt from it."""
+    import fleet
+    from agents import simulator
+
+    monkeypatch.setenv("RAPIDGRID_DATA_DIR", str(tmp_path))
+    fleet._units.clear()
+    fleet._trails.clear()
+    monkeypatch.setattr(fleet, "_loaded", False)
+    simulator.reset()
+    yield
+    fleet._units.clear()
+    fleet._trails.clear()
+    fleet._loaded = False

@@ -31,6 +31,8 @@ const COLOR = {
   hub: '#2e2c32',
   patient: '#e8a020',
   hospital: '#2e2c32',
+  unit: '#1d5fd1',
+  trail: '#1d5fd1',
 };
 
 function marker(kind, label) {
@@ -78,6 +80,9 @@ export default function MapOverlay({
   closures = [],
   congestion = [],
   activePhase = 2,
+  unit = null,
+  trail = [],
+  simSpeed = null,
   height = '400px',
   theme = 'light',
   className = '',
@@ -255,6 +260,27 @@ export default function MapOverlay({
     pin(origin, 'patient', 'P', popup(['Patient location', 'b']));
     pin(hospital, 'hospital', 'ER', popup([hospital?.name ?? 'Destination hospital', 'b'], ['Receiving ER']));
 
+    // The responding unit: where it has been, and where it is now. Not part
+    // of the fit, so a moving unit never re-zooms the map.
+    const path = toLatLngs(trail);
+    if (path.length >= 2) {
+      L.polyline(path, { color: COLOR.trail, weight: 3, opacity: 0.55, lineCap: 'round' })
+        .bindPopup(popup(['Trajectory', 'b'], [`${path.length} position fixes`]))
+        .addTo(group);
+    }
+    const pos = unit?.position;
+    if (pos && Number.isFinite(pos.lat) && Number.isFinite(pos.lng)) {
+      const source =
+        pos.source === 'gps'
+          ? `Live GPS${Number.isFinite(pos.accuracy_m) ? ` ±${Math.round(pos.accuracy_m)} m` : ''}`
+          : pos.source === 'simulated'
+            ? `Simulated GPS${simSpeed ? ` ×${simSpeed}` : ''}`
+            : 'At station';
+      L.marker([pos.lat, pos.lng], { icon: marker('unit', 'U'), zIndexOffset: 1000 })
+        .bindPopup(popup([unit.unit_id ?? 'Unit', 'b'], [source]))
+        .addTo(group);
+    }
+
     if (bounds.length >= 2) {
       try {
         // Only auto-fit on the first load with real data, or when the route
@@ -269,7 +295,7 @@ export default function MapOverlay({
         /* bounds can be degenerate while data is still arriving */
       }
     }
-  }, [routeCoordinates, phase1Coordinates, origin, hospital, hub, closures, congestion, activePhase]);
+  }, [routeCoordinates, phase1Coordinates, origin, hospital, hub, closures, congestion, activePhase, unit, trail, simSpeed]);
 
   return (
     <div
