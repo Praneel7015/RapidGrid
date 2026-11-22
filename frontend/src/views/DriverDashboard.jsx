@@ -11,6 +11,8 @@ import React, { useState, useEffect } from 'react';
 import { Check, ChevronLeft, Building2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import MapOverlay from '../components/MapOverlay';
+import useUnitTrack from '../hooks/useUnitTrack';
+import useShareLocation from '../hooks/useShareLocation';
 import LiveEmergencyChat from '../components/LiveEmergencyChat';
 import {
   Panel,
@@ -35,6 +37,8 @@ export default function DriverDashboard() {
   }, [activeId]);
   const [conn, setConn] = useState('ok');
   const [busy, setBusy] = useState(false);
+  const [shareLocation, setShareLocation] = useState(false);
+  const sharing = useShareLocation(driverInfo?.unitId, shareLocation);
 
   useEffect(() => {
     let cancelled = false;
@@ -65,6 +69,7 @@ export default function DriverDashboard() {
   }, [driverInfo]);
 
   const active = dispatches.find((d) => d.incident_id === activeId) ?? null;
+  const track = useUnitTrack(active?.incident_id, ['dispatched', 'patient_picked_up'].includes(active?.status));
   const view = active?.citizen_view ?? {};
   const primaryMedical = ['Ambulance', 'Medical'].includes(active?.vehicle_required ?? 'Ambulance');
   const unitType = driverInfo?.vehicleType === 'Ambulance' && !primaryMedical && active?.include_ambulance_backup ? 'ambulance' : 'primary';
@@ -159,6 +164,30 @@ export default function DriverDashboard() {
           </div>
           <ConnectionState status={conn} />
         </div>
+
+        {driverInfo?.unitId && (
+          <Panel className="mb-3">
+            <label className="flex items-center justify-between gap-3 px-4 py-3">
+              <span className="min-w-0">
+                <span className="block text-[13.5px] font-semibold text-text">Share my location</span>
+                <span className="mt-0.5 block text-[12px] text-text-muted">
+                  {sharing.status === 'sharing'
+                    ? `Live GPS${Number.isFinite(sharing.accuracy) ? ` ±${Math.round(sharing.accuracy)} m` : ''} · keep this screen open`
+                    : sharing.status === 'waiting'
+                      ? 'Waiting for a GPS fix…'
+                      : sharing.error ?? 'Sends this phone\'s GPS as the unit position. Otherwise it is simulated.'}
+                </span>
+              </span>
+              <input
+                type="checkbox"
+                role="switch"
+                checked={shareLocation}
+                onChange={(e) => setShareLocation(e.target.checked)}
+                className="h-5 w-5 shrink-0 accent-[var(--color-signal)]"
+              />
+            </label>
+          </Panel>
+        )}
 
         {dispatches.length === 0 ? (
           <Panel>
@@ -284,6 +313,9 @@ export default function DriverDashboard() {
           }
           hub={view.phase1_hub}
           activePhase={stage === 'pickup' ? 1 : 2}
+          unit={track.unit}
+          trail={track.trail}
+          simSpeed={track.simSpeed}
           className="!rounded-none !border-0"
         />
       </Panel>

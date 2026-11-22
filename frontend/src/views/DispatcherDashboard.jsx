@@ -14,6 +14,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { AlertTriangle, Check, CornerUpRight, X } from 'lucide-react';
 import MapOverlay from '../components/MapOverlay';
+import useUnitTrack from '../hooks/useUnitTrack';
 import AIRationale from '../components/AIRationale';
 import CityControls from '../components/CityControls';
 import LiveEmergencyChat from '../components/LiveEmergencyChat';
@@ -227,6 +228,7 @@ export default function DispatcherDashboard() {
   const view = selected?.citizen_view ?? {};
   const plan = selected?.action_plan ?? null;
   const sceneOnly = plan?.response_profile === 'scene';
+  const track = useUnitTrack(selected?.incident_id, ['dispatched', 'patient_picked_up'].includes(selected?.status));
   const routeCoords = view.route_coordinates ?? plan?.recommended_route?.coordinates ?? [];
 
   const queue = incidents.filter(
@@ -412,6 +414,9 @@ export default function DispatcherDashboard() {
                     closures={overlay.closures}
                     congestion={overlay.congestion}
                     activePhase={selected.status === 'patient_picked_up' ? 2 : 1}
+                    unit={track.unit}
+                    trail={track.trail}
+                    simSpeed={track.simSpeed}
                     className="!rounded-none !border-0"
                   />
                 ) : (

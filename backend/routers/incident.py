@@ -41,6 +41,7 @@ from pathlib import Path
 
 from logsafe import log_safe
 import storage
+import fleet
 from storage import data_path, load_collection, save_collection
 
 _LEGACY_DB_FILE = Path(__file__).parent.parent / "data" / "incidents_db.json"
@@ -556,6 +557,18 @@ async def get_all_incidents():
         inc.setdefault("severity", 0.5)  # the dispatcher queue sorts by it
     return {"incidents": incidents}
 
+def _assign_unit(inc: dict) -> None:
+    """Give an approved call a free unit (its planned station's first)."""
+    view = inc.get("citizen_view") or {}
+    hub = view.get("phase1_hub") or {}
+    unit = fleet.assign(inc["incident_id"], inc.get("vehicle_required") or "Ambulance",
+                        near=dict(inc["location"]), prefer_station=hub.get("name"))
+    inc["assigned_unit"] = unit["unit_id"] if unit else None
+    view["assigned_unit"] = inc["assigned_unit"]
+    if unit is None:
+        logger.warning("No free %s for %s", log_safe(inc.get("vehicle_required")), log_safe(inc["incident_id"]))
+
+
 @router.post("/{incident_id}/approve")
 async def approve_incident(incident_id: str, payload: ApprovePayload, request: Request = None):
     """Approve a reviewed destination without allowing terminal cases to rewind."""
@@ -580,6 +593,7 @@ async def approve_incident(incident_id: str, payload: ApprovePayload, request: R
                         "approved_hospital_id": (backup_hospital or {}).get("hospital_id"), "citizen_view": view})
             inc["unit_statuses"] = {unit: "dispatched" for unit in required_units(inc)}
             view["unit_statuses"] = inc["unit_statuses"]
+            _assign_unit(inc)
             await commit(inc)
             logger.info("PLAN_APPROVED for %s by %s: scene response",
                         log_safe(incident_id), log_safe(payload.dispatcher_id))
@@ -622,6 +636,7 @@ async def approve_incident(incident_id: str, payload: ApprovePayload, request: R
                     "hospital_phone": view["hospital_phone"], "citizen_view": view})
         inc["unit_statuses"] = {unit: "dispatched" for unit in required_units(inc)}
         view["unit_statuses"] = inc["unit_statuses"]
+        _assign_unit(inc)
         await commit(inc)
         logger.info("PLAN_APPROVED for %s by %s: hospital=%s",
                     log_safe(incident_id), log_safe(payload.dispatcher_id), log_safe(target["name"]))
@@ -647,6 +662,7 @@ async def reject_incident(incident_id: str, dispatcher_id: str = Query(default="
                     inc["citizen_view"]["status"] = "failed"
                     inc["citizen_view"]["message"] = "Your request could not be dispatched. Please call 112."
                 await commit(inc)
+                fleet.release(incident_id)
                 logger.info("REJECTED %s by %s", log_safe(incident_id), log_safe(dispatcher_id))
                 return {"status": "rejected", "incident_id": incident_id}
     raise HTTPException(status_code=404, detail="Incident not found")
@@ -694,6 +710,8 @@ async def incident_arrived(incident_id: str, request: Request = None, unit_type:
                 inc["citizen_view"]["unit_statuses"] = states
                 inc["citizen_view"]["status"] = inc["status"]
             await commit(inc)
+            if complete:
+                fleet.release(incident_id)
             return {"status": "arrived", "unit_type": unit_type, "unit_statuses": states, "incident_status": inc["status"]}
     raise HTTPException(status_code=404, detail="Incident not found")
 
@@ -705,6 +723,7 @@ async def clear_incidents():
     async with _INCIDENTS_LOCK:
         ACTIVE_INCIDENTS.clear()
         save_db()
+    fleet.reset()
     # Also clear chat history so old messages don't surface on new incidents with the same ID.
     from routers.chat import manager
     manager.clear_history()

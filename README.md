@@ -119,6 +119,27 @@ do(close Bellary Road) -> 52 segments closed, displaced onto 97 neighbours
 
 ---
 
+## Live unit tracking
+
+Units come from the contacts directory and are stored with their status and
+assignment. Approving a call assigns a free unit (its planned station's
+first, else the nearest free unit of that type); finishing, rejecting or
+clearing the call frees it again.
+
+Each unit's position comes from one of two sources, and the map says which:
+
+- **Live GPS:** the crew turns on **Share my location** on the unit screen.
+  The phone sends a fix every 2 s (screen kept awake). Only that unit's own
+  signed-in crew can post its position, and fixes outside Bengaluru are
+  refused.
+- **Simulated GPS:** otherwise, a background simulator moves the unit along
+  its route at the modelled speed, sped up (default ×6, `RAPIDGRID_SIM_SPEED`)
+  so a drive plays out on stage. A recent phone fix always wins.
+
+Every map shows the unit and its trajectory; `GET /api/incidents/{id}/track`
+serves them without crew names or numbers. Trails are kept in memory, never
+written to disk.
+
 ## How a report becomes a plan
 
 The code is organised as modules called "agents", but the decision path is a

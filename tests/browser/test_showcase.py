@@ -648,6 +648,58 @@ def test_staff_sign_in_with_a_pin_scopes_the_session(browser, staff_server):
     finally:
         ctx.close()
 
+
+def test_a_dispatched_unit_moves_on_the_map(context, server):
+    unlock(context, server)
+    created = context.request.post(server + "/api/incidents", data={
+        "citizen_text": "Test scenario: chest pain near Hebbal.",
+        "citizen_name": "Tracking browser test", "citizen_phone": "TEST-TRACK-ONLY",
+        "location": {"lat": 13.035, "lng": 77.597},
+    })
+    incident_id = created.json()["incident_id"]
+    plan = poll_incident(context, server, incident_id, "awaiting_dispatcher_approval")["action_plan"]
+    approved = context.request.post(server + f"/api/incidents/{incident_id}/approve", data={
+        "dispatcher_id": "browser-test", "approved_hospital": plan["recommended_hospital"]["hospital_id"],
+        "approved_route": plan["recommended_route"]["route_id"]})
+    assert approved.ok and approved.json()["assigned_unit"]
+
+    page = context.new_page()
+    page.route("https://tile.openstreetmap.org/**", lambda route: route.abort())
+    page.goto(server + "/dispatcher")
+    page.get_by_role("button").filter(has_text=incident_id).first.click()
+    expect(page.locator(".rg-marker", has_text="U")).to_be_visible(timeout=10000)
+
+    def position():
+        return context.request.get(server + f"/api/incidents/{incident_id}/track").json()["unit"]["position"]
+    first = position()
+    page.wait_for_timeout(4500)  # two simulator ticks
+    second = position()
+    assert second["source"] == "simulated"
+    assert (first["lat"], first["lng"]) != (second["lat"], second["lng"])
+    page.locator(".rg-marker", has_text="U").click()
+    expect(page.locator(".leaflet-popup-content")).to_contain_text("Simulated GPS")
+    context.request.post(server + "/api/incidents/clear", headers={"Authorization": f"Bearer {ACCESS_TOKEN}"})
+
+
+def test_share_my_location_sends_the_phones_gps(browser, server):
+    ctx = browser.new_context(service_workers="block", geolocation={"latitude": 13.041, "longitude": 77.593},
+                              permissions=["geolocation"])
+    try:
+        unlock(ctx, server)
+        page = ctx.new_page()
+        page.goto(server + "/login")
+        page.get_by_role("button").filter(has_text="Field unit").click()
+        page.get_by_role("button").filter(has_text="AMB-02").click()
+        page.wait_for_url("**/driver")
+        page.get_by_role("switch").check()
+        expect(page.get_by_text("Live GPS", exact=False)).to_be_visible(timeout=10000)
+        page.wait_for_timeout(2500)
+        unit = ctx.request.get(server + "/api/units/AMB-02").json()
+        assert unit["position"]["source"] == "gps"
+        assert abs(unit["position"]["lat"] - 13.041) < 1e-4
+    finally:
+        ctx.close()
+
 # --- Progressive web app ---------------------------------------------------------
 
 @pytest.fixture
