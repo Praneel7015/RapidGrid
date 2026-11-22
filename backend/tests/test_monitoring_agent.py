@@ -34,6 +34,7 @@ def city(monkeypatch):
         pytest.skip("offline road graph not available")
     city_state.attach(local_router)
     city_state.clear()
+    city_state.set_hour(3)  # same traffic, and so the same routes, on any machine's clock
     monitor.reset()
     monkeypatch.setattr(incident_router, "_INCIDENTS_LOCK", asyncio.Lock())
     incident_router.ACTIVE_INCIDENTS.clear()
@@ -94,16 +95,21 @@ def test_a_road_closed_ahead_is_detected_explained_and_rerouted(city):
     assert monitor.tick([incident]) == []
 
 
-def test_a_wrong_turn_is_detected_as_a_deviation(city):
+@pytest.mark.parametrize("hour", [3, 9, 14, 19])
+def test_a_wrong_turn_is_detected_as_a_deviation(city, hour):
+    # Traffic (and so the quickest detour) changes with the hour; the demo
+    # must work at any time, including the 14:30 finale.
+    city_state.set_hour(hour)
     incident = call_to((12.985, 77.594), ASTER_HUB)
     drive(incident, 2)
     unit = fleet.unit_for_incident("INC-mon")
-    pos = unit["position"]
-    away = local_router.find_path((pos["lat"], pos["lng"]), (pos["lat"] + 0.004, pos["lng"] + 0.006))
-    assert away
-    simulator.set_detour(unit["unit_id"], incident, away["coordinates"])
+    route = incident["citizen_view"]["phase1_route_coordinates"]
+    _off, index = monitor.project(route, unit["position"])
+    away = monitoring.wrong_turn_path(route, index, unit["position"])
+    assert away, "no detour that leaves the route"
+    simulator.set_detour(unit["unit_id"], incident, away)
     alerts = []
-    for _ in range(12):
+    for _ in range(30):
         drive(incident, 1)
         alerts += monitor.tick([incident])
         if alerts:
