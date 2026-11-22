@@ -702,6 +702,45 @@ def test_share_my_location_sends_the_phones_gps(browser, server):
     finally:
         ctx.close()
 
+
+def test_official_scenario_route_blocked_ahead_is_explained_and_rerouted(context, server):
+    """The brief's scenario: a unit on its way, the road ahead closes; the
+    agent detects it, explains the cause and delay, proposes routes, and the
+    dispatcher accepts one."""
+    unlock(context, server)
+    context.request.post(server + "/api/incidents/clear", headers={"Authorization": f"Bearer {ACCESS_TOKEN}"})
+    context.request.post(server + "/api/city/clear", headers={"Authorization": f"Bearer {ACCESS_TOKEN}"})
+    created = context.request.post(server + "/api/incidents", data={
+        "citizen_text": "Test scenario: chest pain, needs an ambulance.",
+        "citizen_name": "Scenario browser test", "citizen_phone": "TEST-SCENARIO-ONLY",
+        "location": {"lat": 13.000, "lng": 77.570},
+    })
+    incident_id = created.json()["incident_id"]
+    plan = poll_incident(context, server, incident_id, "awaiting_dispatcher_approval")["action_plan"]
+    approved = context.request.post(server + f"/api/incidents/{incident_id}/approve", data={
+        "dispatcher_id": "browser-test", "approved_hospital": plan["recommended_hospital"]["hospital_id"],
+        "approved_route": plan["recommended_route"]["route_id"]})
+    assert approved.ok, approved.text()
+
+    page = context.new_page()
+    page.route("https://tile.openstreetmap.org/**", lambda route: route.abort())
+    page.goto(server + "/dispatcher")
+    page.get_by_role("button").filter(has_text=incident_id).first.click()
+    expect(page.get_by_text("The agent is watching the unit")).to_be_visible(timeout=10000)
+    page.wait_for_timeout(2500)  # let the unit start moving
+    page.get_by_role("button", name="Close road ahead").click()
+
+    alert = page.get_by_role("alert").filter(has_text="Route blocked ahead")
+    expect(alert).to_be_visible(timeout=20000)
+    expect(alert).to_contain_text("Cause: road closed ahead")
+    expect(alert).to_contain_text("Delay")
+    expect(alert).to_contain_text("Backup:")
+    page.get_by_role("button", name="Accept recommended route").click()
+    expect(page.get_by_text("Rerouted", exact=False).first).to_be_visible(timeout=10000)
+    expect(page.get_by_text("Dispatcher accepted recommended", exact=False)).to_be_visible(timeout=10000)
+    context.request.post(server + "/api/city/clear", headers={"Authorization": f"Bearer {ACCESS_TOKEN}"})
+    context.request.post(server + "/api/incidents/clear", headers={"Authorization": f"Bearer {ACCESS_TOKEN}"})
+
 # --- Progressive web app ---------------------------------------------------------
 
 @pytest.fixture
