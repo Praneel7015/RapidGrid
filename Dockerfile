@@ -2,6 +2,10 @@
 FROM node:22-bookworm-slim AS frontend
 WORKDIR /src/frontend
 COPY frontend/package.json frontend/package-lock.json ./
+# onnxruntime-node (pulled in by the speech model) downloads GPU binaries at
+# install time; the app never uses them (speech runs in the browser), and the
+# download now 404s. Skip it so installs cannot fail on it.
+ENV npm_config_onnxruntime_node_install_cuda=skip
 RUN npm ci --legacy-peer-deps
 COPY frontend/ ./
 RUN npm run build
