@@ -166,6 +166,28 @@ def reconcile(active_incident_ids: set) -> list[str]:
     return freed
 
 
+def swap(incident_id: str, new_unit_id: str) -> dict:
+    """Hand the call to another free unit in one step: the new unit is checked
+    first, and the old one is released only if the new one is taken. Raises
+    ValueError (nothing changed) when the new unit cannot take the call."""
+    _ensure()
+    with _lock:
+        new = _units.get(new_unit_id)
+        if new is None or new["status"] != "available":
+            raise ValueError("unit not free")
+        for u in _units.values():
+            if u["incident_id"] == incident_id:
+                u.update(status="available", incident_id=None,
+                         position={**u["station_location"], "at": time.time(), "source": "station",
+                                   "accuracy_m": None})
+                _trails[u["unit_id"]].clear()
+        new["status"] = "assigned"
+        new["incident_id"] = incident_id
+        _trails[new_unit_id].clear()
+        _save()
+        return dict(new)
+
+
 def release(incident_id: str) -> None:
     """Free every unit on this call and park it back at its station."""
     _ensure()

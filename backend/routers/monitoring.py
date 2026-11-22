@@ -54,6 +54,14 @@ async def _with_alert(incident_id: str, alert_id: str):
     return inc, alert
 
 
+def _same_leg(inc: dict, alert: dict) -> None:
+    """An alert for a leg the unit has finished (say, raised on the way to the
+    scene, acted on after pickup) must not change the current leg."""
+    current, _route, _eta = monitor._leg(inc)
+    if current != alert["leg"]:
+        raise HTTPException(status_code=409, detail="This alert is for an earlier leg of the call")
+
+
 def _set_leg(inc: dict, leg: str, route: dict) -> None:
     view = inc.setdefault("citizen_view", {})
     minutes = max(1, math.ceil(route["eta_s"] / 60))
@@ -79,6 +87,7 @@ async def accept_reroute(incident_id: str, alert_id: str, choice: AcceptRoute, r
 
     async with incident_router._INCIDENTS_LOCK:
         inc, alert = await _with_alert(incident_id, alert_id)
+        _same_leg(inc, alert)
         if choice.route_index >= len(alert["routes"]):
             raise HTTPException(status_code=422, detail="No such route")
         route = alert["routes"][choice.route_index]
@@ -99,16 +108,18 @@ async def dispatch_backup(incident_id: str, alert_id: str, request: Request = No
 
     async with incident_router._INCIDENTS_LOCK:
         inc, alert = await _with_alert(incident_id, alert_id)
+        _same_leg(inc, alert)
         backup = alert.get("backup")
         if alert["leg"] != "to_scene" or not backup:
             raise HTTPException(status_code=409, detail="No backup unit was proposed for this alert")
         candidate = fleet.get(backup["unit_id"])
-        if candidate is None or candidate["status"] != "available":
-            raise HTTPException(status_code=409, detail="The proposed backup unit is no longer free")
-        fleet.release(incident_id)
-        unit = fleet.assign(incident_id, candidate["type"], dict(inc["location"]), prefer_station=candidate["station"])
-        if unit is None or unit["unit_id"] != backup["unit_id"]:
-            raise HTTPException(status_code=409, detail="The backup unit could not be assigned")
+        if candidate is None:
+            raise HTTPException(status_code=409, detail="The proposed backup unit no longer exists")
+        try:
+            # One step: the old unit is released only if the backup is taken.
+            unit = fleet.swap(incident_id, backup["unit_id"])
+        except ValueError:
+            raise HTTPException(status_code=409, detail="The proposed backup unit is no longer free") from None
         view = inc.setdefault("citizen_view", {})
         view["phase1_hub"] = {"name": candidate["station"], **candidate["station_location"]}
         _set_leg(inc, "to_scene", backup["route"])

@@ -227,3 +227,54 @@ def test_a_simulated_unit_stops_before_a_closed_road(city):
     assert nearest > 5, "the unit drove onto the closed road"
     end = route[-1]
     assert monitor._dist(pos, end) > 50, "the unit drove through the closure to the scene"
+
+
+def _alert_on_closure(incident):
+    drive(incident)
+    unit = fleet.unit_for_incident("INC-mon")
+    route = incident["citizen_view"]["phase1_route_coordinates"]
+    _off, index = monitor.project(route, unit["position"])
+    city_state.close_road(monitoring.edges_to_close(route, index, unit["position"]), "test closure")
+    alerts = monitor.tick([incident])
+    asyncio.run(simulator.store_alerts(alerts))
+    return alerts[0][1]
+
+
+def test_an_alert_for_an_earlier_leg_cannot_be_acted_on(city):
+    scene = (MANIPAL_HUB[0] + 0.004, MANIPAL_HUB[1] + 0.003)
+    incident = call_to(scene, ASTER_HUB)
+    alert = _alert_on_closure(incident)
+    incident["status"] = "patient_picked_up"  # the call moved on to the hospital leg
+    incident["citizen_view"]["route_coordinates"] = incident["citizen_view"]["phase1_route_coordinates"]
+    client = TestClient(app)
+    assert client.post(f"/api/incidents/INC-mon/alerts/{alert['alert_id']}/accept", json={"route_index": 0}).status_code == 409
+    assert client.post(f"/api/incidents/INC-mon/alerts/{alert['alert_id']}/backup").status_code == 409
+    assert fleet.unit_for_incident("INC-mon")["unit_id"] == "AMB-01"
+    asyncio.run(simulator.supersede_stale_alerts())
+    assert alert["status"] == "superseded" or incident["monitoring"]["alerts"][0]["status"] == "superseded"
+    assert client.post(f"/api/incidents/INC-mon/alerts/{alert['alert_id']}/dismiss").status_code == 409
+
+
+def test_a_failed_backup_leaves_the_original_unit_on_the_call(city):
+    scene = (MANIPAL_HUB[0] + 0.004, MANIPAL_HUB[1] + 0.003)
+    incident = call_to(scene, ASTER_HUB)
+    alert = _alert_on_closure(incident)
+    assert alert["backup"]["unit_id"] == "AMB-02"
+    fleet.assign("INC-other", "Ambulance", {"lat": MANIPAL_HUB[0], "lng": MANIPAL_HUB[1]},
+                 prefer_station="Manipal Ambulance Base Depot")  # the backup gets taken meanwhile
+    response = TestClient(app).post(f"/api/incidents/INC-mon/alerts/{alert['alert_id']}/backup")
+    assert response.status_code == 409
+    assert fleet.unit_for_incident("INC-mon")["unit_id"] == "AMB-01"
+    assert fleet.unit_for_incident("INC-other")["unit_id"] == "AMB-02"
+
+
+def test_a_reroute_keeps_the_phone_tracking_decision(city):
+    incident = call_to((12.985, 77.594), ASTER_HUB)
+    drive(incident)
+    monitor.tick([incident])
+    watch = monitor._watches["AMB-01"]
+    watch.started_near_station = False  # e.g. a phone that began far from its station
+    view = incident["citizen_view"]
+    view["phase1_route_coordinates"] = view["phase1_route_coordinates"][3:]  # an accepted reroute
+    monitor.tick([incident])
+    assert monitor._watches["AMB-01"].started_near_station is False

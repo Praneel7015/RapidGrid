@@ -40,8 +40,10 @@ congestion on parallel roads, rain slows everything, rush hour is worse than
 
 from __future__ import annotations
 
+import functools
 import logging
 import math
+import threading
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -95,6 +97,17 @@ _INCIDENT_SPILL_HOPS = 2
 _INCIDENT_STRENGTH = 0.35
 
 
+def _locked(method):
+    """Run a CityState method under its lock. The monitoring agent reads the
+    city from a worker thread while API calls change it; iterating a set that
+    another thread is changing is not safe."""
+    @functools.wraps(method)
+    def wrapper(self, *args, **kwargs):
+        with self._lock:
+            return method(self, *args, **kwargs)
+    return wrapper
+
+
 @dataclass
 class Intervention:
     """One `do()` applied to the city."""
@@ -114,6 +127,7 @@ class CityState:
     """
 
     def __init__(self) -> None:
+        self._lock = threading.RLock()
         self._router = None
         self.hour: int = datetime.now().hour
         self.weather: str = "Clear"
@@ -163,6 +177,7 @@ class CityState:
 
     # -- exogenous variables --------------------------------------------------
 
+    @_locked
     def set_hour(self, hour: int) -> None:
         """TimeOfDay -> Congestion. Recomputes the diurnal layer."""
         self.hour = int(hour) % 24
@@ -172,6 +187,7 @@ class CityState:
         )
         self._push()
 
+    @_locked
     def set_weather(self, condition: str) -> None:
         """Weather -> Congestion. Applied globally at push time."""
         self.weather = condition or "Clear"
@@ -217,6 +233,7 @@ class CityState:
 
     # -- interventions --------------------------------------------------------
 
+    @_locked
     def close_road(self, edge_ids: Iterable[int], label: str = "Road closure") -> dict:
         """
         do(close these segments).
@@ -247,6 +264,7 @@ class CityState:
         self._push()
         return {"closed": len(ids), "displaced": len(affected)}
 
+    @_locked
     def report_incident(self, edge_ids: Iterable[int], label: str = "Incident") -> dict:
         """do(incident here) - partial obstruction, smaller spill than a closure."""
         ids = [int(e) for e in edge_ids]
@@ -266,6 +284,7 @@ class CityState:
         self._push()
         return {"segments": len(ids), "affected": len(affected)}
 
+    @_locked
     def clear(self) -> None:
         """Undo every intervention and return the city to baseline."""
         self.closed_edges.clear()
@@ -340,6 +359,7 @@ class CityState:
             weather_multiplier=_WEATHER_MULTIPLIER.get(self.weather, 1.0),
         )
 
+    @_locked
     def explain(self, edge_id: int) -> dict[str, Any]:
         """Causal chain for one segment - which mechanism slowed it, and by how much."""
         chain = []
@@ -380,6 +400,7 @@ class CityState:
             "provenance": "modelled",
         }
 
+    @_locked
     def congestion_overlay(self, limit: int = 600) -> list[dict[str, Any]]:
         """
         Worst-affected segments as drawable geometry, for the map heatmap.
@@ -413,6 +434,7 @@ class CityState:
             })
         return out
 
+    @_locked
     def closure_overlay(self) -> list[dict[str, Any]]:
         """Closed segments as drawable geometry."""
         if not self._router:
@@ -457,6 +479,7 @@ class CityState:
         ]
         return matches[:limit]
 
+    @_locked
     def snapshot(self) -> dict[str, Any]:
         return {
             "hour": self.hour,

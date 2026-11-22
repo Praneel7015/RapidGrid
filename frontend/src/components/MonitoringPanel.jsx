@@ -24,6 +24,7 @@ const DECIDED = {
   rerouted: 'Rerouted',
   backup_dispatched: 'Backup dispatched',
   dismissed: 'Dismissed',
+  superseded: 'Expired (the call moved on)',
 };
 
 const minutes = (s) => (Number.isFinite(s) ? `${(s / 60).toFixed(1)} min` : '--');

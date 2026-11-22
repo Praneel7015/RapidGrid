@@ -580,7 +580,7 @@ export default function DispatcherDashboard() {
 
         {/* ---- Rationale -------------------------------------------------- */}
         <div className="grid min-w-0 content-start gap-3 md:col-span-2 md:grid-cols-2 xl:col-span-1 xl:grid-cols-1">
-          {selected && <MonitoringPanel incident={selected} onChanged={loadOverlay} />}
+          {selected && <MonitoringPanel key={selected.incident_id} incident={selected} onChanged={loadOverlay} />}
           <CityControls onChange={loadOverlay} />
           <ControlRoomLog />
 

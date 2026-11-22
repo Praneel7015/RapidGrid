@@ -175,6 +175,28 @@ def reset() -> None:
     _detours.clear()
 
 
+def _stale_open_alerts(incident: dict) -> list[dict]:
+    """Open alerts raised for a leg the call has left (or a finished call)."""
+    from agents import monitor
+
+    leg, _route, _eta = monitor._leg(incident)
+    return [a for a in (incident.get("monitoring") or {}).get("alerts", [])
+            if a.get("status") == "open" and a.get("leg") != leg]
+
+
+async def supersede_stale_alerts() -> None:
+    """Close open alerts for legs the call has left, so they cannot be acted on."""
+    from routers import incident as incident_router
+
+    async with incident_router._INCIDENTS_LOCK:
+        for inc in incident_router.ACTIVE_INCIDENTS:
+            stale = _stale_open_alerts(inc)
+            for alert in stale:
+                alert["status"] = "superseded"
+            if stale:
+                await incident_router.commit(inc)
+
+
 async def store_alerts(alerts: list[tuple[str, dict]]) -> None:
     """Keep each incident's newest alerts (up to 10) with the incident."""
     from routers import incident as incident_router
@@ -205,6 +227,8 @@ async def run() -> None:
             alerts = await asyncio.to_thread(monitor.tick, active)
             if alerts:
                 await store_alerts(alerts)
+            if any(_stale_open_alerts(i) for i in active):
+                await supersede_stale_alerts()
         except asyncio.CancelledError:
             raise
         except Exception:
