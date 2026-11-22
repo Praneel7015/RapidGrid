@@ -17,6 +17,7 @@ import MapOverlay from '../components/MapOverlay';
 import useUnitTrack from '../hooks/useUnitTrack';
 import MonitoringPanel from '../components/MonitoringPanel';
 import ControlRoomLog from '../components/ControlRoomLog';
+import CallerDetails from '../components/CallerDetails';
 import AIRationale from '../components/AIRationale';
 import CityControls from '../components/CityControls';
 import LiveEmergencyChat from '../components/LiveEmergencyChat';
@@ -477,6 +478,9 @@ export default function DispatcherDashboard() {
 
             {/* Actions */}
             <Panel className="p-3">
+              <div className="mb-3">
+                <CallerDetails key={selected.incident_id} incidentId={selected.incident_id} />
+              </div>
               {autoDispatch && (
                 <div className="mb-3 flex items-center justify-between gap-3 rounded-sm border border-signal-edge bg-signal-wash px-3 py-2">
                   <span className="t-tag text-signal-hover">
@@ -692,7 +696,6 @@ export default function DispatcherDashboard() {
               senderName="Dispatch"
               height="220px"
               contacts={{
-                citizen: selected.citizen_phone,
                 unit: selected.unit_phone ?? view?.unit_phone,
                 hospital: selected.hospital_phone ?? view?.hospital_phone,
               }}

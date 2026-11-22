@@ -15,9 +15,9 @@ export function AuthProvider({ children }) {
 
   const [citizenInfo, setCitizenInfo] = useState(() => {
     try {
-      return JSON.parse(sessionStorage.getItem('geoagentic_citizen')) || { name: 'Ananya Sharma', phone: '+91 98765 43210' };
+      return JSON.parse(sessionStorage.getItem('geoagentic_citizen')) || { name: 'Anonymous', phone: null, registered: false };
     } catch {
-      return { name: 'Ananya Sharma', phone: '+91 98765 43210' };
+      return { name: 'Anonymous', phone: null, registered: false };
     }
   });
 

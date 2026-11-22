@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 
 from models.schemas import Coordinate, RouteRequest
 from routers.incident import (
-    ACTIVE_INCIDENTS, _INCIDENTS_LOCK, commit, required_units, route_agent, snapshot, unit_statuses,
+    ACTIVE_INCIDENTS, _INCIDENTS_LOCK, commit, required_units, route_agent, unit_statuses,
 )
 
 router = APIRouter(prefix="/api/driver", tags=["Driver Queue"])
@@ -84,7 +84,9 @@ async def get_active_dispatches():
     from routers.hospital import destination_on_divert
 
     async with _INCIDENTS_LOCK:
-        return {"dispatches": snapshot(_active_dispatches(destination_on_divert))}
+        from routers.incident import public_incident
+
+        return {"dispatches": [public_incident(d) for d in _active_dispatches(destination_on_divert)]}
 
 
 def _active_dispatches(destination_on_divert) -> list[dict]:

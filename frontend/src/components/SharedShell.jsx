@@ -127,6 +127,9 @@ export default function SharedShell({ children }) {
                   // so a failed staff sign-out leaves everything retryable.
                   const staffRes = await fetch('/api/staff/session', { method: 'DELETE' });
                   if (!staffRes.ok) throw new Error();
+                  const citizenRes = await fetch('/api/citizens/session', { method: 'DELETE' });
+                  if (!citizenRes.ok) throw new Error();
+                  try { sessionStorage.removeItem('rapidgrid_my_incident'); } catch { /* storage off */ }
                   const res = await fetch('/api/session', { method: 'DELETE' });
                   if (!res.ok) throw new Error();
                   logout();

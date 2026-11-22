@@ -24,6 +24,7 @@ import re
 import secrets
 import threading
 import time
+from pathlib import Path
 from typing import Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Request, Response
@@ -54,21 +55,36 @@ _clients: dict[str, list[float]] = {}
 
 
 def _secret() -> bytes:
-    """Signs staff sessions and keys PIN comparison. Set RAPIDGRID_SECRET on
-    the server; without it a random one is made per process, so sessions end
-    at every restart (safe, merely inconvenient)."""
-    global _ephemeral
+    """Signs sessions and keys PIN hashes. From RAPIDGRID_SECRET, or else a
+    random secret generated once and kept in the data directory (mode 0600),
+    so sessions and stored citizen PIN hashes survive a restart."""
     value = os.getenv("RAPIDGRID_SECRET", "")
     if value:
         return value.encode()
+    import storage
+
+    path = Path(storage.data_path()).parent / "secret.key"
     with _lock:
-        if _ephemeral is None:
-            _ephemeral = secrets.token_bytes(32)
-            logger.warning("RAPIDGRID_SECRET is not set; staff sessions end when the server restarts")
-        return _ephemeral
+        cached = _file_secrets.get(path)
+        if cached is not None:
+            return cached
+        try:
+            if path.is_file():
+                secret = bytes.fromhex(path.read_text().strip())
+            else:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                secret = secrets.token_bytes(32)
+                fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                with os.fdopen(fd, "w") as handle:
+                    handle.write(secret.hex())
+                logger.warning("RAPIDGRID_SECRET is not set; generated one in the data directory")
+        except (OSError, ValueError) as error:
+            raise RuntimeError("No usable session secret; set RAPIDGRID_SECRET") from error
+        _file_secrets[path] = secret
+        return secret
 
 
-_ephemeral: Optional[bytes] = None
+_file_secrets: dict = {}
 
 
 def enabled() -> bool:
