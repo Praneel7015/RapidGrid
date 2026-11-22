@@ -302,6 +302,7 @@ export default function MapOverlay({
       L.marker([alertPoint.lat, alertPoint.lng], { icon: marker('alert', '!') })
         .bindPopup(popup(['Alert raised here', 'b']))
         .addTo(group);
+      bounds.push([alertPoint.lat, alertPoint.lng]);
     }
 
     if (bounds.length >= 2) {

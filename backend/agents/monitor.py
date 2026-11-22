@@ -107,7 +107,19 @@ def polyline_length(route: list[dict]) -> float:
     return sum(_dist(a, b) for a, b in zip(route, route[1:]))
 
 
-def _near_route(segment: list[dict], route: list[dict], within: float) -> bool:
+def _box(route: list[dict], within: float) -> tuple[float, float, float, float]:
+    """The route's bounding box grown by `within` metres (lat/lng degrees)."""
+    lats = [p["lat"] for p in route]
+    lngs = [p["lng"] for p in route]
+    dlat = within / 111_320.0
+    dlng = within / (111_320.0 * max(0.1, math.cos(math.radians(sum(lats) / len(lats)))))
+    return min(lats) - dlat, max(lats) + dlat, min(lngs) - dlng, max(lngs) + dlng
+
+
+def _near_route(segment: list[dict], route: list[dict], within: float, box=None) -> bool:
+    if box is not None and not any(box[0] <= p["lat"] <= box[1] and box[2] <= p["lng"] <= box[3]
+                                   for p in segment):
+        return False  # cheap rejection; points inside the box get the exact check
     for p in segment:
         if project(route, p)[0] <= within:
             return True
@@ -165,11 +177,12 @@ def _disruptions_near(route: list[dict], within: float) -> dict:
     found = {"closed": [], "incident": [], "congested": None}
     if not city_state.ready or len(route) < 2:
         return found
+    box = _box(route, within)
     for seg in city_state.closure_overlay():
-        if _near_route(seg["coordinates"], route, within):
+        if _near_route(seg["coordinates"], route, within, box):
             found["closed"].append(seg)
     for seg in city_state.congestion_overlay(limit=600):
-        if not _near_route(seg["coordinates"], route, within):
+        if not _near_route(seg["coordinates"], route, within, box):
             continue
         if seg["edge_id"] in city_state.incident_edges:
             found["incident"].append(seg)
@@ -413,11 +426,15 @@ def tick(incidents: list[dict]) -> list[tuple[str, dict]]:
         leg_key = f"{incident['incident_id']}:{leg}:{len(route)}:{route[0]['lat']:.5f}"
         if watch.leg_key != leg_key:
             # A new leg (or an accepted reroute): start watching it afresh.
+            new_leg = watch.leg_key.rsplit(":", 2)[0] != leg_key.rsplit(":", 2)[0]
             watch.leg_key, watch.progress, watch.off_count, watch.alert_id = leg_key, 0, 0, None
             watch.city_version = ()
-            pos = unit["position"]
-            watch.started_near_station = (pos.get("source") != "gps"
-                                          or _dist(pos, route[0]) <= 300)
+            if new_leg:
+                # Only a new call or leg decides whether a phone unit is
+                # watched for deviations; a reroute of the same leg keeps it.
+                pos = unit["position"]
+                watch.started_near_station = (pos.get("source") != "gps"
+                                              or _dist(pos, route[0]) <= 300)
         pos = unit["position"]
         point = {"lat": pos["lat"], "lng": pos["lng"]}
         off, index = project(route, point, watch.progress)
