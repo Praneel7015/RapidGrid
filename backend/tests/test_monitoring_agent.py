@@ -202,9 +202,15 @@ def test_a_unit_with_no_way_round_gets_a_backup(city):
     _off, index = monitor.project(route, unit["position"])
     stretch = local_router.find_path((route[index + 3]["lat"], route[index + 3]["lng"]),
                                      (route[-1]["lat"], route[-1]["lng"]))
-    goal = local_router.nearest_node(route[-1]["lat"], route[-1]["lng"])
-    into_goal = [e for e in range(len(local_router.edge_to)) if local_router.edge_to[e] == goal]
-    city_state.close_road(into_goal, "test: scene cut off")
+    # Cut off everything within 450 m of the scene (the router may snap to
+    # any road node within 300 m of it).
+    from agents.local_router import haversine
+    end = route[-1]
+    near = {n for n in range(len(local_router.lat))
+            if abs(local_router.lat[n] - end["lat"]) < 0.006 and abs(local_router.lng[n] - end["lng"]) < 0.006
+            and haversine(end["lat"], end["lng"], local_router.lat[n], local_router.lng[n]) <= 450}
+    into_scene = [e for e in range(len(local_router.edge_to)) if local_router.edge_to[e] in near]
+    city_state.close_road(into_scene, "test: scene cut off")
     alert = monitor.tick([incident])[0][1]
     assert alert["routes"] == [] and alert["new_eta_s"] is None
     assert alert["recommendation"] in {"dispatch_backup", "hold"}
