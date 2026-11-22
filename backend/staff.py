@@ -23,6 +23,7 @@ import os
 import re
 import secrets
 import threading
+import tempfile
 import time
 from pathlib import Path
 from typing import Literal, Optional
@@ -69,15 +70,28 @@ def _secret() -> bytes:
         if cached is not None:
             return cached
         try:
-            if path.is_file():
-                secret = bytes.fromhex(path.read_text().strip())
-            else:
+            if not path.is_file():
+                # Write a complete key to a private temporary file, then link
+                # it into place without overwriting: if another process got
+                # there first, its key wins and is read below.
                 path.parent.mkdir(parents=True, exist_ok=True)
-                secret = secrets.token_bytes(32)
-                fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-                with os.fdopen(fd, "w") as handle:
-                    handle.write(secret.hex())
-                logger.warning("RAPIDGRID_SECRET is not set; generated one in the data directory")
+                fd, temp = tempfile.mkstemp(dir=path.parent, prefix=".secret-")
+                try:
+                    with os.fdopen(fd, "w") as handle:
+                        handle.write(secrets.token_bytes(32).hex())
+                        handle.flush()
+                        os.fsync(handle.fileno())
+                    os.chmod(temp, 0o600)
+                    try:
+                        os.link(temp, path)
+                        logger.warning("RAPIDGRID_SECRET is not set; generated one in the data directory")
+                    except FileExistsError:
+                        pass
+                finally:
+                    os.unlink(temp)
+            secret = bytes.fromhex(path.read_text().strip())
+            if len(secret) != 32:
+                raise ValueError("secret.key must hold 32 bytes")
         except (OSError, ValueError) as error:
             raise RuntimeError("No usable session secret; set RAPIDGRID_SECRET") from error
         _file_secrets[path] = secret
