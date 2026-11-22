@@ -561,7 +561,10 @@ def _assign_unit(inc: dict) -> None:
     """Give an approved call a free unit (its planned station's first)."""
     view = inc.get("citizen_view") or {}
     hub = view.get("phase1_hub") or {}
-    unit = fleet.assign(inc["incident_id"], inc.get("vehicle_required") or "Ambulance",
+    vehicle = inc.get("vehicle_required") or "Ambulance"
+    if vehicle == "Medical":
+        vehicle = "Ambulance"  # the fleet has no separate "Medical" units
+    unit = fleet.assign(inc["incident_id"], vehicle,
                         near=dict(inc["location"]), prefer_station=hub.get("name"))
     inc["assigned_unit"] = unit["unit_id"] if unit else None
     view["assigned_unit"] = inc["assigned_unit"]

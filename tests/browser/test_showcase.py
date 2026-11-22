@@ -672,11 +672,13 @@ def test_a_dispatched_unit_moves_on_the_map(context, server):
     def position():
         return context.request.get(server + f"/api/incidents/{incident_id}/track").json()["unit"]["position"]
     first = position()
-    page.wait_for_timeout(4500)  # two simulator ticks
+    page.locator(".rg-marker", has_text="U").click()
+    expect(page.locator(".leaflet-popup-content")).to_contain_text("Simulated GPS")
+    page.wait_for_timeout(4500)  # two simulator ticks and two map polls
     second = position()
     assert second["source"] == "simulated"
     assert (first["lat"], first["lng"]) != (second["lat"], second["lng"])
-    page.locator(".rg-marker", has_text="U").click()
+    # The marker moved in place: its popup is still open.
     expect(page.locator(".leaflet-popup-content")).to_contain_text("Simulated GPS")
     context.request.post(server + "/api/incidents/clear", headers={"Authorization": f"Bearer {ACCESS_TOKEN}"})
 

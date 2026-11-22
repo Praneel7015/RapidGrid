@@ -144,6 +144,28 @@ def assign(incident_id: str, unit_type: str, near: dict, prefer_station: Optiona
         return dict(chosen)
 
 
+def reconcile(active_incident_ids: set) -> list[str]:
+    """Free units whose call no longer exists or has finished (after a
+    restart, or a clear that happened while the fleet was not loaded)."""
+    _ensure()
+    freed = []
+    with _lock:
+        for u in _units.values():
+            if u["incident_id"] and u["incident_id"] not in active_incident_ids:
+                freed.append(u["unit_id"])
+        if freed:
+            for uid in freed:
+                u = _units[uid]
+                u.update(status="available", incident_id=None,
+                         position={**u["station_location"], "at": time.time(), "source": "station",
+                                   "accuracy_m": None})
+                _trails[uid].clear()
+            _save()
+    if freed:
+        logger.info("Freed %d unit(s) with no active call", len(freed))
+    return freed
+
+
 def release(incident_id: str) -> None:
     """Free every unit on this call and park it back at its station."""
     _ensure()

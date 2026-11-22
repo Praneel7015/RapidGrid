@@ -67,8 +67,9 @@ def length(route: list[dict]) -> float:
     return sum(_distance(a, b) for a, b in zip(route, route[1:]))
 
 
-# unit_id -> (leg key, metres travelled on that leg)
-_progress: dict[str, tuple[str, float]] = {}
+# unit_id -> (leg key, metres travelled, start point if the unit began the
+# leg away from its first point)
+_progress: dict[str, tuple[str, float, Optional[dict]]] = {}
 
 
 def _leg(incident: dict) -> tuple[Optional[str], list[dict], Optional[float]]:
@@ -95,13 +96,20 @@ def step(incidents: list[dict], dt_s: float = TICK_S) -> int:
         if key is None or len(route) < 2:
             continue
         leg_key = f"{incident['incident_id']}:{key}:{len(route)}"
-        previous_key, travelled = _progress.get(unit["unit_id"], (None, 0.0))
+        previous_key, travelled, start = _progress.get(unit["unit_id"], (None, 0.0, None))
         if previous_key != leg_key:
             travelled = 0.0
+            # A unit that is not at the leg's start (a backup taking over, or
+            # a phone that stopped sending) drives from where it is, not
+            # from a jump back to the first point. Fixed for the whole leg.
+            here = unit["position"]
+            start = {"lat": here["lat"], "lng": here["lng"]} if _distance(here, route[0]) > 50 else None
+        if start is not None:
+            route = [start] + route
         total = length(route)
         speed = (total / eta_s) if eta_s and total else _DEFAULT_SPEED_MPS
         travelled = min(total, travelled + speed * dt_s * sim_speed())
-        _progress[unit["unit_id"]] = (leg_key, travelled)
+        _progress[unit["unit_id"]] = (leg_key, travelled, start)
         point, heading, _end = point_along(route, travelled)
         fleet.record_position(unit["unit_id"], point["lat"], point["lng"], source="simulated", heading=heading)
         moved += 1
