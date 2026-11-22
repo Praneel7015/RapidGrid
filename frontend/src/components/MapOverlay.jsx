@@ -33,6 +33,10 @@ const COLOR = {
   hospital: '#2e2c32',
   unit: '#1d5fd1',
   trail: '#1d5fd1',
+  proposal: '#178a4a',
+  alternative: '#6b6872',
+  alert: '#c23a2b',
+  corridor: '#178a4a',
 };
 
 function marker(kind, label) {
@@ -83,6 +87,10 @@ export default function MapOverlay({
   unit = null,
   trail = [],
   simSpeed = null,
+  proposals = [],
+  alertPoint = null,
+  corridor = [],
+  focusKey = null,
   height = '400px',
   theme = 'light',
   className = '',
@@ -158,6 +166,9 @@ export default function MapOverlay({
     hospital?.lat, hospital?.lng,
     hub?.lat, hub?.lng,
     lineKey(routeCoordinates), lineKey(phase1Coordinates),
+    // A new monitoring alert re-frames the map on the unit and the
+    // proposed routes, even if the user had zoomed elsewhere.
+    focusKey ?? '',
   ].join(',');
   const prevRouteKey = useRef(routeKey);
   useEffect(() => {
@@ -263,6 +274,36 @@ export default function MapOverlay({
     pin(origin, 'patient', 'P', popup(['Patient location', 'b']));
     pin(hospital, 'hospital', 'ER', popup([hospital?.name ?? 'Destination hospital', 'b'], ['Receiving ER']));
 
+    // The monitoring agent's proposals: the recommended route (solid green)
+    // and alternatives (grey, dashed), where the alert fired, and the
+    // junctions in the green-corridor request.
+    proposals.forEach((p, i) => {
+      const pts = toLatLngs(p.coordinates);
+      if (pts.length < 2) return;
+      L.polyline(pts, {
+        color: i === 0 ? COLOR.proposal : COLOR.alternative,
+        weight: i === 0 ? 5 : 3.5,
+        opacity: i === 0 ? 0.9 : 0.7,
+        dashArray: i === 0 ? null : '6 6',
+        lineCap: 'round',
+      })
+        .bindPopup(popup([p.label ?? 'Proposed route', 'b'],
+          [Number.isFinite(p.eta_s) ? `${(p.eta_s / 60).toFixed(1)} min (modelled)` : '']))
+        .addTo(group);
+      bounds.push(...pts);
+    });
+    corridor.forEach((j) => {
+      if (!Number.isFinite(j.lat) || !Number.isFinite(j.lng)) return;
+      L.circleMarker([j.lat, j.lng], { radius: 5, color: COLOR.corridor, weight: 2, fillOpacity: 0.9 })
+        .bindPopup(popup(['Green-corridor junction', 'b'], [j.road ?? ''], [`in ${j.eta_min} min (request, not signal control)`]))
+        .addTo(group);
+    });
+    if (alertPoint && Number.isFinite(alertPoint.lat) && Number.isFinite(alertPoint.lng)) {
+      L.marker([alertPoint.lat, alertPoint.lng], { icon: marker('alert', '!') })
+        .bindPopup(popup(['Alert raised here', 'b']))
+        .addTo(group);
+    }
+
     if (bounds.length >= 2) {
       try {
         // Only auto-fit on the first load with real data, or when the route
@@ -277,7 +318,7 @@ export default function MapOverlay({
         /* bounds can be degenerate while data is still arriving */
       }
     }
-  }, [routeCoordinates, phase1Coordinates, origin, hospital, hub, closures, congestion, activePhase]);
+  }, [routeCoordinates, phase1Coordinates, origin, hospital, hub, closures, congestion, activePhase, proposals, alertPoint, corridor]);
 
   // The responding unit and its trajectory live on their own layer and are
   // moved in place on every poll, so an open popup stays open. Not part of
