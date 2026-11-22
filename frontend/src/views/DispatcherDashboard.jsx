@@ -434,19 +434,29 @@ export default function DispatcherDashboard() {
                     modelled
                     sub={view.phase1_hub?.name}
                   />
-                  <Stat
-                    label="Patient to ER"
-                    value={view.eta_minutes ?? '--'}
-                    unit="min"
-                    modelled
-                    tone="signal"
-                    sub={view.hospital_name}
-                  />
-                  <Stat
-                    label="Transport distance"
-                    value={fmt.km(view.distance_meters)}
-                    unit="km"
-                  />
+                  {sceneOnly && !view.hospital_name ? (
+                    <Stat
+                      label="Station to scene"
+                      value={fmt.km(view.distance_meters)}
+                      unit="km"
+                    />
+                  ) : (
+                    <>
+                      <Stat
+                        label="Patient to ER"
+                        value={view.eta_minutes ?? '--'}
+                        unit="min"
+                        modelled
+                        tone="signal"
+                        sub={view.hospital_name}
+                      />
+                      <Stat
+                        label="Transport distance"
+                        value={fmt.km(view.distance_meters)}
+                        unit="km"
+                      />
+                    </>
+                  )}
                 </div>
               )}
             </Panel>
@@ -564,9 +574,17 @@ export default function DispatcherDashboard() {
               <PanelHead label="Scene response" />
               <div className="space-y-2 px-4 py-3.5 text-[13px] leading-relaxed text-text">
                 <p>{plan.explanation}</p>
-                <p className="t-meta text-text-faint">
-                  No hospital leg. Add an ambulance backup if someone needs transport.
-                </p>
+                {view.hospital_name ? (
+                  <p>
+                    Backup ambulance takes the patient to{' '}
+                    <span className="font-semibold">{view.hospital_name}</span>, the top-ranked
+                    hospital from the scene.
+                  </p>
+                ) : (
+                  <p className="t-meta text-text-faint">
+                    No hospital leg. Add an ambulance backup if someone needs transport.
+                  </p>
+                )}
               </div>
             </Panel>
           ) : plan ? (

@@ -573,8 +573,9 @@ async def approve_incident(incident_id: str, payload: ApprovePayload):
             view = dict(inc.get("citizen_view") or {})
             view.update({"status": "dispatched",
                          "message": f"Help is on the way: {response_profile(inc.get('vehicle_required'))['label'].lower()} dispatched to the scene."})
+            backup_hospital = plan.get("recommended_hospital") if inc.get("include_ambulance_backup") else None
             inc.update({"status": "dispatched", "driver_stage": "pickup", "dispatcher_id": payload.dispatcher_id,
-                        "approved_hospital_id": None, "citizen_view": view})
+                        "approved_hospital_id": (backup_hospital or {}).get("hospital_id"), "citizen_view": view})
             inc["unit_statuses"] = {unit: "dispatched" for unit in required_units(inc)}
             view["unit_statuses"] = inc["unit_statuses"]
             await commit(inc)
@@ -704,8 +705,41 @@ async def clear_incidents():
     from routers.chat import manager
     manager.clear_history()
     return {"status": "cleared"}
+async def _backup_destination(inc: dict) -> dict:
+    """Rank hospitals from the scene and route there, for a backup ambulance
+    added to a scene-only call (it has to take the patient somewhere)."""
+    from agents.hospital_intelligence import NoHospitalCandidatesError, hospital_agent
+    from models.schemas import EmergencyType, HospitalRequest
+    from routers.driver import _route
+
+    try:
+        etype = EmergencyType(inc.get("emergency_type") or "general")
+    except ValueError:
+        etype = EmergencyType.GENERAL
+    scene = dict(inc["location"])
+    try:
+        ranking = await hospital_agent.rank_hospitals(HospitalRequest(
+            incident_location=Coordinate(**scene), emergency_type=etype))
+    except NoHospitalCandidatesError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if not ranking.ranked_hospitals:
+        raise HTTPException(status_code=409, detail="No hospital is accepting patients")
+    ranked = [h.model_dump(mode="json") for h in ranking.ranked_hospitals]
+    top = ranked[0]
+    route = await _route(scene, dict(top["location"]))
+    return {"hospital": top, "ranked": ranked, "route": route}
+
+
 @router.post("/{incident_id}/request_ambulance")
 async def request_ambulance_backup(incident_id: str):
+    async with _INCIDENTS_LOCK:
+        inc = next((i for i in ACTIVE_INCIDENTS if i["incident_id"] == incident_id), None)
+        if inc is None:
+            raise HTTPException(status_code=404, detail="Incident not found")
+        scene_only = (inc.get("action_plan") or {}).get("response_profile") == "scene"
+        has_destination = bool((inc.get("citizen_view") or {}).get("hospital_location"))
+    # A scene-only call has no hospital yet; find one before the backup goes.
+    destination = await _backup_destination(inc) if scene_only and not has_destination else None
     async with _INCIDENTS_LOCK:
         for inc in ACTIVE_INCIDENTS:
             if inc["incident_id"] != incident_id:
@@ -716,6 +750,21 @@ async def request_ambulance_backup(incident_id: str):
                 # No driver can take a second ambulance on a medical call, so it
                 # would be a required unit that can never arrive.
                 raise HTTPException(status_code=409, detail="An ambulance is already the primary unit on this call")
+            if destination is not None:
+                hospital = destination["hospital"]
+                plan = inc.setdefault("action_plan", {})
+                plan["recommended_hospital"] = hospital
+                plan["all_hospitals"] = destination["ranked"]
+                view = inc.setdefault("citizen_view", {})
+                view.update(destination["route"])
+                view.update({
+                    "hospital_name": hospital["name"],
+                    "hospital_location": hospital["location"],
+                    "hospital_phone": _hospital_phone(hospital["name"]),
+                })
+                inc["hospital_phone"] = view["hospital_phone"]
+                if inc.get("status") != "awaiting_dispatcher_approval":
+                    inc["approved_hospital_id"] = hospital.get("hospital_id")
             inc["include_ambulance_backup"] = True
             inc["unit_statuses"] = unit_statuses(inc)
             if "citizen_view" in inc:
