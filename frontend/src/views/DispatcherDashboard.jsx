@@ -12,6 +12,7 @@
  */
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import shortId from '../utils/shortId';
 import { AlertTriangle, Check, CornerUpRight, X } from 'lucide-react';
 import MapOverlay from '../components/MapOverlay';
 import useUnitTrack, { liveEtaMinutes } from '../hooks/useUnitTrack';
@@ -131,14 +132,14 @@ export default function DispatcherDashboard() {
                 const body = await res.clone().json().catch(() => ({}));
                 if (typeof body.detail === 'string' && body.detail.includes('is free right now')) {
                   autoAttempted.current.delete(inc.incident_id);
-                  if (!cancelled) setActionError(`No unit is free for ${inc.incident_id}; it will be approved when one is back.`);
+                  if (!cancelled) setActionError(`No unit is free for ${shortId(inc.incident_id)}; it will be approved when one is back.`);
                   continue;
                 }
               }
-              if (!res?.ok && !cancelled) setActionError(`Auto-approval failed for ${inc.incident_id}${res ? ` (HTTP ${res.status})` : ''}. Review and approve manually.`);
+              if (!res?.ok && !cancelled) setActionError(`Auto-approval failed for ${shortId(inc.incident_id)}${res ? ` (HTTP ${res.status})` : ''}. Review and approve manually.`);
               if (res?.ok) {
                 // A "no unit free" note for this call no longer applies.
-                if (!cancelled) setActionError((e) => (e && e.includes(inc.incident_id) && e.includes('No unit is free') ? null : e));
+                if (!cancelled) setActionError((e) => (e && e.includes(shortId(inc.incident_id)) && e.includes('No unit is free') ? null : e));
                 const updated = await res.json().catch(() => null);
                 if (updated) {
                   setIncidents((prev) =>
@@ -378,7 +379,7 @@ export default function DispatcherDashboard() {
                             isSel ? 'text-signal-hover' : 'text-text'
                           }`}
                         >
-                          {inc.incident_id}
+                          <span title={inc.incident_id}>{shortId(inc.incident_id)}</span>
                         </span>
                         <StatusTag status={inc.status} />
                       </div>

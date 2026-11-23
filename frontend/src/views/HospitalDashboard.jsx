@@ -10,6 +10,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import shortId from '../utils/shortId';
 import { Check, BedDouble } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import LiveEmergencyChat from '../components/LiveEmergencyChat';
@@ -265,8 +266,8 @@ export default function HospitalDashboard() {
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-mono text-[11px] font-bold text-text">
-                            {c.incident_id}
+                          <span className="font-mono text-[11px] font-bold text-text" title={c.incident_id}>
+                            {shortId(c.incident_id)}
                           </span>
                           <SeverityTag severity={c.severity ?? 0} />
                           <span className="t-meta uppercase tracking-[0.1em] text-text-faint">

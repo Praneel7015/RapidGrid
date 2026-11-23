@@ -6,6 +6,7 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
+import shortId from '../utils/shortId';
 import { useAuth } from '../context/AuthContext';
 import { MapPin, Phone, Check, AlertTriangle, ChevronLeft } from 'lucide-react';
 import MapOverlay from '../components/MapOverlay';
@@ -40,6 +41,9 @@ export default function CitizenDashboard() {
   const { citizenInfo } = useAuth();
 
   const [stage, setStage] = useState('home'); // home | report | sending | tracking | failed
+  // The caller's last call, once it is handed over: a closing summary on the
+  // home screen instead of a silent return to "Need emergency help?".
+  const [finished, setFinished] = useState(null);
   const [service, setService] = useState('Ambulance');
   const [details, setDetails] = useState('');
   const [usedVoice, setUsedVoice] = useState(false);
@@ -120,6 +124,11 @@ export default function CitizenDashboard() {
         const latest = mine[mine.length - 1];
         // Only rejoin in-flight work. Failed/completed reports must not trap the home screen.
         const active = latest && !['failed', 'completed', 'arrived'].includes(latest.status) ? latest : null;
+        let dismissed = null;
+        try { dismissed = sessionStorage.getItem('rapidgrid_summary_dismissed'); } catch { /* storage off */ }
+        if (!cancelled && latest && latest.status === 'completed' && latest.incident_id !== dismissed) {
+          setFinished(latest);
+        }
         if (!cancelled && active?.citizen_view) {
           setIncident(latest);
           setPollUrl(`/api/incidents/${latest.incident_id}`);
@@ -225,6 +234,29 @@ export default function CitizenDashboard() {
   if (stage === 'home') {
     return shell(
       <div className="flex min-h-[calc(100vh-120px)] flex-col">
+        {finished && (
+          <Panel className="mb-5" data-testid="call-summary">
+            <PanelHead label={`Incident ${shortId(finished.incident_id)} · complete`} />
+            <div className="space-y-1.5 px-4 py-3.5 text-[13px] leading-relaxed text-text">
+              <p className="text-[14px] font-semibold">
+                {finished.citizen_view?.hospital_name
+                  ? `Handed over at ${finished.citizen_view.hospital_name}.`
+                  : 'The response is complete.'}
+              </p>
+              {finished.assigned_unit && <p className="text-text-muted">Unit {finished.assigned_unit} responded.</p>}
+              <button
+                type="button"
+                className="t-meta font-bold text-text-muted underline-offset-2 hover:underline"
+                onClick={() => {
+                  try { sessionStorage.setItem('rapidgrid_summary_dismissed', finished.incident_id); } catch { /* storage off */ }
+                  setFinished(null);
+                }}
+              >
+                Dismiss
+              </button>
+            </div>
+          </Panel>
+        )}
         <div className="mb-6">
           <h1 className="font-display text-[clamp(22px,6vw,28px)] font-semibold leading-tight text-text">
             Need emergency help?
@@ -455,7 +487,7 @@ export default function CitizenDashboard() {
       {error && <p role="status" className="text-sm text-critical">{error}</p>}
       <Panel>
         <PanelHead
-          label={`Incident ${incident?.incident_id ?? ''}`}
+          label={`Incident ${shortId(incident?.incident_id)}`}
           right={<StatusTag status={incident?.status} />}
         />
         <div className="px-4 py-3.5">

@@ -8,6 +8,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import shortId from '../utils/shortId';
 import { Check, ChevronLeft, Building2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import MapOverlay from '../components/MapOverlay';
@@ -219,8 +220,8 @@ export default function DriverDashboard() {
                 className="block w-full rounded-md border border-rule bg-paper p-4 text-left transition-colors hover:border-signal"
               >
                 <div className="flex items-center justify-between gap-2">
-                  <span className="font-mono text-[12px] font-bold text-text">
-                    {d.incident_id}
+                  <span className="font-mono text-[12px] font-bold text-text" title={d.incident_id}>
+                    {shortId(d.incident_id)}
                   </span>
                   <StatusTag status={d.status} />
                 </div>
@@ -300,7 +301,7 @@ export default function DriverDashboard() {
             {stage === 'transport' && (
               <Stat ink label="Distance" value={fmt.km(view.distance_meters)} unit="km" />
             )}
-            <Stat ink label="Call" value={active.incident_id} tone="muted" />
+            <Stat ink label="Call" value={shortId(active.incident_id)} tone="muted" />
           </div>
         </div>
       </Panel>

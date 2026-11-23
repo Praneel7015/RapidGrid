@@ -21,6 +21,12 @@ ROOT = Path(__file__).resolve().parents[2]
 ACCESS_TOKEN = "browser-test-only-operator-token-not-a-real-credential"
 
 
+def short(incident_id: str) -> str:
+    """The id as screens show it (frontend/src/utils/shortId.js)."""
+    m = re.fullmatch(r"INC-([0-9a-f]{6})[0-9a-f]*", incident_id, re.I)
+    return f"INC-{m.group(1).upper()}" if m else incident_id
+
+
 @pytest.fixture(scope="module")
 def server(tmp_path_factory):
     if not (ROOT / "frontend/dist/index.html").exists():
@@ -176,13 +182,13 @@ def test_report_refresh_dispatch_chat_pickup_refresh_and_handover(context, serve
     incident_id = created.value.json()["incident_id"]
     poll_incident(context, server, incident_id, "awaiting_dispatcher_approval")
     citizen.reload()
-    expect(citizen.get_by_text(incident_id, exact=False).first).to_be_visible(timeout=15000)
+    expect(citizen.get_by_text(short(incident_id), exact=False).first).to_be_visible(timeout=15000)
     assert not any(item["incident_id"] == incident_id for item in
                    context.request.get(server + "/api/driver/active").json()["dispatches"])
 
     dispatcher = context.new_page()
     dispatcher.goto(server + "/dispatcher")
-    dispatcher.get_by_role("button").filter(has_text=incident_id).first.click()
+    dispatcher.get_by_role("button").filter(has_text=short(incident_id)).first.click()
     # The rationale panel's Traffic section renders only if "TRAFFIC:" parses.
     traffic = dispatcher.locator("div").filter(has=dispatcher.locator(".eyebrow", has_text=re.compile(r"^Traffic$"))).last
     expect(traffic).to_contain_text("Modelled, no live feed")
@@ -191,7 +197,7 @@ def test_report_refresh_dispatch_chat_pickup_refresh_and_handover(context, serve
 
     driver = context.new_page()
     driver.goto(server + "/driver")
-    driver.get_by_role("button").filter(has_text=incident_id).first.click()
+    driver.get_by_role("button").filter(has_text=short(incident_id)).first.click()
     message = "Regression test: please confirm this dispatch."
     dispatcher.get_by_role("textbox", name="Message to incident channel").fill(message)
     # A real pointer click catches the overlapping-panel regression; Enter or
@@ -201,7 +207,7 @@ def test_report_refresh_dispatch_chat_pickup_refresh_and_handover(context, serve
 
     hospital = context.new_page()
     hospital.goto(server + "/hospital")
-    expect(hospital.get_by_text(incident_id, exact=True)).to_be_visible()
+    expect(hospital.get_by_text(short(incident_id), exact=True)).to_be_visible()
     driver.get_by_role("button", name="I have reached the patient", exact=True).click()
     poll_incident(context, server, incident_id, "patient_picked_up")
     driver.reload()
@@ -238,7 +244,7 @@ def test_fire_scene_arrival_keeps_backup_ambulance_workflow_active(context, serv
         page.add_init_script("if (location.protocol === 'http:') sessionStorage.setItem('geoagentic_driver', "
                              + json.dumps(profile) + ");")
         page.goto(server + "/driver")
-        page.get_by_role("button").filter(has_text=incident_id).first.click()
+        page.get_by_role("button").filter(has_text=short(incident_id)).first.click()
         return page
 
     fire = unit_page("Fire Engine", "FIRE-TEST")
@@ -387,7 +393,7 @@ def test_ranked_destination_click_needs_explicit_confirmation(context, server):
     approvals = []
     page.on("request", lambda r: approvals.append(r.url) if r.url.endswith("/approve") else None)
     page.goto(server + "/dispatcher")
-    page.get_by_role("button").filter(has_text=incident_id).first.click()
+    page.get_by_role("button").filter(has_text=short(incident_id)).first.click()
     page.get_by_role("button").filter(has_text=target).last.click()
     expect(page.get_by_role("button", name="Confirm dispatch", exact=True)).to_be_visible()
     page.wait_for_timeout(600)
@@ -421,7 +427,7 @@ def test_override_list_also_needs_confirmation(context, server):
     approvals = []
     page.on("request", lambda r: approvals.append(r.url) if r.url.endswith("/approve") else None)
     page.goto(server + "/dispatcher")
-    page.get_by_role("button").filter(has_text=incident_id).first.click()
+    page.get_by_role("button").filter(has_text=short(incident_id)).first.click()
     page.get_by_role("button", name="Send to a different hospital", exact=True).click()
     override = page.locator("div.rise").filter(has_text="Override destination")
     override.get_by_role("button").filter(has_text=target).first.click()
@@ -476,7 +482,7 @@ def test_zoom_button_click_survives_dispatcher_refresh(context, server):
     page = context.new_page()
     page.route("https://tile.openstreetmap.org/**", lambda route: route.abort())
     page.goto(server + "/dispatcher")
-    page.get_by_role("button").filter(has_text=incident_id).first.click()
+    page.get_by_role("button").filter(has_text=short(incident_id)).first.click()
 
     def zoom():
         return page.evaluate("""() => {
@@ -526,7 +532,7 @@ def test_map_popups_show_names_as_text_not_markup(context, server):
     page.route("https://tile.openstreetmap.org/**", lambda route: route.abort())
     page.route(re.compile(r".*/api/incidents/$"), rename)
     page.goto(server + "/dispatcher")
-    page.get_by_role("button").filter(has_text=incident_id).first.click()
+    page.get_by_role("button").filter(has_text=short(incident_id)).first.click()
     page.locator(".rg-marker", has_text="ER").click()
     content = page.locator(".leaflet-popup-content")
     content.wait_for()
@@ -561,7 +567,7 @@ def test_dispatcher_sees_when_triage_cannot_read_a_report(context, server):
     page = context.new_page()
     page.route("https://tile.openstreetmap.org/**", lambda route: route.abort())
     page.goto(server + "/dispatcher")
-    card = page.get_by_role("button").filter(has_text=incident_id).first
+    card = page.get_by_role("button").filter(has_text=short(incident_id)).first
     expect(card).to_contain_text("Kannada", timeout=10000)
 
 
@@ -580,7 +586,7 @@ def test_police_call_is_a_scene_response_without_hospitals(context, server):
     page = context.new_page()
     page.route("https://tile.openstreetmap.org/**", lambda route: route.abort())
     page.goto(server + "/dispatcher")
-    page.get_by_role("button").filter(has_text=incident_id).first.click()
+    page.get_by_role("button").filter(has_text=short(incident_id)).first.click()
     expect(page.get_by_text("Scene response")).to_be_visible()
     expect(page.get_by_role("button", name="Send to a different hospital")).to_have_count(0)
     expect(page.get_by_text("Ranked destinations")).to_have_count(0)
@@ -667,7 +673,7 @@ def test_a_dispatched_unit_moves_on_the_map(context, server):
     page = context.new_page()
     page.route("https://tile.openstreetmap.org/**", lambda route: route.abort())
     page.goto(server + "/dispatcher")
-    page.get_by_role("button").filter(has_text=incident_id).first.click()
+    page.get_by_role("button").filter(has_text=short(incident_id)).first.click()
     expect(page.locator(".rg-marker", has_text="U")).to_be_visible(timeout=10000)
 
     def position():
@@ -683,7 +689,10 @@ def test_a_dispatched_unit_moves_on_the_map(context, server):
     expect(page.locator(".leaflet-popup-content")).to_contain_text("Simulated GPS")
     # The rest of the fleet is on the dispatcher's map too.
     fleet = context.request.get(server + "/api/units").json()["units"]
-    expect(page.locator(".rg-fleet")).to_have_count(len(fleet) - 1, timeout=10000)
+    # Every other unit (the selected call's unit is drawn with its trail; until
+    # its track loads it may be in the fleet layer too).
+    page.wait_for_function("n => document.querySelectorAll('.rg-fleet').length >= n",
+                           arg=len(fleet) - 1, timeout=15000)
     # The agent's live view of the unit, and one remaining time that counts down.
     watching = page.get_by_test_id("agent-watching")
     expect(watching).to_contain_text("To the patient")
@@ -737,7 +746,7 @@ def test_official_scenario_route_blocked_ahead_is_explained_and_rerouted(context
     page = context.new_page()
     page.route("https://tile.openstreetmap.org/**", lambda route: route.abort())
     page.goto(server + "/dispatcher")
-    page.get_by_role("button").filter(has_text=incident_id).first.click()
+    page.get_by_role("button").filter(has_text=short(incident_id)).first.click()
     expect(page.get_by_text("The agent is watching the unit")).to_be_visible(timeout=10000)
     page.wait_for_timeout(2500)  # let the unit start moving
     page.get_by_role("button", name="Close road ahead").click()
@@ -783,7 +792,7 @@ def test_citizen_registers_reports_and_finds_the_call_again(context, server):
     other = context.new_page()
     other.add_init_script("try { sessionStorage.removeItem('rapidgrid_my_incident'); } catch (e) {}")
     other.goto(server + "/citizen")
-    expect(other.get_by_text(incident_id, exact=False).first).to_be_visible(timeout=15000)
+    expect(other.get_by_text(short(incident_id), exact=False).first).to_be_visible(timeout=15000)
     # Nobody else's list contains this caller's details.
     listing = context.request.get(server + "/api/incidents/").text()
     assert "Browser Citizen" not in listing and "55501" not in listing
@@ -935,6 +944,9 @@ def test_guided_demo_runs_the_official_scenario(context, server):
                 crew = page.frame_locator("iframe[title='Ambulance crew screen']")
                 expect(crew.get_by_text("Drive to the patient")).to_be_visible(timeout=15000)
         expect(page.get_by_role("button", name="Run again")).to_be_visible()
+        # The caller's screen closes the call with a summary, not a bare home screen.
+        caller = page.frame_locator("iframe[title='Caller screen']")
+        expect(caller.get_by_test_id("call-summary")).to_contain_text("complete", timeout=15000)
         # One report only: retries never file a second one.
         listed = context.request.get(server + "/api/incidents/", headers=auth).json()["incidents"]
         assert sum(1 for i in listed if (i.get("citizen_text") or "").startswith("Demo: my father")) == 1
