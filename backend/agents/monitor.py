@@ -359,6 +359,12 @@ def best_backup(unit: dict, destination: dict) -> Optional[dict]:
     return best
 
 
+def _route_key(route: list[dict]) -> str:
+    from agents.simulator import route_key
+
+    return route_key(route)
+
+
 def _minutes(seconds: Optional[float]) -> str:
     return "unknown" if seconds is None else f"{seconds / 60:.1f} min"
 
@@ -456,6 +462,7 @@ def analyse(incident: dict, unit: dict, leg: str, route: list[dict], eta_s: Opti
         "unit_id": unit["unit_id"],
         "leg": leg,
         "destination": {"lat": destination["lat"], "lng": destination["lng"]},
+        "route_key": _route_key(route),  # the route this was worked out on
         "trigger": trigger,
         "position": position,
         "cause": cause,

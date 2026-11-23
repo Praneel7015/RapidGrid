@@ -275,6 +275,13 @@ async def store_alerts(alerts: list[tuple[str, dict]]) -> None:
             if leg != alert.get("leg") or (where and route and (
                     abs(route[-1]["lat"] - where["lat"]) > 1e-6 or abs(route[-1]["lng"] - where["lng"]) > 1e-6)):
                 continue
+            # Nor if another unit now holds the call (a backup took over),
+            # or its route changed: the advice was for that unit and route.
+            holder = (fleet.unit_for_incident(incident_id) or {}).get("unit_id")
+            if alert.get("unit_id") and holder != alert["unit_id"]:
+                continue
+            if alert.get("route_key") and route and route_key(route) != alert["route_key"]:
+                continue
             monitoring = inc.setdefault("monitoring", {"alerts": []})
             monitoring["alerts"] = [alert] + monitoring.get("alerts", [])[:9]
             try:
