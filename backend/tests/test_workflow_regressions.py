@@ -1079,23 +1079,37 @@ def _check_ranking_and_change(client, ranking):
 def test_a_slow_ranking_never_holds_up_pickup(client, mocked_route, monkeypatch):
     import time as _t
 
+    monkeypatch.setattr(incident, "_INCIDENTS_LOCK", asyncio.Lock())
+    calls, cancelled = [], []
+
     async def slow(*_a, **_k):
-        await asyncio.sleep(30)
+        calls.append(1)
+        try:
+            await asyncio.sleep(30)
+        except asyncio.CancelledError:
+            cancelled.append(1)
+            raise
 
     monkeypatch.setattr(driver, "RANKING_TIMEOUT_S", 0.2)
     monkeypatch.setattr(hospital_agent, "rank_hospitals", slow)
     started = _t.monotonic()
-    assert _picked_up(client).status_code == 200
-    assert _t.monotonic() - started < 3
-    _t.sleep(0.5)
+    with client:  # one event loop for the request and its background ranking
+        assert _picked_up(client).status_code == 200
+        assert _t.monotonic() - started < 3
+        _t.sleep(0.8)
+    assert calls and cancelled, "the ranking never ran, or the timeout did not cancel it"
     assert "pickup_ranking" not in incident.ACTIVE_INCIDENTS[0]
 
 
 def test_pickup_still_works_if_reranking_fails(client, mocked_route, monkeypatch):
-    monkeypatch.setattr(hospital_agent, "rank_hospitals", AsyncMock(side_effect=RuntimeError("down")))
-    assert _picked_up(client).status_code == 200
+    monkeypatch.setattr(incident, "_INCIDENTS_LOCK", asyncio.Lock())
+    failing = AsyncMock(side_effect=RuntimeError("down"))
+    monkeypatch.setattr(hospital_agent, "rank_hospitals", failing)
     import time as _t
-    _t.sleep(0.3)
+    with client:
+        assert _picked_up(client).status_code == 200
+        _t.sleep(0.3)
+    failing.assert_awaited()  # it ran and failed, rather than never starting
     assert "pickup_ranking" not in incident.ACTIVE_INCIDENTS[0]
 
 

@@ -136,6 +136,9 @@ def test_a_busy_log_makes_the_purge_report_failure(monkeypatch):
         def commit(self):
             return self.real.commit()
 
+        def __getattr__(self, name):
+            return getattr(self.real, name)
+
     from contextlib import contextmanager
     real = storage._connection
 
@@ -148,3 +151,11 @@ def test_a_busy_log_makes_the_purge_report_failure(monkeypatch):
     import pytest
     with pytest.raises(storage.CompactIncomplete):
         storage.compact(database=storage.data_path(), attempts=2)
+    # And the operator is told, through the endpoint, to retry.
+    c, _ = _seed(monkeypatch)
+    monkeypatch.setattr(security, "authenticated", lambda request: True)
+    real_compact = storage.compact
+    monkeypatch.setattr(storage, "compact", lambda **k: real_compact(**{**k, "attempts": 1}))
+    r = c.post("/api/session/purge", json={})
+    assert r.status_code == 503
+    assert "retry" in r.json()["detail"].lower() or "again" in r.json()["detail"].lower()
