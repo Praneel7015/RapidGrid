@@ -313,8 +313,12 @@ class LocalGraphRouter:
         origin: tuple[float, float],
         destination: tuple[float, float],
         penalty: dict[int, float] | None = None,
+        also_blocked: set[int] | None = None,
     ) -> dict[str, Any] | None:
         """A* shortest-time path between two coordinates.
+
+        also_blocked: edges treated as closed for this search only, on top of
+        the city's closures (to test a closure before applying it).
 
         Each point snaps to its nearest road node. OpenStreetMap one-ways
         leave pockets you can drive into but not out of; for a point there,
@@ -333,7 +337,7 @@ class LocalGraphRouter:
         if starts[0] == goals[0]:
             return None  # the same road node: no route to compute
         # A start whose every outgoing road is closed cannot be left.
-        blocked = self._blocked
+        blocked = self._blocked | also_blocked if also_blocked else self._blocked
         open_starts = [n for n in starts
                        if any(self._adj_edges[slot] not in blocked
                               for slot in range(self._adj_start[n], self._adj_start[n + 1]))]
@@ -342,7 +346,7 @@ class LocalGraphRouter:
         open_starts = [n for n in open_starts if n not in goals]
         if not open_starts:
             return None
-        result = self._search(open_starts, set(goals), destination, penalty)
+        result = self._search(open_starts, set(goals), destination, penalty, blocked)
         if result is None:
             logger.warning("No connected path found between the snapped endpoints")
             return None
@@ -358,6 +362,7 @@ class LocalGraphRouter:
         goals: set[int],
         destination: tuple[float, float],
         penalty: dict[int, float] | None = None,
+        blocked: set[int] | None = None,
     ) -> dict[str, Any] | None:
         """
         A* shortest-time search from any of `starts` to any of `goals`.
@@ -386,7 +391,7 @@ class LocalGraphRouter:
         expansions = 0
 
         adj_start, adj_edges, edge_to = self._adj_start, self._adj_edges, self.edge_to
-        blocked = self._blocked
+        blocked = self._blocked if blocked is None else blocked
 
         while open_heap:
             _, current = heapq.heappop(open_heap)

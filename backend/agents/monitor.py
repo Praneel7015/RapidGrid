@@ -67,6 +67,8 @@ BACKUP_MIN_GAIN_FRACTION = 0.2  # ... and at least 20%
 ALT_PENALTY = 1.8
 ALT_MAX_OVERLAP = 0.7
 LOG_SIZE = 200
+DISMISS_QUIET_S = 60.0
+DISMISS_FURTHER_M = 500.0
 
 
 # --- geometry -------------------------------------------------------------------
@@ -175,14 +177,20 @@ class Watch:
     started_near_station: bool = True
     last_fix_at: Optional[float] = None   # a fix is counted once, not every tick
     alert_city_version: tuple = ()        # the city state the open alert was about
+    # After dispatch dismissed a deviation: no new deviation alert until the
+    # unit is back on route, is much further off, or this time has passed.
+    quiet_until: float = 0.0
+    quiet_off_m: float = 0.0
 
 
 _watches: dict[str, Watch] = {}
+_last_off: dict[str, float] = {}  # unit_id -> metres off its route at the last tick
 decision_log: deque = deque(maxlen=LOG_SIZE)
 
 
 def reset() -> None:
     _watches.clear()
+    _last_off.clear()
     decision_log.clear()
 
 
@@ -505,9 +513,14 @@ def tick(incidents: list[dict]) -> list[tuple[str, dict]]:
         if watch.leg_key != leg_key:
             # A new leg (or an accepted reroute): start watching it afresh.
             new_leg = watch.leg_key.rsplit(":", 1)[0] != leg_key.rsplit(":", 1)[0]
+            handled = watch.city_version
             watch.leg_key, watch.progress, watch.off_count, watch.alert_id = leg_key, 0, 0, None
-            watch.city_version = ()
             watch.alert_city_version = ()
+            # A reroute of the same leg (dispatch accepted a route around the
+            # closure) keeps the city state already handled: the closure it
+            # was routed around must not raise the same alert again. A new
+            # leg, or a city change after this, is checked afresh.
+            watch.city_version = () if new_leg else handled
             if new_leg:
                 # Only a new call or leg decides whether a phone unit is
                 # watched for deviations; a reroute of the same leg keeps it.
@@ -517,6 +530,7 @@ def tick(incidents: list[dict]) -> list[tuple[str, dict]]:
         pos = unit["position"]
         point = {"lat": pos["lat"], "lng": pos["lng"]}
         off, index = project(route, point, watch.progress)
+        _last_off[unit["unit_id"]] = off
         accuracy = pos.get("accuracy_m") or 0.0
         usable = accuracy <= MAX_ACCURACY_M and watch.started_near_station
         fresh = pos.get("at") is None or pos.get("at") != watch.last_fix_at
@@ -524,6 +538,7 @@ def tick(incidents: list[dict]) -> list[tuple[str, dict]]:
         if off <= OFF_ROUTE_M + accuracy:
             watch.progress = max(watch.progress, index)
             watch.off_count = 0
+            watch.quiet_until = 0.0  # back on route: a new deviation counts again
         elif usable and fresh:
             # Three distinct fixes, not one fix seen on three ticks (a phone
             # that sent one bad fix and then went quiet).
@@ -534,7 +549,8 @@ def tick(incidents: list[dict]) -> list[tuple[str, dict]]:
             # meanwhile, so a new closure is still checked once it is handled.
             continue
         trigger = None
-        if watch.off_count >= OFF_ROUTE_FIXES:
+        quiet = time.time() < watch.quiet_until and off < watch.quiet_off_m + DISMISS_FURTHER_M
+        if watch.off_count >= OFF_ROUTE_FIXES and not quiet:
             trigger = "deviation"
         elif watch.city_version != version:
             watch.city_version = version
@@ -555,9 +571,16 @@ def tick(incidents: list[dict]) -> list[tuple[str, dict]]:
     return new_alerts
 
 
-def clear_alert(unit_id: str) -> None:
-    """The dispatcher acted on (or dismissed) the unit's alert; watch again."""
+def clear_alert(unit_id: str, dismissed_deviation: bool = False) -> None:
+    """The dispatcher acted on (or dismissed) the unit's alert; watch again.
+
+    dismissed_deviation: dispatch saw the unit off its route and chose to
+    leave it. The same deviation then stays quiet for DISMISS_QUIET_S, unless
+    the unit gets DISMISS_FURTHER_M further off (or rejoins the route)."""
     watch = _watches.get(unit_id)
+    if watch and dismissed_deviation:
+        watch.quiet_until = time.time() + DISMISS_QUIET_S
+        watch.quiet_off_m = _last_off.get(unit_id, 0.0)
     if watch:
         watch.alert_id = None
         watch.off_count = 0

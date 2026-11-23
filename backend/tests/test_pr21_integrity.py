@@ -147,7 +147,7 @@ def test_a_disruption_is_not_staged_after_the_call_moved_on(client, monkeypatch)
     report["assigned_unit"] = fleet.unit_for_incident("INC-review")["unit_id"]
     report["citizen_view"]["phase1_route_coordinates"] = [{"lat": 13.03, "lng": 77.59}, {"lat": 13.035, "lng": 77.597}]
 
-    def edges(route, index, position):
+    def edges(route, index, position, keep_open=()):
         report["status"] = "patient_picked_up"  # pickup happened during the search
         return [1, 2]
 
