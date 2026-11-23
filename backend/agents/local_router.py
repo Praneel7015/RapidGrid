@@ -337,6 +337,9 @@ class LocalGraphRouter:
         open_starts = [n for n in starts
                        if any(self._adj_edges[slot] not in blocked
                               for slot in range(self._adj_start[n], self._adj_start[n + 1]))]
+        # A node that is both a start and a goal candidate would give an
+        # empty route; other candidates can still reach it as a goal.
+        open_starts = [n for n in open_starts if n not in goals]
         if not open_starts:
             return None
         result = self._search(open_starts, set(goals), destination, penalty)
@@ -366,12 +369,13 @@ class LocalGraphRouter:
         Returns a dict with coordinates, travel time, distance and the road
         names traversed, or None if no connected path exists.
         """
-        goal_lat, goal_lng = destination
+        # Distance to the nearest goal candidate (not the requested point),
+        # so the heuristic never overestimates and the route is the fastest.
+        goal_points = [(self.lat[g], self.lng[g]) for g in goals]
 
         def heuristic(node: int) -> float:
-            return haversine(
-                self.lat[node], self.lng[node], goal_lat, goal_lng
-            ) / _MAX_SPEED_MS
+            la, ln = self.lat[node], self.lng[node]
+            return min(haversine(la, ln, gl, gn) for gl, gn in goal_points) / _MAX_SPEED_MS
 
         g_score: dict[int, float] = {s: 0.0 for s in starts}
         came_from: dict[int, tuple[int, int]] = {}  # node -> (prev_node, edge_id)
