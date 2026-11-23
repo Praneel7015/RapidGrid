@@ -76,9 +76,18 @@ _progress: dict[str, tuple[str, float, Optional[dict]]] = {}
 _detours: dict[str, tuple[str, list[dict], float]] = {}
 
 
+def route_key(route: list[dict]) -> str:
+    """Identity of a route's geometry: any change (a reroute, even one with
+    the same number of points) gives a new key."""
+    import hashlib
+
+    text = ";".join(f"{p['lat']:.6f},{p['lng']:.6f}" for p in route)
+    return hashlib.blake2s(text.encode(), digest_size=8).hexdigest()
+
+
 def leg_key(incident: dict) -> Optional[str]:
     key, route, _eta = _leg(incident)
-    return f"{incident['incident_id']}:{key}:{len(route)}" if key and len(route) >= 2 else None
+    return f"{incident['incident_id']}:{key}:{route_key(route)}" if key and len(route) >= 2 else None
 
 
 def set_detour(unit_id: str, incident: dict, detour: list[dict]) -> None:
@@ -110,7 +119,7 @@ def step(incidents: list[dict], dt_s: float = TICK_S) -> int:
         key, route, eta_s = _leg(incident)
         if key is None or len(route) < 2:
             continue
-        leg_key = f"{incident['incident_id']}:{key}:{len(route)}"
+        leg_key = f"{incident['incident_id']}:{key}:{route_key(route)}"
         detour = _detours.get(unit["unit_id"])
         if detour is not None and detour[0] != leg_key:
             _detours.pop(unit["unit_id"], None)  # the leg changed: back to normal
@@ -124,7 +133,10 @@ def step(incidents: list[dict], dt_s: float = TICK_S) -> int:
             moved += 1
             continue
         previous_key, travelled, start = _progress.get(unit["unit_id"], (None, 0.0, None))
-        if previous_key != leg_key:
+        # A phone that stopped sending: simulation takes over from its last
+        # real fix, not from where the simulation had left the unit.
+        handover = unit["position"].get("source") == "gps"
+        if previous_key != leg_key or handover:
             travelled = 0.0
             # A unit that is not at the leg's start (a backup taking over, or
             # a phone that stopped sending) drives from where it is, not
@@ -160,10 +172,16 @@ def _closure_on(route: list[dict], start_m: float, end_m: float) -> Optional[flo
     for a, b in zip(route, route[1:]):
         seg = _distance(a, b)
         if travelled + seg >= start_m and travelled <= end_m:
+            first = None
             for c in closed:
                 p, q = c["coordinates"]
-                if point_segment_m(p, a, b)[0] < 8 and point_segment_m(q, a, b)[0] < 8:
-                    return max(0.0, travelled - 15.0)
+                (dp, tp), (dq, tq) = point_segment_m(p, a, b), point_segment_m(q, a, b)
+                if dp < 8 and dq < 8:
+                    # Where along this segment the closure begins.
+                    at = travelled + seg * min(tp, tq)
+                    first = at if first is None else min(first, at)
+            if first is not None and first - 15.0 <= end_m and first >= start_m - 15.0:
+                return max(0.0, first - 15.0)
         if travelled > end_m:
             break
         travelled += seg
@@ -265,8 +283,9 @@ async def run() -> None:
                 alerts = await asyncio.to_thread(monitor.tick, active)
                 if alerts:
                     await store_alerts(alerts)
-                if any(_stale_open_alerts(i) for i in active):
-                    await supersede_stale_alerts()
+                # Every call, finished ones included: an open alert on a
+                # completed call must close too. Writes only what is stale.
+                await supersede_stale_alerts()
         except asyncio.CancelledError:
             raise
         except Exception:

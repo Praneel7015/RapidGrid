@@ -71,7 +71,16 @@ def test_no_alert_while_the_unit_follows_its_route(city):
         assert monitor.tick([incident]) == []
 
 
-def test_a_road_closed_ahead_is_detected_explained_and_rerouted(city):
+def test_a_road_closed_ahead_is_detected_explained_and_rerouted(city, monkeypatch):
+    proposed = []  # the routes the alert was built from, edges and all
+    real_alternatives = monitor.alternatives
+
+    def recording(*a, **k):
+        routes = real_alternatives(*a, **k)
+        proposed.extend(routes)
+        return routes
+
+    monkeypatch.setattr(monitor, "alternatives", recording)
     incident = call_to((12.985, 77.594), ASTER_HUB)
     drive(incident)
     unit = fleet.unit_for_incident("INC-mon")
@@ -87,7 +96,8 @@ def test_a_road_closed_ahead_is_detected_explained_and_rerouted(city):
     assert alert["cause"]["kind"] == "roadblock"
     assert alert["delay_s"] is not None and alert["new_eta_s"] > 0
     assert 1 <= len(alert["routes"]) <= 3
-    assert not set(edges) & {e for r in monitor.alternatives(unit["position"], incident["location"]) for e in r["edge_ids"]}
+    assert len(proposed) == len(alert["routes"])
+    assert not set(edges) & {e for r in proposed for e in r["edge_ids"]}
     assert "Cause: road closed ahead" in alert["explanation"]
     assert alert["recommendation"] in {"reroute", "dispatch_backup"}
     assert alert["provenance"] == "modelled"
