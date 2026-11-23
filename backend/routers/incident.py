@@ -538,7 +538,6 @@ async def report_incident(payload: IncidentReportPayload, response: Response, re
     # An explicitly anonymous report never carries an account's details,
     # even if this browser is still signed in (a shared phone).
     me = None if payload.anonymous else await current_citizen(request)
-    _admit_report(request, signed_in=bool(me))
     incident = {
         "incident_id": incident_id,
         "location": payload.location.model_dump(),
@@ -553,6 +552,9 @@ async def report_incident(payload: IncidentReportPayload, response: Response, re
         "action_plan": None
     }
     async with _INCIDENTS_LOCK:
+        # Checked and appended without a suspension between them, so
+        # concurrent reports cannot overshoot the pending cap.
+        _admit_report(request, signed_in=bool(me))
         ACTIVE_INCIDENTS.append(incident)
         await commit(incident)  # on failure the record is removed and the caller gets an error
         try:
@@ -728,8 +730,10 @@ def _assign_unit(inc: dict) -> None:
     vehicle = inc.get("vehicle_required") or "Ambulance"
     if vehicle == "Medical":
         vehicle = "Ambulance"  # the fleet has no separate "Medical" units
-    unit = fleet.assign(inc["incident_id"], vehicle,
-                        near=dict(inc["location"]), prefer_station=hub.get("name"))
+    from routers.driver import units_on_calls
+
+    unit = fleet.assign(inc["incident_id"], vehicle, near=dict(inc["location"]),
+                        prefer_station=hub.get("name"), exclude=units_on_calls(inc["incident_id"]))
     inc["assigned_unit"] = unit["unit_id"] if unit else None
     view["assigned_unit"] = inc["assigned_unit"]
     if unit is None:
