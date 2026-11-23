@@ -234,6 +234,7 @@ async def store_alerts(alerts: list[tuple[str, dict]]) -> None:
 
 
 _POSTING: set = set()
+TICK_LOCK = asyncio.Lock()
 POST_TIMEOUT_S = 5.0
 
 
@@ -254,17 +255,18 @@ async def run() -> None:
     logger.info("Unit simulator running: tick %.0f s, speed x%.0f", TICK_S, sim_speed())
     while True:
         try:
-            async with incident_router._INCIDENTS_LOCK:
-                active = [incident_router.snapshot(i) for i in incident_router.ACTIVE_INCIDENTS
-                          if i.get("status") in ("dispatched", "patient_picked_up")]
-            step(active)
-            from agents import monitor
+            async with TICK_LOCK:  # a demo reset waits for a tick in flight
+                async with incident_router._INCIDENTS_LOCK:
+                    active = [incident_router.snapshot(i) for i in incident_router.ACTIVE_INCIDENTS
+                              if i.get("status") in ("dispatched", "patient_picked_up")]
+                step(active)
+                from agents import monitor
 
-            alerts = await asyncio.to_thread(monitor.tick, active)
-            if alerts:
-                await store_alerts(alerts)
-            if any(_stale_open_alerts(i) for i in active):
-                await supersede_stale_alerts()
+                alerts = await asyncio.to_thread(monitor.tick, active)
+                if alerts:
+                    await store_alerts(alerts)
+                if any(_stale_open_alerts(i) for i in active):
+                    await supersede_stale_alerts()
         except asyncio.CancelledError:
             raise
         except Exception:

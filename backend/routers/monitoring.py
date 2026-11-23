@@ -270,3 +270,59 @@ async def stage_disruption(incident_id: str, demo: DemoAction, request: Request 
                  f"{unit['unit_id']}.")
     return {"status": "staged", "action": demo.action, "road": road, "segments": len(edges),
             "detail": {k: v for k, v in result.items() if k in ("closed", "displaced", "obstructed")}}
+
+
+async def reset_event_state() -> dict:
+    """Every call, message, agent decision, closure, weather change, cached
+    route and hospital override cleared; every unit available at its
+    station. Citizen accounts stay. Waits for a simulator tick in flight."""
+    from agents.hospital_intelligence import hospital_agent
+    from routers import incident as incident_router
+    from routers.chat import manager
+    from storage import save_collection
+
+    async with simulator.TICK_LOCK:
+        for task in list(simulator._POSTING):
+            task.cancel()
+        async with incident_router._INCIDENTS_LOCK:
+            cleared = len(incident_router.ACTIVE_INCIDENTS)
+            incident_router.ACTIVE_INCIDENTS.clear()
+            incident_router.save_db()
+        fleet.reset()
+        simulator.reset()
+        monitor.reset()
+        manager.clear_history()
+        if not city_state.ready:
+            city_state.attach(local_router)
+        city_state.weather = "Clear"
+        city_state.interventions.clear()
+        city_state.clear()
+        incident_router.route_agent._cache.clear()
+        incident_router._reports.clear()
+        save_collection("hospital_capacity", {}, database=incident_router.persistence_path())
+        for key in list(hospital_agent.diverted):
+            hospital_agent.set_divert(key, on_divert=False)
+        for key in list(hospital_agent._reported_beds):
+            hospital_agent.set_reported_beds(key, None)
+    return {"incidents_cleared": cleared, "units": len(fleet.units())}
+
+
+@router.post("/api/monitoring/reset")
+async def reset_for_demo(request: Request = None):
+    """Dispatch: start the demo from a clean slate (run before presenting).
+    In the open demo (no staff PINs) only the operator may reset, so a
+    visitor cannot wipe the stage."""
+    import security
+    import staff
+
+    if staff.enabled():
+        who = require_staff(request, "dispatcher")
+    elif request is not None and security.authenticated(request):
+        who = ("operator", "*")
+    else:
+        raise HTTPException(status_code=401, detail="Resetting needs the dispatcher (or operator) sign-in")
+    result = await reset_event_state()
+    monitor._log("-", "-", "demo", "Demo reset: calls, messages, closures and diverts cleared; units at stations.")
+    import logging
+    logging.getLogger("geoagentic.monitoring").info("Demo reset by %s", who[0])
+    return {"status": "reset", **result}
