@@ -50,9 +50,16 @@ MAX_DELAY_S = 60.0
 CLIENT_FAILURES = 20
 CLIENT_WINDOW_S = 10 * 60
 
+# Account-wide: past ACCOUNT_FAILURES failures in ACCOUNT_WINDOW_S, only a
+# client with no failures on that account may try. A stranger therefore
+# cannot lock the real dispatcher out, and many addresses buy one guess each.
+ACCOUNT_FAILURES = 30
+ACCOUNT_WINDOW_S = 60 * 60
+
 _lock = threading.Lock()
-_accounts: dict[str, tuple[int, float]] = {}  # key -> (failures, not_before)
+_accounts: dict[str, tuple[int, float]] = {}  # (account, client) -> (failures, not_before)
 _clients: dict[str, list[float]] = {}
+_account_failures: dict[str, list[float]] = {}  # account -> failure times
 
 
 def _secret() -> bytes:
@@ -60,8 +67,12 @@ def _secret() -> bytes:
     random secret generated once and kept in the data directory (mode 0600),
     so sessions and stored citizen PIN hashes survive a restart."""
     value = os.getenv("RAPIDGRID_SECRET", "")
-    if value:
+    if len(value) >= 32:
         return value.encode()
+    if value:
+        # A short secret would make cookies and PIN hashes guessable: use
+        # the generated one instead, and say so (A02).
+        logger.error("RAPIDGRID_SECRET is shorter than 32 characters; ignoring it")
     import storage
 
     path = Path(storage.data_path()).parent / "secret.key"
@@ -113,36 +124,55 @@ def reset_throttle() -> None:
     with _lock:
         _accounts.clear()
         _clients.clear()
+        _account_failures.clear()
+
+
+def _pair(account: str, client: str) -> str:
+    return account + "\x00" + client
 
 
 def _wait(account: str, client: str) -> int:
     now = time.monotonic()
     with _lock:
-        _failures, not_before = _accounts.get(account, (0, 0.0))
+        failures, not_before = _accounts.get(_pair(account, client), (0, 0.0))
         recent = [t for t in _clients.get(client, []) if now - t < CLIENT_WINDOW_S]
         _clients[client] = recent
         waits = [not_before - now] if not_before > now else []
         if len(recent) >= CLIENT_FAILURES:
             waits.append(CLIENT_WINDOW_S - (now - recent[0]))
+        on_account = [t for t in _account_failures.get(account, []) if now - t < ACCOUNT_WINDOW_S]
+        _account_failures[account] = on_account
+        # Only a client that has itself failed repeatedly is held by the
+        # account-wide ceiling: one typo by the real user never locks them out.
+        if failures >= FREE_FAILURES and len(on_account) >= ACCOUNT_FAILURES:
+            waits.append(ACCOUNT_WINDOW_S - (now - on_account[0]))
     return int(max(waits)) + 1 if waits else 0
 
 
 def _fail(account: str, client: str) -> None:
     now = time.monotonic()
     with _lock:
-        failures, _ = _accounts.get(account, (0, 0.0))
+        key = _pair(account, client)
+        failures, _ = _accounts.get(key, (0, 0.0))
         failures += 1
         delay = 0.0 if failures <= FREE_FAILURES else min(MAX_DELAY_S, 2.0 ** (failures - FREE_FAILURES))
-        _accounts[account] = (failures, now + delay)
+        _accounts[key] = (failures, now + delay)
         _clients.setdefault(client, []).append(now)
+        _account_failures.setdefault(account, []).append(now)
         if len(_clients) > 2000:
-            for key in [k for k, v in _clients.items() if not v or now - v[-1] >= CLIENT_WINDOW_S]:
-                del _clients[key]
+            for k in [k for k, v in _clients.items() if not v or now - v[-1] >= CLIENT_WINDOW_S]:
+                del _clients[k]
+        if len(_account_failures) > 5000:
+            for k in [k for k, v in _account_failures.items() if not v or now - v[-1] >= ACCOUNT_WINDOW_S]:
+                del _account_failures[k]
+        if len(_accounts) > 5000:
+            for k in [k for k, (_f, nb) in _accounts.items() if now - nb >= ACCOUNT_WINDOW_S]:
+                del _accounts[k]
 
 
-def _succeed(account: str) -> None:
+def _succeed(account: str, client: str = "") -> None:
     with _lock:
-        _accounts.pop(account, None)
+        _accounts.pop(_pair(account, client), None)
 
 
 # --- Sessions -----------------------------------------------------------------
@@ -270,7 +300,7 @@ async def staff_login(payload: StaffLogin, request: Request, response: Response)
         _fail(account, client)
         logger.warning("Wrong staff PIN for %s", log_safe(account))
         raise HTTPException(status_code=401, detail="Wrong sign-in details")
-    _succeed(account)
+    _succeed(account, client)
     secure = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
     response.set_cookie(COOKIE_NAME, _cookie_value(payload.role, subject), max_age=SESSION_SECONDS,
                         httponly=True, secure=secure, samesite="strict", path="/")

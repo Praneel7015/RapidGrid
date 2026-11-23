@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import uuid
 from typing import Dict, List, Literal, Set
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException, Request
 from pydantic import BaseModel, Field
 from datetime import datetime, timezone
 import asyncio
@@ -133,8 +133,42 @@ async def get_chat_history(incident_id: str):
     history = await manager.load(incident_id)
     return {"messages": history}
 
+_STAFF_CHAT_ROLE = {"dispatcher": "dispatcher", "operator": "dispatcher", "unit": "driver", "hospital": "hospital"}
+
+
+def sender_role_for(connection, claimed: str, incident_id: str | None = None) -> str | None:
+    """The role a message is shown under. With staff sign-in on it comes from
+    the session, never the request: a staff sign-in posts as its role, and
+    everyone else as the caller (A01; no one can post as dispatch). A unit or
+    hospital posts only to calls it is on; otherwise None (refused)."""
+    import staff
+
+    if not staff.enabled():
+        return claimed
+    who = staff.current(connection) if connection is not None else None
+    if not who:
+        return "citizen"
+    if incident_id is not None and who[0] in {"unit", "hospital"} and not _on_call(who, incident_id):
+        return None
+    return _STAFF_CHAT_ROLE.get(who[0], "citizen")
+
+
+def _on_call(who: tuple[str, str], incident_id: str) -> bool:
+    from routers.driver import _assignments
+    from routers.hospital import _resolve
+
+    inc = next((i for i in ACTIVE_INCIDENTS if i.get("incident_id") == incident_id), None)
+    if inc is None:
+        return False
+    if who[0] == "unit":
+        return who[1] in {inc.get("assigned_unit"), *_assignments(inc).values()}
+    raw = inc.get("approved_hospital_id") or (
+        ((inc.get("action_plan") or {}).get("recommended_hospital") or {}).get("hospital_id"))
+    return bool(raw) and (_resolve(str(raw)) or raw) == (_resolve(who[1]) or who[1])
+
+
 @router.post("/{incident_id}/send")
-async def send_chat_message(incident_id: str, payload: ChatMessagePayload):
+async def send_chat_message(incident_id: str, payload: ChatMessagePayload, request: Request = None):
     if payload.incident_id != incident_id:
         raise HTTPException(status_code=400, detail="Message incident does not match channel")
     if not incident_exists(incident_id):
@@ -142,9 +176,12 @@ async def send_chat_message(incident_id: str, payload: ChatMessagePayload):
     body = (payload.message or "").strip()
     if not body:
         raise HTTPException(status_code=400, detail="Message cannot be empty")
+    role = sender_role_for(request, payload.sender_role, incident_id)
+    if role is None:
+        raise HTTPException(status_code=403, detail="Only staff on this call can post to its channel")
     msg_data = _build_message(
         incident_id,
-        payload.sender_role,
+        role,
         safe_sender_name(payload.sender_name),
         body,
     )

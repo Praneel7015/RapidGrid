@@ -128,15 +128,29 @@ def _incoming(hospital_id: str) -> list[dict]:
     return incoming
 
 
+def _require_hospital_or_dispatch(request, hospital_id: str) -> None:
+    """That hospital's own sign-in, or dispatch (A01)."""
+    from fastapi import HTTPException as _H
+
+    try:
+        require_staff(request, "dispatcher")
+        return
+    except _H:
+        pass
+    require_staff(request, "hospital", _resolve(hospital_id) or hospital_id)
+
+
 @router.get("/incoming/all")
-async def get_all_incoming_cases():
+async def get_all_incoming_cases(request: Request = None):
+    require_staff(request, "dispatcher")  # every hospital's patients: dispatch only (A01)
     async with _INCIDENTS_LOCK:
         return {"incoming": snapshot(_incoming("all"))}
 
 
 @router.get("/{hospital_id}/incoming")
-async def get_incoming_cases(hospital_id: str, name: str | None = None):
+async def get_incoming_cases(hospital_id: str, name: str | None = None, request: Request = None):
     # Names in the query string never broaden the requested facility scope.
+    _require_hospital_or_dispatch(request, hospital_id)
     async with _INCIDENTS_LOCK:
         return {"incoming": snapshot(_incoming(hospital_id))}
 
