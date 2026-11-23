@@ -235,6 +235,7 @@ async def stage_disruption(incident_id: str, demo: DemoAction, request: Request 
     require_staff(request, "dispatcher")
     from routers import incident as incident_router
 
+    generation = RESET_GENERATION
     async with incident_router._INCIDENTS_LOCK:
         inc = next((i for i in incident_router.ACTIVE_INCIDENTS if i["incident_id"] == incident_id), None)
         snapshot = incident_router.snapshot(inc) if inc else None
@@ -251,6 +252,7 @@ async def stage_disruption(incident_id: str, demo: DemoAction, request: Request 
 
     if demo.action == "wrong_turn":
         path = await asyncio.to_thread(wrong_turn_path, route, index, position)
+        _still_current(generation)
         if not path:
             raise HTTPException(status_code=409, detail="No side road found for a wrong turn here")
         simulator.set_detour(unit["unit_id"], snapshot, path)
@@ -258,6 +260,7 @@ async def stage_disruption(incident_id: str, demo: DemoAction, request: Request 
         return {"status": "staged", "action": demo.action}
 
     edges = await asyncio.to_thread(edges_to_close, route, index, position)
+    _still_current(generation)
     if not edges:
         raise HTTPException(status_code=409, detail="The unit is too close to its destination to stage this")
     road = monitor.main_road([{"road": local_router.road_names[local_router.edge_name[e]]} for e in edges])
@@ -272,6 +275,16 @@ async def stage_disruption(incident_id: str, demo: DemoAction, request: Request 
             "detail": {k: v for k, v in result.items() if k in ("closed", "displaced", "obstructed")}}
 
 
+# Bumped by every reset: a demo staging request that started before a reset
+# must not close roads or log decisions for a call that no longer exists.
+RESET_GENERATION = 0
+
+
+def _still_current(generation: int) -> None:
+    if generation != RESET_GENERATION:
+        raise HTTPException(status_code=409, detail="The demo was reset; nothing was staged")
+
+
 async def reset_event_state() -> dict:
     """Every call, message, agent decision, closure, weather change, cached
     route and hospital override cleared; every unit available at its
@@ -281,7 +294,9 @@ async def reset_event_state() -> dict:
     from routers.chat import manager
     from storage import save_collection
 
+    global RESET_GENERATION
     async with simulator.TICK_LOCK:
+        RESET_GENERATION += 1
         for task in list(simulator._POSTING):
             task.cancel()
         async with incident_router._INCIDENTS_LOCK:
@@ -291,7 +306,7 @@ async def reset_event_state() -> dict:
         fleet.reset()
         simulator.reset()
         monitor.reset()
-        manager.clear_history()
+        await manager.clear_all()
         if not city_state.ready:
             city_state.attach(local_router)
         city_state.weather = "Clear"

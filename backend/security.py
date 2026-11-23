@@ -585,7 +585,10 @@ async def purge_personal_data(request: Request, response: Response):
             except Exception:
                 pass
     manager.active_connections.clear()
-    manager.clear_history()  # a message that raced the reset
-    await asyncio.to_thread(storage.compact, database=database)
+    await manager.clear_all()  # waits for any message write in flight
+    try:
+        await asyncio.to_thread(storage.compact, database=database)
+    except storage.CompactIncomplete:
+        raise HTTPException(status_code=503, detail="Purge incomplete: the database is busy. Run it again.") from None
     logging.getLogger("geoagentic.security").warning("Personal data purged: %d accounts", accounts)
     return {"status": "purged", "accounts_deleted": accounts, **result}
