@@ -35,6 +35,16 @@ def _example_contacts(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _fresh_report_limits(monkeypatch):
+    """Report and sign-in limits start empty in every test."""
+    import staff
+    from routers import incident
+
+    monkeypatch.setattr(incident, "_reports", {})
+    staff.reset_throttle()
+
+
+@pytest.fixture(autouse=True)
 def _fresh_fleet(monkeypatch, tmp_path):
     """Each test gets its own data directory and a fleet rebuilt from it."""
     import fleet

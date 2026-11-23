@@ -258,7 +258,7 @@ async def _check_pin(payload, request, response, cid, account_key, client):
     if not ok:
         staff._fail(account_key, client)
         raise HTTPException(status_code=401, detail="Wrong phone number or PIN")
-    staff._succeed(account_key)
+    staff._succeed(account_key, client)
     _set_cookie(request, response, cid)
     return {"name": account["name"], "phone": account["phone"]}
 

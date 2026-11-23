@@ -30,7 +30,8 @@ def server(tmp_path_factory):
         port = sock.getsockname()[1]
     directory = tmp_path_factory.mktemp("rapidgrid-browser")
     env = dict(os.environ, RAPIDGRID_MODE="operator", RAPIDGRID_OPERATOR_TOKEN=ACCESS_TOKEN,
-               RAPIDGRID_DATA_DIR=str(directory), GOOGLE_ROUTES_API_KEY="", OPENWEATHER_API_KEY="")
+               RAPIDGRID_DATA_DIR=str(directory), GOOGLE_ROUTES_API_KEY="", OPENWEATHER_API_KEY="",
+               RAPIDGRID_REPORT_LIMIT="1000")  # the whole suite reports from one address
     base = f"http://127.0.0.1:{port}"
     with (directory / "server.log").open("w") as log:
         process = subprocess.Popen([sys.executable, str(Path(__file__).with_name("server.py")), str(port)],
@@ -602,8 +603,8 @@ def staff_server(tmp_path_factory):
         port = sock.getsockname()[1]
     directory = tmp_path_factory.mktemp("rapidgrid-staff")
     env = dict(os.environ, RAPIDGRID_MODE="demo", RAPIDGRID_DATA_DIR=str(directory),
-               RAPIDGRID_CONTACTS=json.dumps(STAFF_DIRECTORY), RAPIDGRID_SECRET="browser-test-secret",
-               GOOGLE_ROUTES_API_KEY="", OPENWEATHER_API_KEY="")
+               RAPIDGRID_CONTACTS=json.dumps(STAFF_DIRECTORY), RAPIDGRID_SECRET="browser-test-secret-at-least-32-chars",
+               GOOGLE_ROUTES_API_KEY="", OPENWEATHER_API_KEY="", RAPIDGRID_REPORT_LIMIT="1000")
     env.pop("RAPIDGRID_OPERATOR_TOKEN", None)
     base = f"http://127.0.0.1:{port}"
     with (directory / "server.log").open("w") as log:
@@ -631,10 +632,10 @@ def test_staff_sign_in_with_a_pin_scopes_the_session(browser, staff_server):
         page.goto(staff_server + "/login")
         page.get_by_role("button").filter(has_text="Field unit").click()
         page.get_by_role("button").filter(has_text="AMB-01").click()
-        page.get_by_label("AMB-01: 6-digit PIN").fill("000000")
+        page.get_by_label("AMB-01: PIN (6 to 12 digits)").fill("000000")
         page.get_by_role("button", name="Sign in").click()
         expect(page.get_by_role("alert")).to_contain_text("Wrong sign-in details")
-        page.get_by_label("AMB-01: 6-digit PIN").fill("234234")
+        page.get_by_label("AMB-01: PIN (6 to 12 digits)").fill("234234")
         page.get_by_role("button", name="Sign in").click()
         page.wait_for_url("**/driver")
         # The unit's session cannot act as dispatch (Origin sent, so the

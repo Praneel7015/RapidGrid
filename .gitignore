@@ -31,6 +31,9 @@ backend/venv/
 backend/data/.osm_healthcare_cache.json
 backend/data/*.sqlite3
 backend/data/*.sqlite3-*
+# Generated signing key (staff._secret): never commit
+backend/data/secret.key
+secret.key
 .pytest_cache/
 test-results/
 

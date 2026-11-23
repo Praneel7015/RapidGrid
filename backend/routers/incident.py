@@ -485,6 +485,41 @@ async def run_pipeline(incident_id: str, payload: IncidentReportPayload):
         logger.exception("Pipeline failed for %s", incident_id)
         await _mark_failed(incident_id, exc)
 
+# Reports: each one starts the planning pipeline (CPU and outside lookups).
+# A per-client limit, and a cap on reports still waiting for a dispatcher, keep
+# a flood from burying real calls or the server (A04). Over a limit, the
+# caller is told to call 112, which always works.
+REPORT_LIMIT = int(os.getenv("RAPIDGRID_REPORT_LIMIT", "20") or 20)
+REPORT_WINDOW_S = 600
+PENDING_CAP = 150  # anonymous reports only; a signed-in citizen is never turned away
+_reports: dict[str, list[float]] = {}
+
+
+def _admit_report(request, signed_in: bool = False) -> None:
+    import time as _time
+
+    import security
+
+    pending = sum(1 for i in ACTIVE_INCIDENTS
+                  if i.get("status") in {"processing", "awaiting_dispatcher_approval"} and not i.get("citizen_id"))
+    if not signed_in and pending >= PENDING_CAP:
+        raise HTTPException(status_code=429, detail="The service is very busy. Call 112 now.")
+    if request is None:
+        return
+    client = security.client_key(request)
+    now = _time.monotonic()
+    recent = [t for t in _reports.get(client, []) if now - t < REPORT_WINDOW_S]
+    if len(recent) >= REPORT_LIMIT:
+        _reports[client] = recent
+        raise HTTPException(status_code=429, detail="Too many reports from here. Call 112 now.",
+                            headers={"Retry-After": str(int(REPORT_WINDOW_S - (now - recent[0])) + 1)})
+    recent.append(now)
+    _reports[client] = recent
+    if len(_reports) > 2000:
+        for key in [k for k, v in _reports.items() if not v or now - v[-1] >= REPORT_WINDOW_S]:
+            del _reports[key]
+
+
 @router.post("")
 async def report_incident(payload: IncidentReportPayload, response: Response, request: Request = None):
     """Step 1 - Citizen raises emergency. Returns 202 immediately."""
@@ -503,6 +538,7 @@ async def report_incident(payload: IncidentReportPayload, response: Response, re
     # An explicitly anonymous report never carries an account's details,
     # even if this browser is still signed in (a shared phone).
     me = None if payload.anonymous else await current_citizen(request)
+    _admit_report(request, signed_in=bool(me))
     incident = {
         "incident_id": incident_id,
         "location": payload.location.model_dump(),
@@ -674,8 +710,11 @@ async def incident_contacts(incident_id: str, response: Response, request: Reque
 
 
 @router.get("/")
-async def get_all_incidents():
-    """For Dispatcher to see all active incidents."""
+async def get_all_incidents(request: Request = None):
+    """For Dispatcher to see all active incidents. With staff sign-in on, only
+    dispatch: the list holds every caller's location and words, and the
+    incident ids that open each call's channel (A01)."""
+    require_staff(request, "dispatcher")
     async with _INCIDENTS_LOCK:
         incidents = [public_incident(i) for i in ACTIVE_INCIDENTS]
     for inc in incidents:
@@ -700,7 +739,10 @@ def _assign_unit(inc: dict) -> None:
 @router.post("/{incident_id}/approve")
 async def approve_incident(incident_id: str, payload: ApprovePayload, request: Request = None):
     """Approve a reviewed destination without allowing terminal cases to rewind."""
-    require_staff(request, "dispatcher")
+    who = require_staff(request, "dispatcher")
+    # The audit trail names the signed-in dispatcher, not a value the request
+    # chose; in the open demo, the given id is kept.
+    payload.dispatcher_id = who[1] if who[0] == "dispatcher" else payload.dispatcher_id
     from routers.driver import _route
     from routers.hospital import _resolve
     from agents.hospital_intelligence import hospital_agent
@@ -771,8 +813,9 @@ async def approve_incident(incident_id: str, payload: ApprovePayload, request: R
 
 @router.post("/{incident_id}/reject")
 async def reject_incident(incident_id: str, dispatcher_id: str = Query(default="DISPATCHER-01", min_length=1, max_length=100), request: Request = None):
-    require_staff(request, "dispatcher")
     """Dispatcher rejects an incident plan — sets status to 'rejected' so it leaves the approval queue."""
+    who = require_staff(request, "dispatcher")
+    dispatcher_id = who[1] if who[0] == "dispatcher" else dispatcher_id  # audit trail from the session
     async with _INCIDENTS_LOCK:
         for inc in ACTIVE_INCIDENTS:
             if inc["incident_id"] == incident_id:
@@ -812,13 +855,20 @@ def unit_statuses(incident: dict) -> dict:
 @router.post("/{incident_id}/arrived")
 async def incident_arrived(incident_id: str, request: Request = None, unit_type: str = "primary"):
     """Record each unit independently; finish only when all required units arrive."""
-    require_staff(request, "unit")
+    who = require_staff(request, "unit")
     if unit_type not in {"primary", "ambulance"}:
         raise HTTPException(status_code=422, detail="Unknown unit type")
     async with _INCIDENTS_LOCK:
         for inc in ACTIVE_INCIDENTS:
             if inc["incident_id"] != incident_id:
                 continue
+            if who[0] == "unit":
+                # Only the unit holding this slot on this call can mark it (A01).
+                from routers.driver import _assignments
+                holder = _assignments(inc).get(unit_type) or (
+                    inc.get("assigned_unit") if unit_type == "primary" else None)
+                if who[1] != holder:
+                    raise HTTPException(status_code=403, detail="Only the unit on this call can mark its arrival")
             if unit_type not in required_units(inc):
                 raise HTTPException(status_code=409, detail="No backup ambulance is assigned")
             states = unit_statuses(inc)

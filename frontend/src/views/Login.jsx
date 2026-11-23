@@ -78,15 +78,15 @@ function PinForm({ label, onSubmit, onCancel }) {
   return (
     <form onSubmit={submit} className="space-y-3 px-4 py-4">
       <label htmlFor="staff-pin" className="eyebrow block">
-        {label}: 6-digit PIN
+        {label}: PIN (6 to 12 digits)
       </label>
       <input
         id="staff-pin"
         type="password"
         inputMode="numeric"
         autoComplete="current-password"
-        pattern="[0-9]{6}"
-        maxLength={6}
+        pattern="[0-9]{6,12}"
+        maxLength={12}
         required
         value={pin}
         onChange={(e) => setPin(e.target.value.replace(/[^0-9]/g, ''))}

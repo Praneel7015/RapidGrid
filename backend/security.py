@@ -114,6 +114,23 @@ _all_failures: deque = deque()
 _failures_lock = threading.Lock()
 
 
+def _hops() -> int:
+    try:
+        return max(0, int(os.getenv("RAPIDGRID_CLIENT_IP_HOPS", "0") or 0))
+    except ValueError:
+        return 0
+
+
+def _pick(parts: list[str]) -> str:
+    if not parts:
+        return ""
+    hops = _hops()
+    if hops:
+        # Fewer entries than trusted proxies: nothing here can be trusted.
+        return parts[-hops] if len(parts) >= hops else ""
+    return parts[0]
+
+
 def client_key(connection: HTTPConnection) -> str:
     """The client a failure is charged to.
 
@@ -128,7 +145,13 @@ def client_key(connection: HTTPConnection) -> str:
     # An empty value (as a copied .env template leaves it) means "not set".
     header = (os.getenv("RAPIDGRID_CLIENT_IP_HEADER", "").strip() or default).lower()
     if header:
-        value = connection.headers.get(header, "").split(",")[0].strip()
+        # Which X-Forwarded-For entry to trust depends on the platform:
+        # RAPIDGRID_CLIENT_IP_HOPS=N takes the N-th entry from the right (the
+        # address the N-th trusted proxy saw), which a client cannot forge.
+        # Unset, the first entry is used (forgeable; see the operator check
+        # at /api/session/forwarding to choose N on a deployment).
+        parts = [p.strip() for p in connection.headers.get(header, "").split(",") if p.strip()]
+        value = _pick(parts)
         if value:
             return value[:64]
     return connection.client.host if connection.client else "unknown"
@@ -509,3 +532,22 @@ class SecurityHeadersMiddleware:
             await send(message)
 
         return await self.app(scope, receive, send_with_headers)
+
+
+@router.get("/forwarding")
+async def forwarding_check(request: Request, response: Response):
+    """Operator only: the shape of the client-address header on this
+    deployment, to choose RAPIDGRID_CLIENT_IP_HOPS. Send a request with a
+    made-up X-Forwarded-For; the entries the platform added are those after
+    it. Returns counts and whether the made-up value came first, never an
+    address."""
+    response.headers["Cache-Control"] = "no-store"
+    if not authenticated(request):
+        raise HTTPException(status_code=401, detail="Operator sign-in required")
+    parts = [p.strip() for p in request.headers.get("x-forwarded-for", "").split(",") if p.strip()]
+    return {
+        "entries": len(parts),
+        "first_is_documentation_address": bool(parts) and parts[0].startswith("203.0.113."),
+        "hops_setting": _hops(),
+        "chosen_entry_is_documentation_address": _pick(parts).startswith("203.0.113."),
+    }
