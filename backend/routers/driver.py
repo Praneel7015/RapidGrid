@@ -29,6 +29,8 @@ class ClaimPayload(BaseModel):
 class HospitalChangePayload(BaseModel):
     incident_id: str
     hospital_name: str
+    # Preferred: names repeat (branches), ids do not. The name is a fallback.
+    hospital_id: str | None = Field(default=None, max_length=120)
 
 
 def _incident(incident_id: str) -> dict:
@@ -224,6 +226,8 @@ def _is_current(entry: dict, current_id: str | None, current_name: str | None) -
         resolved = _resolve(hid)
         if resolved and resolved == _resolve(str(current_id)):
             return True
+        if hid:
+            return False  # both ids known and different: never match by name
     return bool(current_name) and entry.get("name") == current_name
 
 
@@ -310,6 +314,8 @@ async def _attach_ranking(incident_id: str, origin: dict, emergency: str, curren
             return
         if (incident.get("citizen_view") or {}).get("hospital_location") != destination:
             return
+        if incident.get("approved_hospital_id") != current_id:
+            return  # the destination changed while ranking (same place, other hospital)
         incident["pickup_ranking"] = ranking
         await commit(incident)
 
@@ -329,7 +335,13 @@ async def change_hospital(payload: HospitalChangePayload, request: Request = Non
             raise HTTPException(status_code=403, detail="Only a unit on this call can change its destination")
         candidates = ((incident.get("action_plan") or {}).get("all_hospitals") or []) + \
             ((incident.get("pickup_ranking") or {}).get("hospitals") or [])
-        hospital = next((h for h in candidates if payload.hospital_name in {h.get("name"), h.get("hospital_id")}), None)
+        hospital = None
+        if payload.hospital_id:
+            # The fresh ranking first: it is what the unit was shown.
+            hospital = next((h for h in reversed(candidates)
+                             if str(h.get("hospital_id")) == payload.hospital_id), None)
+        if hospital is None and not payload.hospital_id:
+            hospital = next((h for h in candidates if payload.hospital_name in {h.get("name"), h.get("hospital_id")}), None)
         if not hospital or not hospital.get("location"):
             raise HTTPException(status_code=422, detail="Choose a hospital from the incident's reviewed destinations")
         canonical = _resolve(str(hospital.get("hospital_id", ""))) or _resolve(hospital["name"])

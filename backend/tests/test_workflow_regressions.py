@@ -1151,3 +1151,25 @@ def test_a_unit_not_on_the_call_cannot_change_its_destination(monkeypatch):
     response = other.post("/api/driver/change_hospital", json={"incident_id": "INC-review", "hospital_name": "blr-007"})
     assert response.status_code == 403
     incident.ACTIVE_INCIDENTS.clear()
+
+
+def test_same_name_hospitals_are_told_apart_by_id():
+    branch = {"hospital_id": "osm-2", "name": "City Hospital"}
+    assert not driver._is_current(branch, "osm-1", "City Hospital")
+    assert driver._is_current({"hospital_id": "", "name": "City Hospital"}, "osm-1", "City Hospital")
+
+
+def test_change_hospital_picks_the_chosen_id_when_names_repeat(client, mocked_route):
+    assert _picked_up(client).status_code == 200
+    inc = incident.ACTIVE_INCIDENTS[0]
+    plan_hospitals = inc["action_plan"]["all_hospitals"]
+    # A different hospital that shares the name of one in the plan.
+    twin = dict(plan_hospitals[0], hospital_id="osm-twin", location={"lat": 13.01, "lng": 77.61})
+    inc["pickup_ranking"] = {"hospitals": [dict(twin, current=False)], "summary": ""}
+    r = client.post("/api/driver/change_hospital", json={
+        "incident_id": "INC-review", "hospital_name": twin["name"], "hospital_id": "osm-twin"})
+    assert r.status_code == 200, r.text
+    assert incident.ACTIVE_INCIDENTS[0]["citizen_view"]["hospital_location"] == twin["location"]
+    unknown = client.post("/api/driver/change_hospital", json={
+        "incident_id": "INC-review", "hospital_name": twin["name"], "hospital_id": "nope"})
+    assert unknown.status_code == 422
