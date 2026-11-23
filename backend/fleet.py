@@ -55,12 +55,17 @@ def _station_location(unit_type: str, station: str) -> Optional[dict]:
     return None
 
 
-def _save() -> None:
+def _save(strict: bool = False) -> None:
+    """Store assignments. strict: raise on failure, so a caller that gave a
+    unit to a call can undo it instead of reporting a change that a restart
+    would lose (the unit could then be sent to a second call)."""
     snapshot = {uid: {k: u[k] for k in ("status", "incident_id")} for uid, u in _units.items()}
     try:
         storage.save_collection(_COLLECTION, snapshot)
     except Exception:
         logger.exception("Could not store fleet state")
+        if strict:
+            raise
 
 
 def load() -> None:
@@ -140,8 +145,12 @@ def assign(incident_id: str, unit_type: str, near: dict, prefer_station: Optiona
         chosen = preferred[0] if preferred else min(free, key=lambda u: _haversine(u["position"], near))
         chosen["status"] = "assigned"
         chosen["incident_id"] = incident_id
+        try:
+            _save(strict=True)
+        except Exception:
+            chosen["status"], chosen["incident_id"] = "available", None
+            raise
         _trails[chosen["unit_id"]].clear()
-        _save()
         logger.info("Unit %s assigned to %s", chosen["unit_id"], incident_id)
         return dict(chosen)
 
@@ -177,16 +186,22 @@ def swap(incident_id: str, new_unit_id: str) -> dict:
         new = _units.get(new_unit_id)
         if new is None or new["status"] != "available":
             raise ValueError("unit not free")
-        for u in _units.values():
-            if u["incident_id"] == incident_id:
-                u.update(status="available", incident_id=None,
-                         position={**u["station_location"], "at": time.time(), "source": "station",
-                                   "accuracy_m": None})
-                _trails[u["unit_id"]].clear()
+        old = [u for u in _units.values() if u["incident_id"] == incident_id]
+        before = {u["unit_id"]: (u["status"], u["incident_id"]) for u in (*old, new)}
+        for u in old:
+            u.update(status="available", incident_id=None)
         new["status"] = "assigned"
         new["incident_id"] = incident_id
+        try:
+            _save(strict=True)
+        except Exception:
+            for uid, (status_, incident) in before.items():
+                _units[uid].update(status=status_, incident_id=incident)
+            raise
+        for u in old:  # only once stored: back at its station
+            u["position"] = {**u["station_location"], "at": time.time(), "source": "station", "accuracy_m": None}
+            _trails[u["unit_id"]].clear()
         _trails[new_unit_id].clear()
-        _save()
         return dict(new)
 
 

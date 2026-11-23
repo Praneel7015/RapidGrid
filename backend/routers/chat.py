@@ -66,13 +66,33 @@ class ConnectionManager:
         async with self._writes:
             self.clear_history()
 
-    async def broadcast(self, incident_id: str, message_data: Dict):
+    async def broadcast(self, incident_id: str, message_data: Dict, still_allowed=None) -> bool:
+        """Store and deliver one message. False (nothing stored) when the call
+        was cleared meanwhile, or when still_allowed() says the sender is no
+        longer on it; that check runs with the write, after any wait."""
         async with self._writes:
             if not incident_exists(incident_id):
-                return  # the call was cleared (reset or purge) meanwhile
+                return False  # nothing loaded or cached for a cleared call
             history = await self.load(incident_id)
-            # One row per message, written off the event loop, before anyone sees it.
-            await asyncio.to_thread(storage.append_chat, incident_id, [message_data], database=persistence_path())
+            # Checked again after the last wait and right before the write starts.
+            if not incident_exists(incident_id):
+                return False  # the call was cleared (reset or purge) meanwhile
+            if still_allowed is not None and not still_allowed():
+                return False
+            # One row per message, written off the event loop, before anyone
+            # sees it. The write lock stays held until the row is in, even if
+            # the caller is cancelled (a monitoring post timing out), so a
+            # clear that follows cannot be overtaken by this insert.
+            write = asyncio.ensure_future(asyncio.to_thread(
+                storage.append_chat, incident_id, [message_data], database=persistence_path()))
+            try:
+                await asyncio.shield(write)
+            except asyncio.CancelledError:
+                try:
+                    await write
+                except Exception:
+                    pass
+                raise
             history.append(message_data)
 
         if incident_id in self.active_connections:
@@ -84,6 +104,7 @@ class ConnectionManager:
                     dead_sockets.add(ws)
             for ws in dead_sockets:
                 self.active_connections[incident_id].discard(ws)
+        return True
 
 manager = ConnectionManager()
 
@@ -198,5 +219,12 @@ async def send_chat_message(incident_id: str, payload: ChatMessagePayload, reque
         safe_sender_name(payload.sender_name),
         body,
     )
-    await manager.broadcast(incident_id, msg_data)
+    # A unit or hospital's membership is checked again at the write: the
+    # destination (or the unit) may have changed while it waited its turn.
+    recheck = (lambda: sender_role_for(request, payload.sender_role, incident_id) == role) \
+        if role in {"driver", "hospital"} else None
+    if not await manager.broadcast(incident_id, msg_data, still_allowed=recheck):
+        if not incident_exists(incident_id):
+            raise HTTPException(status_code=410, detail="This call's channel was closed; the message was not sent")
+        raise HTTPException(status_code=403, detail="Only staff on this call can post to its channel")
     return {"status": "sent", "message": msg_data}

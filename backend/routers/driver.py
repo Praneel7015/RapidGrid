@@ -8,7 +8,7 @@ import logging
 
 from fastapi import APIRouter, HTTPException, Request, Response
 from staff import require as require_staff
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from models.schemas import Coordinate, RouteRequest
 from routers.incident import (
@@ -28,9 +28,15 @@ class ClaimPayload(BaseModel):
 
 class HospitalChangePayload(BaseModel):
     incident_id: str
-    hospital_name: str
+    hospital_name: str | None = Field(default=None, max_length=200)
     # Preferred: names repeat (branches), ids do not. The name is a fallback.
     hospital_id: str | None = Field(default=None, max_length=120)
+
+    @model_validator(mode="after")
+    def _one_selector(self):
+        if not self.hospital_id and not self.hospital_name:
+            raise ValueError("Give hospital_id (or hospital_name)")
+        return self
 
 
 def _incident(incident_id: str) -> dict:
@@ -363,8 +369,11 @@ async def _attach_ranking(incident_id: str, origin: dict, emergency: str, curren
     try:
         ranking = await asyncio.wait_for(_rank_from_scene(origin, emergency, current_id, current_name),
                                          RANKING_TIMEOUT_S)
+    except asyncio.TimeoutError:
+        logger.warning("Re-ranking hospitals at pickup did not finish in time; the plan stands")
+        return
     except Exception:
-        logger.warning("Re-ranking hospitals at pickup did not finish; the plan stands")
+        logger.exception("Re-ranking hospitals at pickup failed; the plan stands")
         return
     if ranking is None:
         return
@@ -409,11 +418,14 @@ async def change_hospital(payload: HospitalChangePayload, request: Request = Non
         view = dict(incident.get("citizen_view") or {})
         origin = view.get("origin") or incident.get("location")
         old_destination = view.get("hospital_location")
+        old_hospital_id = incident.get("approved_hospital_id")
     route = await _route(origin, hospital["location"])
     async with _INCIDENTS_LOCK:
         incident = _incident(payload.incident_id)
         _require_on_call(incident, who)  # again: a backup may have taken over while routing
-        if incident.get("status") != "patient_picked_up" or (incident.get("citizen_view") or {}).get("hospital_location") != old_destination:
+        if (incident.get("status") != "patient_picked_up"
+                or (incident.get("citizen_view") or {}).get("hospital_location") != old_destination
+                or incident.get("approved_hospital_id") != old_hospital_id):
             raise HTTPException(status_code=409, detail="The incident changed while routing; refresh the call")
         if canonical in hospital_agent.diverted:
             raise HTTPException(status_code=409, detail="The hospital went on divert; select another destination")
@@ -428,7 +440,19 @@ async def change_hospital(payload: HospitalChangePayload, request: Request = Non
             _summarise(ranking)
         incident.update({"hospital_name": hospital["name"], "approved_hospital_id": canonical or hospital.get("hospital_id"),
                          "citizen_view": view})
-        await commit(incident)
+        # A reroute the agent proposed for the old destination no longer
+        # fits: close it, so dispatch cannot apply a route to hospital A
+        # while the unit is heading to hospital B.
+        stale = [a for a in (incident.get("monitoring") or {}).get("alerts", [])
+                 if a.get("status") == "open" and a.get("leg") == "to_hospital"]
+        for alert in stale:
+            alert["status"] = "superseded"
+        await commit(incident)  # on failure the record, alerts included, is restored
         from routers.hospital import destination_on_divert
-        return {"status": "rerouted", "citizen_view": view, "hospital_name": hospital["name"],
-                "destination_on_divert": destination_on_divert(incident)}
+        on_divert = destination_on_divert(incident)
+    from agents import monitor
+
+    for alert in stale:
+        monitor.clear_alert(alert["unit_id"])
+    return {"status": "rerouted", "citizen_view": view, "hospital_name": hospital["name"],
+            "destination_on_divert": on_divert}
