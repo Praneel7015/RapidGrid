@@ -212,10 +212,22 @@ def clear_citizens(*, database: Path | None = None) -> int:
         return connection.execute("DELETE FROM citizens").rowcount
 
 
-def compact(*, database: Path | None = None) -> None:
+class CompactIncomplete(RuntimeError):
+    """The write-ahead log could not be emptied (a reader holds it)."""
+
+
+def compact(*, database: Path | None = None, attempts: int = 10) -> None:
     """Rewrite the database so deleted rows leave no trace in free pages or
-    the write-ahead log (after a purge)."""
+    the write-ahead log (after a purge). Raises CompactIncomplete if the log
+    cannot be truncated, so a purge never reports success falsely."""
+    import time as _time
+
     with _connection(database) as connection:
         connection.commit()  # VACUUM cannot run inside a transaction
         connection.execute("VACUUM")
-        connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        for _ in range(attempts):
+            busy, _log, _done = connection.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+            if not busy:
+                return
+            _time.sleep(0.2)
+    raise CompactIncomplete("write-ahead log still in use")

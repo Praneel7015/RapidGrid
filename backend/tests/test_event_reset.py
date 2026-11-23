@@ -24,6 +24,8 @@ ORIGIN = {"Origin": "http://testserver"}
 
 
 def _seed(monkeypatch):
+    incident_router.ACTIVE_INCIDENTS.clear()  # in place: other modules hold this list
+    incident_router._PERSISTED.clear()
     monkeypatch.setattr(incident_router, "_INCIDENTS_LOCK", asyncio.Lock())
     monkeypatch.setattr(incident_router, "run_pipeline", lambda *a, **k: asyncio.sleep(0))
     c = TestClient(app, base_url="http://testserver", headers=ORIGIN)
@@ -95,3 +97,54 @@ def test_purge_is_operator_only_and_deletes_accounts(monkeypatch):
     db.close()
     raw = Path(storage.data_path()).read_bytes()
     assert b"98000 00088" not in raw and b"Asha" not in raw
+
+
+def test_a_message_for_a_cleared_call_is_never_stored(monkeypatch):
+    _c, incident_id = _seed(monkeypatch)
+    asyncio.run(chat.manager.clear_all())
+    incident_router.ACTIVE_INCIDENTS.clear()
+    asyncio.run(chat.manager.broadcast(incident_id, {"id": "late", "message": "late"}))
+    assert storage.load_chat(incident_id, database=storage.data_path()) == []
+    assert chat.manager.chat_history.get(incident_id) in (None, [])
+
+
+def test_staging_that_started_before_a_reset_does_nothing(monkeypatch):
+    from routers import monitoring
+
+    monkeypatch.setattr(monitoring, "RESET_GENERATION", 5)
+    try:
+        monitoring._still_current(4)
+    except Exception as error:  # the HTTP 409
+        assert getattr(error, "status_code", None) == 409
+    else:
+        raise AssertionError("a stale staging request was not refused")
+
+
+def test_a_busy_log_makes_the_purge_report_failure(monkeypatch):
+    class Busy:
+        def __init__(self, real):
+            self.real = real
+
+        def execute(self, sql, *args):
+            if sql.startswith("PRAGMA wal_checkpoint"):
+                class R:
+                    def fetchone(self):
+                        return (1, 5, 0)
+                return R()
+            return self.real.execute(sql, *args)
+
+        def commit(self):
+            return self.real.commit()
+
+    from contextlib import contextmanager
+    real = storage._connection
+
+    @contextmanager
+    def busy_connection(database=None):
+        with real(database) as conn:
+            yield Busy(conn)
+
+    monkeypatch.setattr(storage, "_connection", busy_connection)
+    import pytest
+    with pytest.raises(storage.CompactIncomplete):
+        storage.compact(database=storage.data_path(), attempts=2)

@@ -19,6 +19,9 @@ class ConnectionManager:
     def __init__(self):
         self.active_connections: Dict[str, Set[WebSocket]] = {}
         self.chat_history: Dict[str, List[Dict]] = {}
+        # Writes and a full clear (reset, purge) exclude each other, so a
+        # message accepted before a purge can never be stored after it.
+        self._writes = asyncio.Lock()
 
     async def connect(self, websocket: WebSocket, incident_id: str):
         await websocket.accept()
@@ -59,11 +62,18 @@ class ConnectionManager:
             self.chat_history.pop(incident_id, None)
             self.active_connections.pop(incident_id, None)
 
+    async def clear_all(self) -> None:
+        async with self._writes:
+            self.clear_history()
+
     async def broadcast(self, incident_id: str, message_data: Dict):
-        history = await self.load(incident_id)
-        # One row per message, written off the event loop, before anyone sees it.
-        await asyncio.to_thread(storage.append_chat, incident_id, [message_data], database=persistence_path())
-        history.append(message_data)
+        async with self._writes:
+            if not incident_exists(incident_id):
+                return  # the call was cleared (reset or purge) meanwhile
+            history = await self.load(incident_id)
+            # One row per message, written off the event loop, before anyone sees it.
+            await asyncio.to_thread(storage.append_chat, incident_id, [message_data], database=persistence_path())
+            history.append(message_data)
 
         if incident_id in self.active_connections:
             dead_sockets = set()
