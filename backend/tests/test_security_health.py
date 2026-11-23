@@ -558,3 +558,22 @@ def test_plain_http_to_a_socket_path_gets_an_http_refusal(client, monkeypatch):
     assert local.get("/ws/chat/any", headers={"Host": "attacker.example"}).status_code == 421
     cross = {"Origin": "https://untrusted.example"}
     assert client.get("/ws/chat/any", headers=cross).status_code == 403
+
+
+def test_a_trusted_hop_count_ignores_forged_forwarding_entries(client, monkeypatch):
+    monkeypatch.setenv("RENDER", "true")
+    monkeypatch.setenv("RAPIDGRID_CLIENT_IP_HOPS", "1")
+    # The attacker changes the first entry each time; the proxy-added last
+    # entry (their real address) stays the same, so the limit still applies.
+    for i in range(security.MAX_FAILURES_PER_CLIENT):
+        client.post("/api/session", json={"token": "guess"}, headers={"X-Forwarded-For": f"198.51.100.{i}, 192.0.2.7"})
+    assert client.post("/api/session", json={"token": "guess"},
+                       headers={"X-Forwarded-For": "198.51.100.250, 192.0.2.7"}).status_code == 429
+
+
+def test_the_forwarding_check_is_operator_only(client):
+    assert client.get("/api/session/forwarding").status_code == 401
+    login(client)
+    shape = client.get("/api/session/forwarding", headers={"X-Forwarded-For": "203.0.113.5, 10.0.0.1"}).json()
+    assert shape["entries"] == 2 and shape["first_is_documentation_address"] is True
+    assert "203.0.113.5" not in str(shape)

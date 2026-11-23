@@ -281,6 +281,9 @@ async def websocket_chat_endpoint(websocket: WebSocket, incident_id: str):
                 role = payload.get("sender_role", "citizen")
                 if not body or len(body) > chat.MAX_MESSAGE_CHARS or role not in chat.CHAT_ROLES:
                     continue
+                role = chat.sender_role_for(websocket, role, incident_id)
+                if role is None:
+                    continue  # staff not on this call
                 msg_data = chat._build_message(
                     incident_id,
                     role,

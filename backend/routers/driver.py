@@ -58,6 +58,26 @@ def _require_driver(incident: dict, driver_id: str, unit_type: str) -> None:
     fleet_unit = incident.get("assigned_unit")
     if unit_type == "primary" and fleet_unit and driver_id != fleet_unit:
         raise HTTPException(status_code=409, detail=f"This call is assigned to {fleet_unit}")
+    import staff
+    if staff.enabled():
+        # With staff sign-in, a unit holds only a slot dispatch gave it (A01):
+        # primary is the dispatched unit; the backup slot needs a free (or
+        # already this call's) ambulance.
+        if unit_type == "primary" and not fleet_unit:
+            raise HTTPException(status_code=409, detail="No unit has been dispatched to this call yet")
+        if unit_type == "ambulance":
+            import fleet
+            unit = fleet.get(driver_id)
+            if unit is None or unit.get("type") != "Ambulance":
+                raise HTTPException(status_code=403, detail="Only an ambulance can take the backup slot")
+            if unit.get("incident_id") not in (None, "", incident["incident_id"]):
+                raise HTTPException(status_code=409, detail="This ambulance is on another call")
+            # A backup claim is not in the fleet record: check the other calls.
+            for other in ACTIVE_INCIDENTS:
+                if other is incident or other.get("status") not in {"dispatched", "patient_picked_up"}:
+                    continue
+                if driver_id in {other.get("assigned_unit"), *_assignments(other).values()}:
+                    raise HTTPException(status_code=409, detail="This ambulance is on another call")
 
 
 def _claim(incident: dict, driver_id: str, unit_type: str) -> None:
@@ -89,14 +109,42 @@ async def _route(origin: dict, destination: dict) -> dict:
 
 
 @router.get("/active")
-async def get_active_dispatches():
+async def get_active_dispatches(request: Request = None):
     # A driver must not act on a report before a dispatcher approves it.
     from routers.hospital import destination_on_divert
 
+    who = _unit_or_dispatch(request)
     async with _INCIDENTS_LOCK:
         from routers.incident import public_incident
 
-        return {"dispatches": [public_incident(d) for d in _active_dispatches(destination_on_divert)]}
+        dispatches = _active_dispatches(destination_on_divert)
+        if who[0] == "unit":
+            # A unit sees only its own calls, and calls whose backup
+            # ambulance slot is still open if it is a free ambulance (A01).
+            import fleet
+            me = fleet.get(who[1]) or {}
+            free_ambulance = me.get("type") == "Ambulance" and not me.get("incident_id")
+            dispatches = [d for d in dispatches
+                          if who[1] in {d.get("assigned_unit"), *d["unit_assignments"].values()}
+                          or (free_ambulance and "ambulance" in required_units(d)
+                              and not d["unit_assignments"].get("ambulance"))]
+        return {"dispatches": [public_incident(d) for d in dispatches]}
+
+
+def _require_on_call(incident: dict, who: tuple[str, str]) -> None:
+    """A unit acts only on a call it is on; a call with no unit has none (A01)."""
+    if who[0] != "unit":
+        return
+    on_call = {incident.get("assigned_unit"), *_assignments(incident).values()} - {None, ""}
+    if who[1] not in on_call:
+        raise HTTPException(status_code=403, detail="Only a unit on this call can change its destination")
+
+
+def _unit_or_dispatch(request) -> tuple[str, str]:
+    try:
+        return require_staff(request, "dispatcher")
+    except HTTPException:
+        return require_staff(request, "unit")
 
 
 def _active_dispatches(destination_on_divert) -> list[dict]:
@@ -330,9 +378,7 @@ async def change_hospital(payload: HospitalChangePayload, request: Request = Non
         incident = _incident(payload.incident_id)
         if incident.get("status") != "patient_picked_up":
             raise HTTPException(status_code=409, detail="A destination can be changed only during transport")
-        on_call = {incident.get("assigned_unit"), *_assignments(incident).values()} - {None, ""}
-        if who[0] == "unit" and on_call and who[1] not in on_call:
-            raise HTTPException(status_code=403, detail="Only a unit on this call can change its destination")
+        _require_on_call(incident, who)
         candidates = ((incident.get("action_plan") or {}).get("all_hospitals") or []) + \
             ((incident.get("pickup_ranking") or {}).get("hospitals") or [])
         hospital = None
@@ -353,6 +399,7 @@ async def change_hospital(payload: HospitalChangePayload, request: Request = Non
     route = await _route(origin, hospital["location"])
     async with _INCIDENTS_LOCK:
         incident = _incident(payload.incident_id)
+        _require_on_call(incident, who)  # again: a backup may have taken over while routing
         if incident.get("status") != "patient_picked_up" or (incident.get("citizen_view") or {}).get("hospital_location") != old_destination:
             raise HTTPException(status_code=409, detail="The incident changed while routing; refresh the call")
         if canonical in hospital_agent.diverted:

@@ -46,8 +46,8 @@ def _pin(value: Optional[str]) -> Optional[str]:
     if value in (None, ""):
         return None
     value = str(value).strip()
-    if not re.fullmatch(r"[0-9]{6}", value):
-        raise ValueError("staff PINs must be exactly 6 digits")
+    if not re.fullmatch(r"[0-9]{6,12}", value):
+        raise ValueError("staff PINs must be 6 to 12 digits")
     return value
 
 
@@ -120,6 +120,10 @@ def _raw() -> tuple[str, str, bool]:
     private = _HERE / "contacts.json"
     if private.is_file():
         return private.read_text(encoding="utf-8"), private.name, True
+    if os.getenv("RENDER", "").lower() == "true":
+        # Hosted without the private directory: lock staff sign-in rather than
+        # run with no PINs (everything open). Set RAPIDGRID_CONTACTS (A05).
+        raise _Missing("RAPIDGRID_CONTACTS")
     example = _HERE / "contacts.example.json"
     if example.is_file():
         return example.read_text(encoding="utf-8"), example.name, False
