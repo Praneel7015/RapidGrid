@@ -123,7 +123,8 @@ def unit_for_incident(incident_id: str) -> Optional[dict]:
     return None
 
 
-def assign(incident_id: str, unit_type: str, near: dict, prefer_station: Optional[str] = None) -> Optional[dict]:
+def assign(incident_id: str, unit_type: str, near: dict, prefer_station: Optional[str] = None,
+           exclude: Optional[set] = None) -> Optional[dict]:
     """Give the call a free unit: its planned station's first, else the nearest
     free unit of that type. Returns the unit, or None when none is free."""
     _ensure()
@@ -131,7 +132,8 @@ def assign(incident_id: str, unit_type: str, near: dict, prefer_station: Optiona
         current = next((u for u in _units.values() if u["incident_id"] == incident_id), None)
         if current is not None:
             return dict(current)
-        free = [u for u in _units.values() if u["type"] == unit_type and u["status"] == "available"]
+        free = [u for u in _units.values() if u["type"] == unit_type and u["status"] == "available"
+                and u["unit_id"] not in (exclude or ())]
         if not free:
             return None
         preferred = [u for u in free if prefer_station and u["station"] == prefer_station]

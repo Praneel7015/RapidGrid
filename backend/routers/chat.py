@@ -176,7 +176,10 @@ async def send_chat_message(incident_id: str, payload: ChatMessagePayload, reque
     body = (payload.message or "").strip()
     if not body:
         raise HTTPException(status_code=400, detail="Message cannot be empty")
-    role = sender_role_for(request, payload.sender_role, incident_id)
+    from routers.incident import _INCIDENTS_LOCK
+
+    async with _INCIDENTS_LOCK:  # not mid-way through a destination change
+        role = sender_role_for(request, payload.sender_role, incident_id)
     if role is None:
         raise HTTPException(status_code=403, detail="Only staff on this call can post to its channel")
     msg_data = _build_message(

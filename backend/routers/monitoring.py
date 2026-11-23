@@ -118,6 +118,9 @@ async def dispatch_backup(incident_id: str, alert_id: str, request: Request = No
         candidate = fleet.get(backup["unit_id"])
         if candidate is None:
             raise HTTPException(status_code=409, detail="The proposed backup unit no longer exists")
+        from routers.driver import units_on_calls
+        if backup["unit_id"] in units_on_calls(incident_id):
+            raise HTTPException(status_code=409, detail="The proposed backup unit is on another call")
         try:
             # One step: the old unit is released only if the backup is taken.
             unit = fleet.swap(incident_id, backup["unit_id"])
