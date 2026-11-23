@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Response
 from staff import require as require_staff
 from pydantic import BaseModel, Field
 
@@ -137,20 +137,24 @@ def _require_hospital_or_dispatch(request, hospital_id: str) -> None:
         return
     except _H:
         pass
+    if hospital_id == "all":  # the every-facility view is dispatch only
+        raise _H(status_code=403, detail="This sign-in cannot do that")
     require_staff(request, "hospital", _resolve(hospital_id) or hospital_id)
 
 
 @router.get("/incoming/all")
-async def get_all_incoming_cases(request: Request = None):
+async def get_all_incoming_cases(response: Response, request: Request = None):
     require_staff(request, "dispatcher")  # every hospital's patients: dispatch only (A01)
+    response.headers["Cache-Control"] = "no-store"
     async with _INCIDENTS_LOCK:
         return {"incoming": snapshot(_incoming("all"))}
 
 
 @router.get("/{hospital_id}/incoming")
-async def get_incoming_cases(hospital_id: str, name: str | None = None, request: Request = None):
+async def get_incoming_cases(hospital_id: str, response: Response, name: str | None = None, request: Request = None):
     # Names in the query string never broaden the requested facility scope.
     _require_hospital_or_dispatch(request, hospital_id)
+    response.headers["Cache-Control"] = "no-store"
     async with _INCIDENTS_LOCK:
         return {"incoming": snapshot(_incoming(hospital_id))}
 

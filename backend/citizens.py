@@ -152,6 +152,12 @@ def current(connection: Optional[HTTPConnection]) -> Optional[dict]:
     account = _account(parsed[1])
     if account is None:
         return None
+    # The id comes from the phone number, so an account registered again after
+    # a purge has the same id: a cookie issued before this account existed
+    # belongs to the deleted one and must not open the new one.
+    issued = parsed[2] - SESSION_SECONDS
+    if issued < int(account.get("created_at") or 0):
+        return None
     return {"id": parsed[1], "name": account["name"], "phone": account["phone"]}
 
 

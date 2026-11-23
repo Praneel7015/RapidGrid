@@ -100,7 +100,7 @@ function PinForm({ label, onSubmit, onCancel }) {
       <div className="flex gap-2">
         <button
           type="submit"
-          disabled={busy || pin.length !== 6}
+          disabled={busy || pin.length < 6}
           className="flex-1 rounded-sm bg-ink px-3 py-2.5 text-[13px] font-semibold text-on-ink disabled:opacity-50"
         >
           {busy ? 'Signing in…' : 'Sign in'}
@@ -336,7 +336,11 @@ export default function Login() {
                   <PanelHead label="Emergency department" />
                   <OptionList
                     items={hospitals}
-                    onPick={(h) => (h.id === 'all' ? enter('hospital', h) : enterStaff('hospital', h.id, h, h.name))}
+                    onPick={(h) => {
+                      if (h.id !== 'all') { enterStaff('hospital', h.id, h, h.name); return; }
+                      // All facilities opens only once the server has said sign-in is off.
+                      if (directoryState === 'ready' && !directory.enabled) enter('hospital', h);
+                    }}
                     getKey={(h) => h.id}
                     render={(h) => (
                       <span className="min-w-0">

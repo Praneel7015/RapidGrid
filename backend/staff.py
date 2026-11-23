@@ -240,14 +240,15 @@ def require(connection: Optional[HTTPConnection], role: str, subject: Optional[s
     who = current(connection) if connection is not None else None
     if who is None:
         raise HTTPException(status_code=401, detail="Staff sign-in required")
-    if who[0] == "operator":
-        return who
-    if who[0] != role or (subject is not None and who[1] != subject):
+    if who[0] != "operator" and (who[0] != role or (subject is not None and who[1] != subject)):
         raise HTTPException(status_code=403, detail="This sign-in cannot do that")
-    # Cookie sessions: a state change must come from our own pages. Browsers
-    # send Origin on such requests; a missing one is refused (CSRF, A01).
+    # Cookie sessions (staff and operator alike): a state change must come
+    # from our own pages. Browsers send Origin on such requests; a missing one
+    # is refused (CSRF, A01). A bearer token is not ambient, so scripts that
+    # send one need no Origin.
     method = connection.scope.get("method", "GET")
-    if method not in ("GET", "HEAD", "OPTIONS") and (
+    bearer = connection.headers.get("authorization", "").startswith("Bearer ")
+    if method not in ("GET", "HEAD", "OPTIONS") and not (who[0] == "operator" and bearer) and (
         not connection.headers.get("origin") or not security.same_origin(connection)
     ):
         raise HTTPException(status_code=403, detail="Cross-origin or origin-less staff action refused")

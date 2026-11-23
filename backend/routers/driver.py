@@ -6,7 +6,7 @@ from typing import Literal
 
 import logging
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Response
 from staff import require as require_staff
 from pydantic import BaseModel, Field
 
@@ -120,11 +120,12 @@ async def _route(origin: dict, destination: dict) -> dict:
 
 
 @router.get("/active")
-async def get_active_dispatches(request: Request = None):
+async def get_active_dispatches(response: Response, request: Request = None):
     # A driver must not act on a report before a dispatcher approves it.
     from routers.hospital import destination_on_divert
 
     who = _unit_or_dispatch(request)
+    response.headers["Cache-Control"] = "no-store"
     async with _INCIDENTS_LOCK:
         from routers.incident import public_incident
 

@@ -292,11 +292,24 @@ def security_same_origin(request) -> bool:
     return bool(request.headers.get("origin")) and security.same_origin(request)
 
 
+# A run of 7+ digits (spaces, dashes, dots or a leading + allowed between):
+# a phone number a caller typed into the report.
+_PHONE_IN_TEXT = re.compile(r"\+?\d(?:[\s.-]?\d){6,}")
+
+
+def _mask_numbers(text):
+    return _PHONE_IN_TEXT.sub("[number hidden]", text) if isinstance(text, str) else text
+
+
 def public_incident(incident: dict) -> dict:
-    """A deep copy without caller details or the reveal log."""
+    """A deep copy without caller details or the reveal log. Phone numbers a
+    caller typed into the report are masked too: the incident id is all it
+    takes to read this view, and the caller-reveal check guards the number."""
     copy_ = copy.deepcopy(incident)
     for key in _PRIVATE_FIELDS:
         copy_.pop(key, None)
+    if "citizen_text" in copy_:
+        copy_["citizen_text"] = _mask_numbers(copy_["citizen_text"])
     view = copy_.get("citizen_view")
     if isinstance(view, dict):
         for key in ("unit_phone", "hospital_phone"):  # records saved before contacts existed
@@ -495,7 +508,10 @@ PENDING_CAP = 150  # anonymous reports only; a signed-in citizen is never turned
 _reports: dict[str, list[float]] = {}
 
 
-def _admit_report(request, signed_in: bool = False) -> None:
+def _admit_report(request, signed_in: bool = False):
+    """Refuse the report if a limit is reached; otherwise return a callable
+    that charges it. The caller charges only once the report is stored, under
+    the same lock, so a failed write does not use up a permit."""
     import time as _time
 
     import security
@@ -505,16 +521,19 @@ def _admit_report(request, signed_in: bool = False) -> None:
     if not signed_in and pending >= PENDING_CAP:
         raise HTTPException(status_code=429, detail="The service is very busy. Call 112 now.")
     if request is None:
-        return
+        return lambda: None
     client = security.client_key(request)
     now = _time.monotonic()
     recent = [t for t in _reports.get(client, []) if now - t < REPORT_WINDOW_S]
+    _reports[client] = recent
     if len(recent) >= REPORT_LIMIT:
-        _reports[client] = recent
         raise HTTPException(status_code=429, detail="Too many reports from here. Call 112 now.",
                             headers={"Retry-After": str(int(REPORT_WINDOW_S - (now - recent[0])) + 1)})
-    recent.append(now)
-    _reports[client] = recent
+    return lambda: _charge_report(client, now)
+
+
+def _charge_report(client: str, now: float) -> None:
+    _reports.setdefault(client, []).append(now)
     if len(_reports) > 2000:
         for key in [k for k, v in _reports.items() if not v or now - v[-1] >= REPORT_WINDOW_S]:
             del _reports[key]
@@ -554,9 +573,10 @@ async def report_incident(payload: IncidentReportPayload, response: Response, re
     async with _INCIDENTS_LOCK:
         # Checked and appended without a suspension between them, so
         # concurrent reports cannot overshoot the pending cap.
-        _admit_report(request, signed_in=bool(me))
+        charge = _admit_report(request, signed_in=bool(me))
         ACTIVE_INCIDENTS.append(incident)
         await commit(incident)  # on failure the record is removed and the caller gets an error
+        charge()
         try:
             removed = await asyncio.to_thread(prune_finished)
         except Exception:
@@ -659,6 +679,9 @@ async def incident_contacts(incident_id: str, response: Response, request: Reque
     from routers.driver import _assignments
 
     response.headers["Cache-Control"] = "no-store"
+    # The caller lookup awaits, so it runs before the snapshot: the role checks
+    # below then use one assignment state with no suspension point between.
+    me = await current_citizen(request)
     async with _INCIDENTS_LOCK:
         inc = next((i for i in ACTIVE_INCIDENTS if i["incident_id"] == incident_id), None)
         if inc is None:
@@ -666,12 +689,16 @@ async def incident_contacts(incident_id: str, response: Response, request: Reque
         on_call = {inc.get("assigned_unit"), *_assignments(inc).values()} - {None, ""}
         # The unit whose number is disclosed, read with the same snapshot.
         current_unit = fleet.unit_for_incident(incident_id)
-        raw_hospital = inc.get("approved_hospital_id") or (
+        approved_hospital = inc.get("approved_hospital_id")
+        raw_hospital = approved_hospital or (
             ((inc.get("action_plan") or {}).get("recommended_hospital") or {}).get("hospital_id"))
         owner_id = inc.get("citizen_id")
     from routers.hospital import _resolve
 
     hospital_id = (_resolve(str(raw_hospital)) or raw_hospital) if raw_hospital else None
+    # Only the destination dispatch approved is "the receiving hospital"; a
+    # recommendation is a candidate until then.
+    receiving_id = (_resolve(str(approved_hospital)) or approved_hospital) if approved_hospital else None
 
     def allowed(role: str, subject: str | None = None) -> bool:
         # Staff numbers need a real staff (or operator) sign-in. With staff
@@ -685,11 +712,10 @@ async def incident_contacts(incident_id: str, response: Response, request: Reque
             return False
         return True
 
-    me = await current_citizen(request)
     is_owner = bool(me and owner_id and me["id"] == owner_id)
     is_dispatch = allowed("dispatcher")
     is_unit = any(allowed("unit", u) for u in sorted(on_call))
-    is_hospital = bool(hospital_id) and allowed("hospital", hospital_id)
+    is_hospital = bool(receiving_id) and allowed("hospital", receiving_id)
     is_staff = is_dispatch or is_unit or is_hospital
 
     result: dict = {"hotline_112": contacts.hotline(), "dispatch": None, "unit": None, "hospital": None}
