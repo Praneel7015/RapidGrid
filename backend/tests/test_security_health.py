@@ -389,8 +389,8 @@ def test_public_health_is_a_status_line_until_unlock(client):
 def test_security_headers_on_pages_and_api(client):
     for path in ("/health/live", "/api/incidents/", "/api/session"):
         headers = client.get(path).headers
-        assert headers["x-frame-options"] == "DENY", path
-        assert "frame-ancestors 'none'" in headers["content-security-policy"]
+        assert headers["x-frame-options"] == "SAMEORIGIN", path
+        assert "frame-ancestors 'self';" in headers["content-security-policy"]  # this site only
         assert headers["x-content-type-options"] == "nosniff"
         assert headers["referrer-policy"] == "strict-origin-when-cross-origin"
         assert "microphone=(self)" in headers["permissions-policy"]

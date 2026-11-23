@@ -8,6 +8,7 @@ import CitizenDashboard from './views/CitizenDashboard';
 import DispatcherDashboard from './views/DispatcherDashboard';
 import DriverDashboard from './views/DriverDashboard';
 import HospitalDashboard from './views/HospitalDashboard';
+import GuidedDemo from './views/GuidedDemo';
 
 /**
  * Demo role gate.
@@ -113,6 +114,7 @@ export default function App() {
             <Route path="/dispatcher" element={portal('dispatcher', DispatcherDashboard)} />
             <Route path="/driver" element={portal('driver', DriverDashboard)} />
             <Route path="/hospital" element={portal('hospital', HospitalDashboard)} />
+            <Route path="/demo" element={<GuidedDemo />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </BrowserRouter>
