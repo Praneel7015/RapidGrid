@@ -749,8 +749,11 @@ async def get_all_incidents(request: Request = None):
         inc.setdefault("severity", 0.5)  # the dispatcher queue sorts by it
     return {"incidents": incidents}
 
-def _assign_unit(inc: dict) -> None:
-    """Give an approved call a free unit (its planned station's first)."""
+def _reserve_unit(inc: dict) -> tuple[str, bool]:
+    """Reserve a free unit for a call being approved (its planned station's
+    first). Returns (unit id, whether this call created the reservation).
+    With no suitable unit free, nothing changes and dispatch is told so: an
+    approved call with no unit would sit "dispatched" with no crew."""
     view = inc.get("citizen_view") or {}
     hub = view.get("phase1_hub") or {}
     vehicle = inc.get("vehicle_required") or "Ambulance"
@@ -758,12 +761,37 @@ def _assign_unit(inc: dict) -> None:
         vehicle = "Ambulance"  # the fleet has no separate "Medical" units
     from routers.driver import units_on_calls
 
+    held = fleet.unit_for_incident(inc["incident_id"])
     unit = fleet.assign(inc["incident_id"], vehicle, near=dict(inc["location"]),
                         prefer_station=hub.get("name"), exclude=units_on_calls(inc["incident_id"]))
-    inc["assigned_unit"] = unit["unit_id"] if unit else None
-    view["assigned_unit"] = inc["assigned_unit"]
     if unit is None:
-        logger.warning("No free %s for %s", log_safe(inc.get("vehicle_required")), log_safe(inc["incident_id"]))
+        logger.warning("No free %s for %s", log_safe(vehicle), log_safe(inc["incident_id"]))
+        raise HTTPException(status_code=409, detail=(
+            f"No {vehicle.lower()} is free right now. The call stays in the queue; "
+            "approve it again when a unit is back."))
+    return unit["unit_id"], held is None
+
+
+def _attach_unit(inc: dict, unit_id: str) -> None:
+    inc["assigned_unit"] = unit_id
+    inc.setdefault("citizen_view", {})["assigned_unit"] = unit_id
+
+
+def _assign_unit(inc: dict) -> None:
+    """Reserve and attach a unit in one step (no approval write follows)."""
+    unit_id, _ = _reserve_unit(inc)
+    _attach_unit(inc, unit_id)
+
+
+async def _commit_approval(inc: dict, unit_id: str, created: bool) -> None:
+    """Store the approval; if that fails, free the unit this approval
+    reserved (a unit the call already held stays held)."""
+    try:
+        await commit(inc)
+    except Exception:
+        if created and (fleet.unit_for_incident(inc["incident_id"]) or {}).get("unit_id") == unit_id:
+            fleet.release(inc["incident_id"])
+        raise
 
 
 @router.post("/{incident_id}/approve")
@@ -789,12 +817,18 @@ async def approve_incident(incident_id: str, payload: ApprovePayload, request: R
             view.update({"status": "dispatched",
                          "message": f"Help is on the way: {response_profile(inc.get('vehicle_required'))['label'].lower()} dispatched to the scene."})
             backup_hospital = plan.get("recommended_hospital") if inc.get("include_ambulance_backup") else None
+            if backup_hospital and (_resolve(str(backup_hospital.get("hospital_id", "")))
+                                    or backup_hospital.get("hospital_id")) in hospital_agent.diverted:
+                # The backup ambulance keeps its scene response but needs a
+                # destination that is open; dispatch picks one at pickup.
+                backup_hospital = None
+            unit_id, created = _reserve_unit(inc)
             inc.update({"status": "dispatched", "driver_stage": "pickup", "dispatcher_id": payload.dispatcher_id,
                         "approved_hospital_id": (backup_hospital or {}).get("hospital_id"), "citizen_view": view})
             inc["unit_statuses"] = {unit: "dispatched" for unit in required_units(inc)}
             view["unit_statuses"] = inc["unit_statuses"]
-            _assign_unit(inc)
-            await commit(inc)
+            _attach_unit(inc, unit_id)
+            await _commit_approval(inc, unit_id, created)
             logger.info("PLAN_APPROVED for %s by %s: scene response",
                         log_safe(incident_id), log_safe(payload.dispatcher_id))
             return public_incident(inc)
@@ -820,6 +854,7 @@ async def approve_incident(incident_id: str, payload: ApprovePayload, request: R
             raise HTTPException(status_code=409, detail="The incident changed while routing; refresh the call")
         if canonical in hospital_agent.diverted:
             raise HTTPException(status_code=409, detail="The hospital went on divert; select another destination")
+        unit_id, created = _reserve_unit(inc)
         view = dict(inc.get("citizen_view") or {})
         view.update(route)
         view.update({
@@ -834,8 +869,8 @@ async def approve_incident(incident_id: str, payload: ApprovePayload, request: R
                     "citizen_view": view})
         inc["unit_statuses"] = {unit: "dispatched" for unit in required_units(inc)}
         view["unit_statuses"] = inc["unit_statuses"]
-        _assign_unit(inc)
-        await commit(inc)
+        _attach_unit(inc, unit_id)
+        await _commit_approval(inc, unit_id, created)
         logger.info("PLAN_APPROVED for %s by %s: hospital=%s",
                     log_safe(incident_id), log_safe(payload.dispatcher_id), log_safe(target["name"]))
         return public_incident(inc)
@@ -932,7 +967,7 @@ async def clear_incidents():
     fleet.reset()
     # Also clear chat history so old messages don't surface on new incidents with the same ID.
     from routers.chat import manager
-    manager.clear_history()
+    await manager.clear_all()  # under the chat write lock, so no late insert survives
     return {"status": "cleared"}
 async def _backup_destination(inc: dict) -> dict:
     """Rank hospitals from the scene and route there, for a backup ambulance
@@ -980,8 +1015,19 @@ async def request_ambulance_backup(incident_id: str, request: Request = None):
                 # No driver can take a second ambulance on a medical call, so it
                 # would be a required unit that can never arrive.
                 raise HTTPException(status_code=409, detail="An ambulance is already the primary unit on this call")
+            if destination is not None and (inc.get("citizen_view") or {}).get("hospital_location"):
+                # Another request attached a destination while this one was
+                # planning (the crew may already be heading there): keep it.
+                destination = None
             if destination is not None:
+                from agents.hospital_intelligence import hospital_agent
+                from routers.hospital import _resolve as _resolve_hospital
+
                 hospital = destination["hospital"]
+                hid = _resolve_hospital(str(hospital.get("hospital_id", ""))) or hospital.get("hospital_id")
+                if hid in hospital_agent.diverted:
+                    raise HTTPException(status_code=409, detail=(
+                        "The nearest suitable hospital went on divert while planning; request the backup again"))
                 plan = inc.setdefault("action_plan", {})
                 plan["recommended_hospital"] = hospital
                 plan["all_hospitals"] = destination["ranked"]
@@ -992,9 +1038,7 @@ async def request_ambulance_backup(incident_id: str, request: Request = None):
                     "hospital_location": hospital["location"],
                 })
                 if inc.get("status") != "awaiting_dispatcher_approval":
-                    from routers.hospital import _resolve
-
-                    inc["approved_hospital_id"] = _resolve(str(hospital.get("hospital_id", ""))) or hospital.get("hospital_id")
+                    inc["approved_hospital_id"] = hid
             inc["include_ambulance_backup"] = True
             inc["unit_statuses"] = unit_statuses(inc)
             if "citizen_view" in inc:

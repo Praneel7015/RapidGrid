@@ -15,6 +15,7 @@ Everything here is dispatch-only: the agent proposes, a person decides.
 from __future__ import annotations
 
 import asyncio
+import logging
 import math
 import time
 from typing import Literal
@@ -27,6 +28,8 @@ from agents import monitor, simulator
 from agents.city_state import city_state
 from agents.local_router import local_router
 from staff import require as require_staff
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Monitoring agent"])
 
@@ -138,7 +141,15 @@ async def dispatch_backup(incident_id: str, alert_id: str, request: Request = No
             inc.pop("assigned_driver", None)
             inc["driver_claimed"] = False
         alert.update(status="backup_dispatched", decided_at=time.time(), decided_by=who[1])
-        await incident_router.commit(inc)
+        try:
+            await incident_router.commit(inc)
+        except Exception:
+            # The call record was restored; give the call back its first unit.
+            try:
+                fleet.swap(incident_id, released)
+            except Exception:
+                logger.exception("Could not hand %s back to %s after a failed save", incident_id, released)
+            raise
     monitor.clear_alert(alert["unit_id"])
     text = (f"Dispatcher sent backup {backup['unit_id']} from {backup['station']}; "
             f"{alert['unit_id']} released.")
@@ -222,9 +233,9 @@ def wrong_turn_path(route: list[dict], index: int, position: dict) -> list[dict]
             travelled, furthest = 0.0, 0.0
             for p, q in zip(path["coordinates"], path["coordinates"][1:]):
                 travelled += monitor._dist(p, q)
-                furthest = max(furthest, monitor.project(route, q)[0])
-                if travelled > 1500:
+                if travelled > 1500:  # only the first 1.5 km counts
                     break
+                furthest = max(furthest, monitor.project(route, q)[0])
             if furthest >= 200:
                 return path["coordinates"]
     return []
@@ -250,9 +261,21 @@ async def stage_disruption(incident_id: str, demo: DemoAction, request: Request 
     position = unit["position"]
     _off, index = monitor.project(route, position)
 
+    async def unchanged() -> None:
+        # The search ran without the lock: the crew may have picked up the
+        # patient, or a backup taken over, meanwhile. Stage nothing then.
+        _still_current(generation)
+        async with incident_router._INCIDENTS_LOCK:
+            now = next((i for i in incident_router.ACTIVE_INCIDENTS if i["incident_id"] == incident_id), None)
+            now_leg, now_route, _ = monitor._leg(now) if now else (None, [], None)
+            now_unit = fleet.unit_for_incident(incident_id)
+            if (now is None or now_leg != leg or now_route != route
+                    or (now_unit or {}).get("unit_id") != unit["unit_id"]):
+                raise HTTPException(status_code=409, detail="The call moved on while staging; nothing was staged")
+
     if demo.action == "wrong_turn":
         path = await asyncio.to_thread(wrong_turn_path, route, index, position)
-        _still_current(generation)
+        await unchanged()
         if not path:
             raise HTTPException(status_code=409, detail="No side road found for a wrong turn here")
         simulator.set_detour(unit["unit_id"], snapshot, path)
@@ -260,7 +283,7 @@ async def stage_disruption(incident_id: str, demo: DemoAction, request: Request 
         return {"status": "staged", "action": demo.action}
 
     edges = await asyncio.to_thread(edges_to_close, route, index, position)
-    _still_current(generation)
+    await unchanged()
     if not edges:
         raise HTTPException(status_code=409, detail="The unit is too close to its destination to stage this")
     road = monitor.main_road([{"road": local_router.road_names[local_router.edge_name[e]]} for e in edges])
