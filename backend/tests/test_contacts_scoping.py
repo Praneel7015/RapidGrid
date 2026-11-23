@@ -97,7 +97,7 @@ def test_dispatch_and_the_unit_on_the_call_get_the_er_and_icu(call):
 def test_a_unit_not_on_the_call_gets_only_112(call):
     incident_id, _ = call
     seen = contacts_for(staff_client("unit", "AMB-02", "333333"), incident_id)
-    assert seen["unit"] is None and seen["hospital"] is None
+    assert seen["unit"] is None and seen["hospital"] is None and seen["dispatch"] is None
 
 
 def test_a_unit_replaced_by_a_backup_loses_access_to_the_call(call):
@@ -112,7 +112,7 @@ def test_a_unit_replaced_by_a_backup_loses_access_to_the_call(call):
     stored["assigned_unit"] = "AMB-02"
     stored["unit_assignments"] = {k: v for k, v in stored["unit_assignments"].items() if v != "AMB-01"}
     seen = contacts_for(old, incident_id)
-    assert seen["unit"] is None and seen["hospital"] is None
+    assert seen["unit"] is None and seen["hospital"] is None and seen["dispatch"] is None
     new = contacts_for(staff_client("unit", "AMB-02", "333333"), incident_id)
     assert new["unit"]["unit_id"] == "AMB-02" and new["hospital"] is not None
     assert monitoring  # the endpoint's clean-up is covered in test_monitoring_agent
@@ -131,9 +131,11 @@ def test_no_phone_number_is_in_any_incident_response(call):
     stored.update(unit_phone="+91 90000 00201", hospital_phone="+91 80 0000 0701")
     stored.setdefault("citizen_view", {}).update(unit_phone="+91 90000 00201", hospital_phone="+91 80 0000 0701")
     c = staff_client("dispatcher", "dispatch", "111111")
-    for text in (c.get("/api/incidents/").text, c.get(f"/api/incidents/{incident_id}").text,
-                 c.get("/api/driver/active").text, c.get("/api/hospital/incoming/all").text):
-        assert "90000 00201" not in text and "0000 0701" not in text
+    for path in ("/api/incidents/", f"/api/incidents/{incident_id}", "/api/driver/active", "/api/hospital/incoming/all"):
+        r = c.get(path)
+        # A refusal or an empty list would pass trivially: the call must be there.
+        assert r.status_code == 200 and incident_id in r.text, path
+        assert "90000 00201" not in r.text and "0000 0701" not in r.text
 
 
 def test_with_staff_sign_in_off_strangers_get_only_112(monkeypatch, call):
