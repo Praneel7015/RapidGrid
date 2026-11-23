@@ -875,3 +875,23 @@ def test_update_reloads_only_the_tab_that_chose_reload(pwa_context, server):
         assert later.evaluate("window.__stillHere === true")
     finally:
         sw.write_bytes(original)
+
+
+def test_evening_rush_and_rain_preset_in_one_click(context, server):
+    unlock(context, server)
+    auth = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
+    before = context.request.get(server + "/api/city/state", headers=auth).json()
+    page = context.new_page()
+    page.route("https://tile.openstreetmap.org/**", lambda route: route.abort())
+    try:
+        page.goto(server + "/dispatcher")
+        page.get_by_role("button", name="Preset: evening rush + rain").click()
+        expect(page.get_by_text("Evening rush in the rain", exact=False)).to_be_visible(timeout=10000)
+        expect(page.locator("#city-weather")).to_have_value("Rain")
+        expect(page.locator("#city-hour")).to_have_value("18")
+    finally:
+        page.close()
+        # Put back the hour and weather this test changed (clear does not).
+        restored = context.request.post(server + "/api/city/conditions", headers=auth,
+                                        data={"hour": before["hour"], "weather": before["weather"]})
+        assert restored.ok, restored.text()

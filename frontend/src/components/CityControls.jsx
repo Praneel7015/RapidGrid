@@ -165,6 +165,21 @@ export default function CityControls({ onChange }) {
           </div>
         </div>
 
+        {/* One click for the classic hard case: evening peak in the rain. */}
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() =>
+            act('/api/city/conditions', { hour: 18, weather: 'Rain' }, (d) =>
+              `Evening rush in the rain: 18:00, peak factor ${d.peak_factor}, travel x${d.weather_multiplier} (modelled).`,
+            )
+          }
+          className="w-full rounded-sm border border-rule bg-paper px-3 py-2 text-left text-[12.5px] font-semibold text-text hover:border-signal disabled:opacity-50"
+        >
+          <CloudRain size={12} className="mr-1.5 inline" aria-hidden="true" />
+          Preset: evening rush + rain
+        </button>
+
         {state && (
           <dl className="grid grid-cols-3 gap-2 border-t border-rule pt-3">
             {[
