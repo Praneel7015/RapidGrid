@@ -11,7 +11,7 @@
  * measured are either omitted or labelled.
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { AlertTriangle, Check, CornerUpRight, X } from 'lucide-react';
 import MapOverlay from '../components/MapOverlay';
 import useUnitTrack, { liveEtaMinutes } from '../hooks/useUnitTrack';
@@ -34,6 +34,38 @@ import {
   severityBand,
   fmt,
 } from '../components/ui';
+
+/** The whole fleet, every 5 s (dispatch only), without the unit on the
+ * selected call (the map draws that one with its trail). */
+function useFleet(exceptUnit) {
+  const [units, setUnits] = useState([]);
+  useEffect(() => {
+    let cancelled = false;
+    let inFlight = false;
+    const load = async () => {
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        const res = await fetch('/api/units', { signal: AbortSignal.timeout(5000) });
+        if (res.ok) {
+          const data = await res.json();
+          if (!cancelled) setUnits(data.units ?? []);
+        }
+      } catch {
+        // keep the last positions
+      } finally {
+        inFlight = false;
+      }
+    };
+    load();
+    const timer = setInterval(load, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, []);
+  return useMemo(() => units.filter((u) => u.unit_id !== exceptUnit), [units, exceptUnit]);
+}
 
 export default function DispatcherDashboard() {
   const [incidents, setIncidents] = useState([]);
@@ -244,6 +276,7 @@ export default function DispatcherDashboard() {
   const sceneOnly = plan?.response_profile === 'scene';
   const track = useUnitTrack(selected?.incident_id, ['dispatched', 'patient_picked_up'].includes(selected?.status));
   const openAlert = selected?.monitoring?.alerts?.find((a) => a.status === 'open') ?? null;
+  const fleet = useFleet(track.unit?.unit_id ?? null);
   const routeCoords = view.route_coordinates ?? plan?.recommended_route?.coordinates ?? [];
 
   const queue = incidents.filter(
@@ -438,6 +471,8 @@ export default function DispatcherDashboard() {
                     alertPoint={openAlert?.position ?? null}
                     corridor={openAlert?.corridor ?? []}
                     focusKey={openAlert?.alert_id ?? null}
+                    fleet={fleet}
+                    highlightUnit={openAlert?.backup?.unit_id ?? null}
                     className="!rounded-none !border-0"
                   />
                 ) : (

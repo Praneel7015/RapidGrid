@@ -681,6 +681,9 @@ def test_a_dispatched_unit_moves_on_the_map(context, server):
     assert (first["lat"], first["lng"]) != (second["lat"], second["lng"])
     # The marker moved in place: its popup is still open.
     expect(page.locator(".leaflet-popup-content")).to_contain_text("Simulated GPS")
+    # The rest of the fleet is on the dispatcher's map too.
+    fleet = context.request.get(server + "/api/units").json()["units"]
+    expect(page.locator(".rg-fleet")).to_have_count(len(fleet) - 1, timeout=10000)
     # The agent's live view of the unit, and one remaining time that counts down.
     watching = page.get_by_test_id("agent-watching")
     expect(watching).to_contain_text("To the patient")

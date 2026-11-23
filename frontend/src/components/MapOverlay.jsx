@@ -95,6 +95,10 @@ export default function MapOverlay({
   alertPoint = null,
   corridor = NONE,
   focusKey = null,
+  // Every other unit in the fleet ({unit_id, type, status, position}), and
+  // the one the agent proposes as backup, drawn as small markers.
+  fleet = NONE,
+  highlightUnit = null,
   height = '400px',
   theme = 'light',
   className = '',
@@ -153,6 +157,7 @@ export default function MapOverlay({
         map.current = null;
         layers.current = null;
         unitLayer.current = null;
+        fleetLayer.current = null;
         unitMarker.current = null;
         trailLine.current = null;
       }
@@ -324,6 +329,35 @@ export default function MapOverlay({
       }
     }
   }, [routeCoordinates, phase1Coordinates, origin, hospital, hub, closures, congestion, activePhase, proposals, alertPoint, corridor, focusKey]);
+
+  // The rest of the fleet: small markers on their own layer, redrawn on each
+  // fleet poll (not part of the fit, so they never re-zoom the map).
+  const fleetLayer = useRef(null);
+  useEffect(() => {
+    if (!map.current) return;
+    if (!fleetLayer.current) fleetLayer.current = L.layerGroup().addTo(map.current);
+    fleetLayer.current.clearLayers();
+    for (const u of fleet) {
+      const pos = u.position;
+      if (!pos || !Number.isFinite(pos.lat) || !Number.isFinite(pos.lng)) continue;
+      const proposed = u.unit_id === highlightUnit;
+      const size = proposed ? 18 : 12;
+      const fill = u.status === 'available' ? COLOR.proposal : COLOR.alternative;
+      L.marker([pos.lat, pos.lng], {
+        icon: L.divIcon({
+          className: '',
+          html: `<div class="rg-fleet${proposed ? ' rg-fleet-backup' : ''}" style="width:${size}px;height:${size}px;border-radius:50%;background:${fill};border:${proposed ? 3 : 1.5}px solid ${proposed ? COLOR.proposal : COLOR.hub};opacity:${proposed ? 1 : 0.75}"></div>`,
+          iconSize: [size, size],
+          iconAnchor: [size / 2, size / 2],
+        }),
+        keyboard: false,
+        title: `${u.unit_id}, ${u.status === 'available' ? 'available' : 'on a call'}`,
+      })
+        .bindPopup(popup([u.unit_id, 'b'], [`${u.type} · ${u.status === 'available' ? 'available' : 'on a call'}`],
+          ...(proposed ? [['Proposed backup', 'b']] : [])))
+        .addTo(fleetLayer.current);
+    }
+  }, [fleet, highlightUnit]);
 
   // The responding unit and its trajectory live on their own layer and are
   // moved in place on every poll, so an open popup stays open. Not part of
