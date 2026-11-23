@@ -99,6 +99,11 @@ def save_collection(name: str, value: Any, *, database: Path | None = None) -> N
         )
 
 
+def delete_collection(name: str, *, database: Path | None = None) -> None:
+    with _connection(database) as connection:
+        connection.execute("DELETE FROM collections WHERE name = ?", (name,))
+
+
 def delete_collections(prefix: str, *, database: Path | None = None) -> None:
     with _connection(database) as connection:
         connection.execute("DELETE FROM collections WHERE substr(name, 1, ?) = ?", (len(prefix), prefix))
@@ -199,3 +204,18 @@ def insert_citizen(citizen_id: str, payload: str, *, database: Path | None = Non
         cursor = connection.execute(
             "INSERT OR IGNORE INTO citizens (citizen_id, payload) VALUES (?, ?)", (citizen_id, payload))
         return cursor.rowcount == 1
+
+
+def clear_citizens(*, database: Path | None = None) -> int:
+    """Delete every citizen account (after the event; DPDP Act)."""
+    with _connection(database) as connection:
+        return connection.execute("DELETE FROM citizens").rowcount
+
+
+def compact(*, database: Path | None = None) -> None:
+    """Rewrite the database so deleted rows leave no trace in free pages or
+    the write-ahead log (after a purge)."""
+    with _connection(database) as connection:
+        connection.commit()  # VACUUM cannot run inside a transaction
+        connection.execute("VACUUM")
+        connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
