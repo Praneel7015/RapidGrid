@@ -98,3 +98,28 @@ def test_simulation_resumes_from_the_last_real_gps_fix(city):
     simulator.step([incident])
     here = fleet.get("AMB-01")["position"]
     assert monitor._dist(here, far) < 300
+
+
+def test_after_a_phone_goes_quiet_the_unit_keeps_heading_for_the_scene(city):
+    incident = call_to((12.985, 77.594), ASTER_HUB)
+    drive(incident, 2)
+    route = incident["citizen_view"]["phase1_route_coordinates"]
+    far = route[len(route) // 2]
+    fleet.record_position("AMB-01", far["lat"], far["lng"], source="gps", accuracy_m=5)
+    fleet._units["AMB-01"]["position"]["at"] = time.time() - 3600  # the phone stopped
+    goal = route[-1]
+    before = monitor._dist(far, goal)
+    for _ in range(4):
+        simulator.step([incident])
+    here = fleet.get("AMB-01")["position"]
+    assert monitor._dist(here, goal) < before  # forwards, not back to the station
+    assert monitor._dist(here, route[0]) > monitor._dist(far, route[0]) - 50
+
+
+def test_a_unit_already_on_a_road_that_just_closed_stops(city, monkeypatch):
+    route = [{"lat": 13.0, "lng": 77.0}, {"lat": 13.0, "lng": 77.0093}]
+    closure = [{"lat": 13.0, "lng": 77.002}, {"lat": 13.0, "lng": 77.006}]  # about 215-650 m
+    monkeypatch.setattr(city_state, "closure_overlay", lambda: [{"coordinates": closure}])
+    monkeypatch.setattr(city_state, "closed_edges", {1})
+    stop = simulator._closure_on(route, 400.0, 440.0)  # the unit is at 400 m, inside it
+    assert stop is not None and stop <= 400.0

@@ -292,9 +292,10 @@ def security_same_origin(request) -> bool:
     return bool(request.headers.get("origin")) and security.same_origin(request)
 
 
-# A run of 7+ digits (spaces, dashes, dots or a leading + allowed between):
-# a phone number a caller typed into the report.
-_PHONE_IN_TEXT = re.compile(r"\+?\d(?:[\s.-]?\d){6,}")
+# A run of 10+ digits (up to three spaces, dashes or slashes between, a
+# leading + allowed): a phone number a caller typed into the report. Dots
+# are not separators, so dates and coordinates are left alone.
+_PHONE_IN_TEXT = re.compile(r"\+?\d(?:[ \t/-]{0,3}\d){9,}")
 
 
 def _mask_numbers(text):
@@ -817,11 +818,20 @@ async def approve_incident(incident_id: str, payload: ApprovePayload, request: R
             view.update({"status": "dispatched",
                          "message": f"Help is on the way: {response_profile(inc.get('vehicle_required'))['label'].lower()} dispatched to the scene."})
             backup_hospital = plan.get("recommended_hospital") if inc.get("include_ambulance_backup") else None
-            if backup_hospital and (_resolve(str(backup_hospital.get("hospital_id", "")))
-                                    or backup_hospital.get("hospital_id")) in hospital_agent.diverted:
-                # The backup ambulance keeps its scene response but needs a
-                # destination that is open; dispatch picks one at pickup.
-                backup_hospital = None
+
+            def open_now(h):
+                return (_resolve(str(h.get("hospital_id", ""))) or h.get("hospital_id")) not in hospital_agent.diverted
+
+            if backup_hospital and not open_now(backup_hospital):
+                # The backup ambulance needs a destination that is open: the
+                # next ranked one, or none and dispatch is told.
+                backup_hospital = next((h for h in plan.get("all_hospitals") or []
+                                        if h.get("location") and open_now(h)), None)
+                if backup_hospital is None:
+                    raise HTTPException(status_code=409, detail=(
+                        "Every ranked hospital is on divert; the backup ambulance has nowhere to go"))
+                view.update({"hospital_name": backup_hospital["name"],
+                             "hospital_location": backup_hospital["location"]})
             unit_id, created = _reserve_unit(inc)
             inc.update({"status": "dispatched", "driver_stage": "pickup", "dispatcher_id": payload.dispatcher_id,
                         "approved_hospital_id": (backup_hospital or {}).get("hospital_id"), "citizen_view": view})
