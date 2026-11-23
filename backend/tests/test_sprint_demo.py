@@ -274,3 +274,43 @@ def test_each_alert_carries_the_agents_steps(city):
     assert alert["cause"]["text"] in text["Explain"]
     assert "Recommended" in text["Options"]
     assert alert["trace"][-1]["ms"] > 0
+
+
+def _stage(incident, kind="close"):
+    drive(incident)
+    unit = fleet.unit_for_incident("INC-mon")
+    route = incident["citizen_view"]["phase1_route_coordinates"]
+    _off, index = monitor.project(route, unit["position"])
+    edges = monitoring.edges_to_close(route, index, unit["position"])
+    if kind == "close":
+        city_state.close_road(edges, "closure")
+    else:
+        city_state.report_incident(edges, label="accident")
+    return monitor.tick([incident])[0][1]
+
+
+def test_the_agent_keeps_the_unit_when_a_backup_would_not_help(city):
+    # The guided demo's scene near Hebbal: AMB-01 (Aster CMI hub) is close,
+    # every other ambulance is across town.
+    alert = _stage(call_to(GUIDED_SCENE, ASTER_HUB))
+    assert alert["backup"] is not None  # a free unit exists ...
+    assert alert["recommendation"] == "reroute"  # ... but is not worth sending
+    assert "Backup: not needed" in alert["explanation"]
+    assert "Keep AMB-01 on the new route" in alert["explanation"]
+    advise = next(s["text"] for s in alert["trace"] if s["step"] == "Advise")
+    assert advise.startswith("Keep this unit on the recommended route")
+
+
+def test_an_accident_ahead_is_named_as_the_cause(city):
+    alert = _stage(call_to((12.985, 77.594), ASTER_HUB), kind="accident")
+    assert alert["trigger"] == "blocked_ahead"
+    assert alert["cause"]["kind"] == "accident" and alert["cause"]["likely"] is False
+    assert alert["cause"]["text"].startswith("accident reported on ")
+    assert "Cause: accident reported on" in alert["explanation"]
+
+
+def test_a_closure_delay_is_positive_and_adds_up(city):
+    alert = _stage(call_to((12.985, 77.594), ASTER_HUB))
+    assert alert["delay_s"] > 0
+    assert abs(alert["new_eta_s"] - (alert["planned_remaining_s"] + alert["delay_s"])) < 1.0
+    assert "Delay: +" in alert["explanation"]
