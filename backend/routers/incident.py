@@ -791,6 +791,9 @@ async def _commit_approval(inc: dict, unit_id: str, created: bool) -> None:
         await commit(inc)
     except Exception:
         if created and (fleet.unit_for_incident(inc["incident_id"]) or {}).get("unit_id") == unit_id:
+            # Freed in memory now. If storing that also fails, the stored
+            # record still names this call; startup frees units held by a
+            # call that is not being driven, so it cannot stay stuck.
             fleet.release(inc["incident_id"])
         raise
 

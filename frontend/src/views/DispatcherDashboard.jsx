@@ -105,6 +105,8 @@ export default function DispatcherDashboard() {
               }
               if (!res?.ok && !cancelled) setActionError(`Auto-approval failed for ${inc.incident_id}${res ? ` (HTTP ${res.status})` : ''}. Review and approve manually.`);
               if (res?.ok) {
+                // A "no unit free" note for this call no longer applies.
+                if (!cancelled) setActionError((e) => (e && e.includes(inc.incident_id) && e.includes('No unit is free') ? null : e));
                 const updated = await res.json().catch(() => null);
                 if (updated) {
                   setIncidents((prev) =>
