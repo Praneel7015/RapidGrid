@@ -111,3 +111,21 @@ def test_an_unreachable_goal_costs_one_search(graph):
         assert time.monotonic() - started < 4.0
     finally:
         graph.unblock_all()
+
+
+def test_a_shared_candidate_never_gives_an_empty_route(graph):
+    # Two points whose candidates overlap: either a real route or none.
+    for a, b in [((12.985, 77.594), (12.9852, 77.5942)), ((12.985, 77.594), (12.9846, 77.5945))]:
+        out = graph.find_path(a, b)
+        assert out is None or (out["distance_m"] > 0 and len(out["coordinates"]) >= 2)
+
+
+def test_multi_goal_search_returns_the_fastest_goal():
+    # Goal A is far from the requested point but quick to reach; goal B is
+    # close to the point but slower. The heuristic must not prefer B.
+    g = _tiny([(0, 1), (0, 2)], 3)
+    g.lat, g.lng = [12.900, 12.901, 12.9025], [77.600, 77.600, 77.600]
+    g.edge_time, g.edge_len, g.edge_name, g.edge_class = [10.0, 12.0], [111.0, 278.0], [0, 0], [0, 0]
+    g.road_names = ["Test Road"]
+    out = g._search([0], {1, 2}, (12.9030, 77.600))
+    assert out["node_ids"][-1] == 1
