@@ -68,7 +68,9 @@ def test_a_reroute_restarts_simulated_progress_on_the_new_route(city):
 def test_an_alert_for_a_destination_that_changed_is_not_published(client):
     report = seed("patient_picked_up")
     report["citizen_view"]["route_coordinates"] = [{"lat": 13.0, "lng": 77.0}, {"lat": 13.04, "lng": 77.59}]
-    stale = {"alert_id": "S1", "status": "open", "leg": "to_hospital", "unit_id": "AMB-01",
+    held = fleet.assign("INC-review", "Ambulance", near=report["location"])
+    stale_unit = held["unit_id"]
+    stale = {"alert_id": "S1", "status": "open", "leg": "to_hospital", "unit_id": stale_unit,
              "destination": {"lat": 12.9, "lng": 77.5}, "explanation": "x"}
     asyncio.run(simulator.store_alerts([("INC-review", stale)]))
     assert not (report.get("monitoring") or {}).get("alerts")
@@ -113,3 +115,23 @@ def test_startup_frees_a_unit_left_on_a_call_still_awaiting_approval(client, mon
     from main import app
     with TestClient(app):  # startup: load and reconcile
         assert fleet.unit_for_incident("INC-review") is None
+
+
+def test_an_alert_for_a_unit_a_backup_replaced_is_not_published(client):
+    report = seed("dispatched")
+    route = [{"lat": 13.0, "lng": 77.0}, {"lat": 13.035, "lng": 77.597}]
+    report["citizen_view"]["phase1_route_coordinates"] = route
+    first = fleet.assign("INC-review", "Ambulance", near=report["location"])["unit_id"]
+    alert = {"alert_id": "B1", "status": "open", "leg": "to_scene", "unit_id": first,
+             "destination": dict(route[-1]), "route_key": simulator.route_key(route), "explanation": "x"}
+    # Meanwhile dispatch sent a backup: another unit and its own route, same scene.
+    backup = next(u["unit_id"] for u in fleet.units() if u["type"] == "Ambulance" and u["status"] == "available")
+    fleet.swap("INC-review", backup)
+    report["citizen_view"]["phase1_route_coordinates"] = [{"lat": 12.99, "lng": 77.6}, dict(route[-1])]
+    asyncio.run(simulator.store_alerts([("INC-review", alert)]))
+    assert not (report.get("monitoring") or {}).get("alerts")
+    # The same alert for the unit and route on the call is published.
+    fleet.swap("INC-review", first)
+    report["citizen_view"]["phase1_route_coordinates"] = route
+    asyncio.run(simulator.store_alerts([("INC-review", dict(alert, alert_id="B2"))]))
+    assert report["monitoring"]["alerts"][0]["alert_id"] == "B2"
