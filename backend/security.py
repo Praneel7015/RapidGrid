@@ -7,6 +7,7 @@ HttpOnly session. The secret is configured on the server, never baked into JS.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import logging
@@ -551,3 +552,40 @@ async def forwarding_check(request: Request, response: Response):
         "hops_setting": _hops(),
         "chosen_entry_is_documentation_address": _pick(parts).startswith("203.0.113."),
     }
+
+
+@router.post("/purge")
+async def purge_personal_data(request: Request, response: Response):
+    """Operator only, after the event: delete every call, message, position
+    trail and citizen account (personal data under the DPDP Act). The
+    operator token is the only way in; staff PINs are not enough."""
+    response.headers["Cache-Control"] = "no-store"
+    if not authenticated(request):
+        raise HTTPException(status_code=401, detail="Operator sign-in required")
+    # A JSON body cannot be sent cross-site without a CORS preflight (CSRF).
+    if request.headers.get("content-type", "").split(";")[0].strip() != "application/json":
+        raise HTTPException(status_code=415, detail="Send a JSON request")
+    import storage
+    from routers.monitoring import reset_event_state
+
+    from routers.chat import manager
+
+    result = await reset_event_state()
+    database = storage.data_path()
+    accounts = storage.clear_citizens(database=database)
+    # Older snapshot layouts kept for rollback also hold callers' details.
+    storage.delete_collection("incidents", database=database)
+    legacy = database.parent / "incidents_db.json"
+    if legacy.exists():
+        legacy.unlink()
+    for sockets in list(manager.active_connections.values()):
+        for ws in list(sockets):
+            try:
+                await ws.close(code=1001)
+            except Exception:
+                pass
+    manager.active_connections.clear()
+    manager.clear_history()  # a message that raced the reset
+    await asyncio.to_thread(storage.compact, database=database)
+    logging.getLogger("geoagentic.security").warning("Personal data purged: %d accounts", accounts)
+    return {"status": "purged", "accounts_deleted": accounts, **result}
