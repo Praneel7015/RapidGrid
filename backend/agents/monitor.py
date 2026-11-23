@@ -263,7 +263,12 @@ def main_road(segments: list[dict]) -> str:
     counts: dict[str, int] = {}
     for seg in segments:
         counts[seg["road"]] = counts.get(seg["road"], 0) + 1
-    return max(counts, key=counts.get) if counts else "an unnamed road"
+    if not counts:
+        return "an unnamed road"
+    # A named road wins over an unnamed one ("Trunk Link") when both appear.
+    named = {r: n for r, n in counts.items() if _named(r)}
+    pick = named or counts
+    return readable_road(max(pick, key=pick.get))
 
 
 def find_cause(remaining: list[dict], position: dict, trigger: str) -> dict:
@@ -271,7 +276,8 @@ def find_cause(remaining: list[dict], position: dict, trigger: str) -> dict:
     if on_route["closed"]:
         road = main_road(on_route["closed"])
         return {"kind": "roadblock", "road": road, "likely": False,
-                "text": f"road closed ahead on {road} ({len(on_route['closed'])} segments)"}
+                "text": f"road closed ahead on {road} ({len(on_route['closed'])} "
+                        f"segment{'s' if len(on_route['closed']) != 1 else ''})"}
     if on_route["incident"]:
         road = main_road(on_route["incident"])
         return {"kind": "accident", "road": road, "likely": False,
@@ -279,26 +285,27 @@ def find_cause(remaining: list[dict], position: dict, trigger: str) -> dict:
     nearby = _disruptions_near([position, position], CAUSE_RADIUS_M) if trigger == "deviation" else on_route
     if nearby["closed"]:
         seg = nearby["closed"][0]
-        return {"kind": "roadblock", "road": seg["road"], "likely": True,
-                "text": f"likely the closure on {seg['road']} nearby"}
+        return {"kind": "roadblock", "road": readable_road(seg["road"]), "likely": True,
+                "text": f"likely the closure on {readable_road(seg['road'])} nearby"}
     if nearby["incident"]:
         seg = nearby["incident"][0]
-        return {"kind": "accident", "road": seg["road"], "likely": True,
-                "text": f"likely the accident on {seg['road']} nearby"}
+        return {"kind": "accident", "road": readable_road(seg["road"]), "likely": True,
+                "text": f"likely the accident on {readable_road(seg['road'])} nearby"}
     worst = on_route["congested"] or nearby["congested"]
     if worst is not None:
         causes = city_state.explain(worst["edge_id"]).get("causes", [])
         dominant = max(causes, key=lambda c: c["multiplier"], default=None)
         why = _CAUSE_WORDS.get(dominant["cause"], dominant["cause"]) if dominant else "congestion"
-        return {"kind": "congestion", "road": worst["road"], "likely": trigger == "deviation",
-                "text": f"heavy congestion on {worst['road']} (x{worst['multiplier']:.2f}, from {why})"}
+        return {"kind": "congestion", "road": readable_road(worst["road"]), "likely": trigger == "deviation",
+                "text": f"heavy congestion on {readable_road(worst['road'])} (x{worst['multiplier']:.2f}, from {why})"}
     return {"kind": "unexplained", "road": None, "likely": False,
             "text": "the unit left the planned route; no closure, accident or congestion found nearby"}
 
 
 def _route_summary(path: dict, label: str) -> dict:
     return {"label": label, "coordinates": path["coordinates"], "eta_s": path["travel_time_s"],
-            "distance_m": path["distance_m"], "roads": path["roads"][:4], "edge_ids": path["edge_ids"]}
+            "distance_m": path["distance_m"], "roads": [r for r in path["roads"] if _named(r)][:4],
+            "edge_ids": path["edge_ids"]}
 
 
 def alternatives(origin: dict, destination: dict, fallbacks: list[dict] = ()) -> list[dict]:
@@ -343,7 +350,7 @@ def corridor(route: dict, limit: int = 6) -> list[dict]:
     for i, e in enumerate(edges):
         name = local_router.road_names[local_router.edge_name[e]]
         if previous is not None and name != previous and i < len(coords):
-            out.append({"lat": coords[i]["lat"], "lng": coords[i]["lng"], "road": name,
+            out.append({"lat": coords[i]["lat"], "lng": coords[i]["lng"], "road": readable_road(name),
                         "eta_min": round(elapsed / 60, 1)})
             if len(out) >= limit:
                 break
@@ -371,6 +378,36 @@ def _route_key(route: list[dict]) -> str:
     from agents.simulator import route_key
 
     return route_key(route)
+
+
+def _delay_line(delay: float, new_eta: Optional[float]) -> str:
+    """The delay against the plan, worded honestly in either direction."""
+    if delay >= 30:
+        return f"Delay: +{delay / 60:.1f} min; new ETA {_minutes(new_eta)} from now."
+    if delay <= -30:
+        return (f"No delay: the new route is {-delay / 60:.1f} min faster than the plan; "
+                f"new ETA {_minutes(new_eta)} from now.")
+    return f"No delay against the plan; new ETA {_minutes(new_eta)} from now."
+
+
+# OpenStreetMap roads with no name or number get their class as a name
+# ("Trunk Link", "Tertiary") when the graph is built; say what they are.
+_ROAD_CLASSES = {"motorway", "trunk", "primary", "secondary", "tertiary"}
+
+
+def readable_road(name: Optional[str]) -> str:
+    if not name:
+        return "an unnamed road"
+    words = name.lower().split()
+    if words and words[0] in _ROAD_CLASSES and set(words[1:]) <= {"link"}:
+        if "link" in words:
+            return "an unnamed slip road"
+        return "an unnamed main road" if words[0] in {"motorway", "trunk", "primary"} else "an unnamed side road"
+    return name
+
+
+def _named(name: Optional[str]) -> bool:
+    return readable_road(name) == name
 
 
 def _minutes(seconds: Optional[float]) -> str:
@@ -435,7 +472,7 @@ def analyse(incident: dict, unit: dict, leg: str, route: list[dict], eta_s: Opti
     lines = [
         f"{first} on the way {where}.",
         f"Cause: {cause['text']}.",
-        (f"Delay: {'+' if delay >= 0 else ''}{delay / 60:.1f} min; new ETA {_minutes(new_eta)} from now."
+        (_delay_line(delay, new_eta)
          if delay is not None else
          (f"New ETA {_minutes(new_eta)} from now." if new_eta is not None
           else "No road route from the unit's position: it cannot get through.")),
@@ -460,7 +497,7 @@ def analyse(incident: dict, unit: dict, leg: str, route: list[dict], eta_s: Opti
     else:
         lines.append(f"Backup: no free {unit['type'].lower()} available. Hold {unit['unit_id']} and clear the road.")
     if green:
-        lines.append(f"Green-corridor request: {len(green)} junctions on the new route, first in "
+        lines.append(f"Green-corridor request: {len(green)} junction{'s' if len(green) != 1 else ''} on the new route, first in "
                      f"{green[0]['eta_min']:.1f} min (advice for traffic police; no live signal control).")
 
     return {
@@ -502,6 +539,7 @@ def tick(incidents: list[dict]) -> list[tuple[str, dict]]:
         incident = by_id.get(unit.get("incident_id") or "")
         if incident is None:
             _watches.pop(unit["unit_id"], None)
+            _last_off.pop(unit["unit_id"], None)
             continue
         leg, route, eta_s = _leg(incident)
         if leg is None or len(route) < 2:
@@ -516,6 +554,7 @@ def tick(incidents: list[dict]) -> list[tuple[str, dict]]:
             handled = watch.city_version
             watch.leg_key, watch.progress, watch.off_count, watch.alert_id = leg_key, 0, 0, None
             watch.alert_city_version = ()
+            watch.quiet_until = 0.0  # a dismissal was for the old route
             # A reroute of the same leg (dispatch accepted a route around the
             # closure) keeps the city state already handled: the closure it
             # was routed around must not raise the same alert again. A new

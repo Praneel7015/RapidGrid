@@ -59,12 +59,48 @@ def test_pickup_goes_to_the_next_reviewed_hospital_when_the_first_has_no_road(mo
                 "route_degraded": False}
 
     monkeypatch.setattr(driver, "_route", route)
+    # The road graph confirms there is no way to the planned hospital.
+    monkeypatch.setattr(local_router, "find_path", lambda *a, **k: None)
+    monkeypatch.setattr(type(local_router), "available", property(lambda self: True))
     r = TestClient(app).post("/api/driver/arrived_pickup",
                              json={"incident_id": "INC-review", "driver_id": report["assigned_unit"]})
     assert r.status_code == 200, r.text
     assert report["citizen_view"]["hospital_name"] == "Second Choice"
     assert report["approved_hospital_id"] == "blr-001"
-    assert "No road route to" in report["citizen_view"]["message"]
+    assert "No road route found to" in report["citizen_view"]["message"]
+    from agents import monitor as _monitor
+    assert any("Second Choice" in e["text"] for e in _monitor.decision_log)
+    incident_router.ACTIVE_INCIDENTS.clear()
+
+
+def test_a_passing_routing_error_does_not_send_the_patient_elsewhere(monkeypatch):
+    import asyncio as _asyncio
+    from fastapi import HTTPException
+    from fastapi.testclient import TestClient
+    from main import app
+    from routers import driver, incident as incident_router
+    from tests.test_workflow_regressions import seed
+
+    monkeypatch.setenv("RAPIDGRID_MODE", "demo")
+    monkeypatch.setattr(incident_router, "_INCIDENTS_LOCK", _asyncio.Lock())
+    incident_router.ACTIVE_INCIDENTS.clear()
+    report = seed("dispatched")
+    report["action_plan"]["all_hospitals"].append(
+        {"hospital_id": "blr-001", "name": "Second Choice", "location": {"lat": 12.97, "lng": 77.6}})
+    fleet.assign("INC-review", "Ambulance", near=report["location"])
+    report["assigned_unit"] = fleet.unit_for_incident("INC-review")["unit_id"]
+
+    async def flaky(origin, destination):
+        raise HTTPException(status_code=503, detail="Routing is unavailable; assignment has not changed")
+
+    monkeypatch.setattr(driver, "_route", flaky)
+    # The graph does have a road there: a provider error, not a closure.
+    monkeypatch.setattr(local_router, "find_path", lambda *a, **k: {"edge_ids": [1]})
+    monkeypatch.setattr(type(local_router), "available", property(lambda self: True))
+    r = TestClient(app, raise_server_exceptions=False).post(
+        "/api/driver/arrived_pickup", json={"incident_id": "INC-review", "driver_id": report["assigned_unit"]})
+    assert r.status_code == 503
+    assert report["citizen_view"]["hospital_name"] == "Aster CMI Hospital (Hebbal)"
     incident_router.ACTIVE_INCIDENTS.clear()
 
 
@@ -112,3 +148,87 @@ def test_a_dismissed_wrong_turn_stays_quiet(city):
         new = monitor.tick([incident])
         # Quiet, unless the unit went much further off (a real new problem).
         assert new == [] or monitor._last_off["AMB-01"] >= dismissed_at + monitor.DISMISS_FURTHER_M
+
+
+def test_delays_are_worded_honestly_in_both_directions():
+    assert monitor._delay_line(204, 680).startswith("Delay: +3.4 min")
+    faster = monitor._delay_line(-210, 500)
+    assert "No delay" in faster and "3.5 min faster" in faster and "-" not in faster.split(";")[0]
+    assert monitor._delay_line(10, 500).startswith("No delay against the plan")
+
+
+def test_unnamed_roads_are_described_not_named_by_class():
+    assert monitor.readable_road("Trunk Link") == "an unnamed slip road"
+    assert monitor.readable_road("Tertiary") == "an unnamed side road"
+    assert monitor.readable_road("Primary") == "an unnamed main road"
+    assert monitor.readable_road("Outer Ring Road") == "Outer Ring Road"
+    assert monitor.readable_road("NH44") == "NH44"
+    assert monitor.main_road([{"road": "Trunk"}, {"road": "Trunk"}, {"road": "Bellary Road"}]) == "Bellary Road"
+
+
+def test_the_closure_alert_reads_without_road_class_words(city):
+    incident = call_to((12.985, 77.594), ASTER_HUB)
+    drive(incident)
+    unit = fleet.unit_for_incident("INC-mon")
+    route = incident["citizen_view"]["phase1_route_coordinates"]
+    _off, index = monitor.project(route, unit["position"])
+    city_state.close_road(monitoring.edges_to_close(route, index, unit["position"]), "closure")
+    alert = monitor.tick([incident])[0][1]
+    import re
+    bare = re.compile(r"\b(on|via|,) (Motorway|Trunk|Primary|Secondary|Tertiary)( Link)?\b")
+    assert not bare.search(alert["explanation"]), alert["explanation"]
+    for junction in alert["corridor"]:
+        assert not re.fullmatch(r"(Motorway|Trunk|Primary|Secondary|Tertiary)( Link)?", junction["road"])
+    assert "1 junctions" not in alert["explanation"]
+
+
+def test_the_city_clock_is_bengaluru_time_on_a_utc_server(monkeypatch):
+    import os
+    import time as _time
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    from agents.city_state import city_hour
+
+    monkeypatch.setenv("TZ", "UTC")
+    _time.tzset()
+    try:
+        assert city_hour() == datetime.now(ZoneInfo("Asia/Kolkata")).hour
+    finally:
+        monkeypatch.delenv("TZ", raising=False)
+        _time.tzset()
+    assert os.environ.get("TZ") != "UTC"
+
+
+def test_reset_sets_the_city_to_bengaluru_time(monkeypatch):
+    import asyncio as _asyncio
+    from agents import city_state as cs_module
+    from routers import incident as incident_router
+
+    monkeypatch.setattr(incident_router, "_INCIDENTS_LOCK", _asyncio.Lock())
+    monkeypatch.setattr(cs_module, "city_hour", lambda: 14)
+    city_state.set_hour(3)
+    _asyncio.run(monitoring.reset_event_state())
+    assert city_state.hour == 14
+
+
+def test_the_accepted_route_is_named_plainly(monkeypatch):
+    import asyncio as _asyncio
+    from fastapi.testclient import TestClient
+    from main import app
+    from routers import incident as incident_router
+    from tests.test_workflow_regressions import seed
+
+    monkeypatch.setenv("RAPIDGRID_MODE", "demo")
+    monkeypatch.setattr(incident_router, "_INCIDENTS_LOCK", _asyncio.Lock())
+    incident_router.ACTIVE_INCIDENTS.clear()
+    monitor.reset()
+    report = seed("dispatched")
+    route = {"label": "Recommended", "coordinates": [{"lat": 13.0, "lng": 77.6}, {"lat": 13.035, "lng": 77.597}],
+             "eta_s": 300.0, "distance_m": 2000.0, "roads": []}
+    report["monitoring"] = {"alerts": [{"alert_id": "R1", "status": "open", "leg": "to_scene",
+                                        "unit_id": "AMB-01", "routes": [route]}]}
+    assert TestClient(app).post("/api/incidents/INC-review/alerts/R1/accept",
+                                json={"route_index": 0}).status_code == 200
+    text = monitor.decision_log[0]["text"]
+    assert text.startswith("Dispatcher accepted the recommended route for AMB-01"), text
+    incident_router.ACTIVE_INCIDENTS.clear()

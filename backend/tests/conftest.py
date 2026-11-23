@@ -8,10 +8,17 @@ The contacts directory is cached per process; each test starts from the
 committed example (no staff PINs) unless it sets its own.
 """
 
+import os
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
+
+# Before any app module is imported: routers/incident.py loads and saves the
+# incident store at import, so without this a local run would read and
+# rewrite the developer's backend/data database. CI sets its own directory.
+os.environ.setdefault("RAPIDGRID_DATA_DIR", tempfile.mkdtemp(prefix="rapidgrid-tests-"))
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 

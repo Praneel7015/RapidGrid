@@ -48,8 +48,17 @@ from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Iterable
+from zoneinfo import ZoneInfo
 
 logger = logging.getLogger("geoagentic.city")
+
+# The city's clock is Bengaluru's, whatever the server's time zone (Render
+# runs in UTC: 14:30 on stage would otherwise model 09:00 traffic).
+CITY_TZ = ZoneInfo("Asia/Kolkata")
+
+
+def city_hour() -> int:
+    return datetime.now(CITY_TZ).hour
 
 # --- Diurnal congestion by road class ---------------------------------------
 # Multipliers on free-flow travel time. Bengaluru's arterials are notoriously
@@ -114,7 +123,7 @@ class Intervention:
     kind: str                      # close_road | incident | weather | time
     target: str
     detail: dict[str, Any] = field(default_factory=dict)
-    at: str = field(default_factory=lambda: datetime.now().strftime("%H:%M:%S"))
+    at: str = field(default_factory=lambda: datetime.now(CITY_TZ).strftime("%H:%M:%S"))
 
 
 class CityState:
@@ -129,7 +138,7 @@ class CityState:
     def __init__(self) -> None:
         self._lock = threading.RLock()
         self._router = None
-        self.hour: int = datetime.now().hour
+        self.hour: int = city_hour()
         self.weather: str = "Clear"
         self.closed_edges: set[int] = set()
         self.incident_edges: set[int] = set()
@@ -152,7 +161,7 @@ class CityState:
             return False
         self._router = router
         self._build_node_index()
-        self.set_hour(datetime.now().hour)
+        self.set_hour(city_hour())
         logger.info(
             "City state attached: %d edges under causal model",
             len(router.edge_to),

@@ -251,13 +251,25 @@ async def arrived_pickup(payload: ClaimPayload, request: Request = None):
         from agents.hospital_intelligence import hospital_agent
         from routers.hospital import _resolve
 
+        def canonical_of(h):
+            return _resolve(str(h.get("hospital_id", ""))) or _resolve(h.get("name") or "") or h.get("hospital_id")
+
         fallbacks = [h for h in ((incident.get("action_plan") or {}).get("all_hospitals") or [])
                      if h.get("location") and h.get("location") != destination
-                     and (_resolve(str(h.get("hospital_id", ""))) or h.get("hospital_id")) not in hospital_agent.diverted]
+                     and canonical_of(h) not in hospital_agent.diverted]
     switched = None
     try:
         route = await _route(origin, destination)
     except HTTPException as unreachable:
+        # Only when the road graph confirms there is no way there (a
+        # closure), not on a passing provider error: the planned hospital
+        # may be the specialist one.
+        from agents.local_router import local_router
+
+        no_road = local_router.available and local_router.find_path(
+            (origin["lat"], origin["lng"]), (destination["lat"], destination["lng"])) is None
+        if not no_road:
+            raise unreachable
         for candidate in fallbacks[:3]:
             try:
                 route = await _route(origin, dict(candidate["location"]))
@@ -277,13 +289,15 @@ async def arrived_pickup(payload: ClaimPayload, request: Request = None):
         # If dispatch changed the destination while routing, do not store an obsolete path.
         if view.get("hospital_location") != destination:
             raise HTTPException(status_code=409, detail="The destination changed; retry pickup confirmation")
+        if switched is not None and canonical_of(switched) in hospital_agent.diverted:
+            raise HTTPException(status_code=409, detail=(
+                "No road to the planned hospital, and the next one went on divert; choose a destination"))
         view.update(route)
         if switched is not None:
             planned = view.get("hospital_name") or "the planned hospital"
             view.update({"hospital_name": switched["name"], "hospital_location": dict(switched["location"])})
             incident["hospital_name"] = switched["name"]
-            incident["approved_hospital_id"] = (_resolve(str(switched.get("hospital_id", "")))
-                                                or switched.get("hospital_id"))
+            incident["approved_hospital_id"] = canonical_of(switched)
             current_id = incident["approved_hospital_id"]
             destination = view["hospital_location"]
             logger.info("Pickup for %s: no road to the planned hospital; going to the next reviewed one",
@@ -292,13 +306,15 @@ async def arrived_pickup(payload: ClaimPayload, request: Request = None):
         view["unit_statuses"] = states
         message = f"Patient picked up. Transporting to {view.get('hospital_name', 'Hospital ER')}."
         if switched is not None:
-            message += f" No road route to {planned} right now (closure), so the next reviewed hospital."
+            message += f" No road route found to {planned} right now, so the next reviewed hospital."
         view.update({"status": "patient_picked_up", "message": message})
         incident.update({"driver_stage": "hospital", "status": "patient_picked_up", "citizen_view": view,
                          "unit_statuses": states})
 
         _claim(incident, payload.driver_id, payload.unit_type)
         await commit(incident)
+        changed_note = (f"No road route found to {planned} after pickup; {payload.driver_id} is taking "
+                        f"the patient to {switched['name']} (the next reviewed hospital).") if switched else None
         # With the patient aboard, rank hospitals again from the scene (the
         # plan is minutes old). In the background, so the crew's tap is never
         # held up by a slow hospital lookup; attached when ready.
@@ -307,9 +323,17 @@ async def arrived_pickup(payload: ClaimPayload, request: Request = None):
         _RANKING_TASKS.add(task)
         task.add_done_callback(_RANKING_TASKS.discard)
         from routers.hospital import destination_on_divert
-        return {"status": "patient_picked_up", "citizen_view": view, "unit_statuses": states,
-                "unit_assignments": incident["unit_assignments"],
-                "destination_on_divert": destination_on_divert(incident)}
+        result = {"status": "patient_picked_up", "citizen_view": view, "unit_statuses": states,
+                  "unit_assignments": incident["unit_assignments"],
+                  "destination_on_divert": destination_on_divert(incident)}
+    if changed_note:
+        # Dispatch and both ER desks learn of the change, not only the crew.
+        from agents import monitor
+        from routers.chat import post_system_message
+
+        monitor._log(payload.incident_id, payload.driver_id, "decision", changed_note)
+        await post_system_message(payload.incident_id, changed_note, sender="Dispatch decision")
+    return result
 
 
 RANKING_TIMEOUT_S = 15.0  # in the background: pickup itself never waits

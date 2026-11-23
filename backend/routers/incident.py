@@ -302,6 +302,10 @@ def _mask_numbers(text):
     return _PHONE_IN_TEXT.sub("[number hidden]", text) if isinstance(text, str) else text
 
 
+def _article(word: str) -> str:
+    return "an" if (word or "x")[0].lower() in "aeiou" else "a"
+
+
 def public_incident(incident: dict) -> dict:
     """A deep copy without caller details or the reveal log. Phone numbers a
     caller typed into the report are masked too: the incident id is all it
@@ -368,7 +372,7 @@ async def _plan_scene_response(incident_id: str, payload, access_res) -> None:
         "overall_confidence": route.confidence if route is not None else 0.0,
     }
     view = {
-        "message": f"Dispatching a {profile['label'].lower()} from {where}.",
+        "message": f"Dispatching {_article(profile['label'])} {profile['label'].lower()} from {where}.",
         "eta_minutes": eta,
         "route_degraded": eta is None,
         "response_profile": "scene",
