@@ -116,13 +116,50 @@ def _box(route: list[dict], within: float) -> tuple[float, float, float, float]:
     return min(lats) - dlat, max(lats) + dlat, min(lngs) - dlng, max(lngs) + dlng
 
 
+def _segments_cross(a: dict, b: dict, c: dict, d: dict) -> bool:
+    """Do segments ab and cd intersect (planar, near this latitude)?"""
+    lat0 = a["lat"]
+    (ax, ay), (bx, by), (cx, cy), (dx, dy) = (_xy(p, lat0) for p in (a, b, c, d))
+
+    def orient(px, py, qx, qy, rx, ry):
+        return (qx - px) * (ry - py) - (qy - py) * (rx - px)
+
+    o1, o2 = orient(ax, ay, bx, by, cx, cy), orient(ax, ay, bx, by, dx, dy)
+    o3, o4 = orient(cx, cy, dx, dy, ax, ay), orient(cx, cy, dx, dy, bx, by)
+    return (o1 > 0) != (o2 > 0) and (o3 > 0) != (o4 > 0) and o1 != 0 and o3 != 0
+
+
+def segment_distance_m(a: dict, b: dict, c: dict, d: dict) -> float:
+    """Distance in metres between segments ab and cd (0 where they cross)."""
+    if _segments_cross(a, b, c, d):
+        return 0.0
+    return min(point_segment_m(a, c, d)[0], point_segment_m(b, c, d)[0],
+               point_segment_m(c, a, b)[0], point_segment_m(d, a, b)[0])
+
+
 def _near_route(segment: list[dict], route: list[dict], within: float, box=None) -> bool:
-    if box is not None and not any(box[0] <= p["lat"] <= box[1] and box[2] <= p["lng"] <= box[3]
-                                   for p in segment):
-        return False  # cheap rejection; points inside the box get the exact check
-    for p in segment:
-        if project(route, p)[0] <= within:
-            return True
+    """Is any part of this polyline within `within` metres of the route? A
+    closed edge that crosses the route between two of its points counts."""
+    if box is not None:
+        # Cheap rejection on bounds: the segment's box must overlap the
+        # route's grown box (a crossing edge can have no point inside it).
+        lats = [p["lat"] for p in segment]
+        lngs = [p["lng"] for p in segment]
+        if max(lats) < box[0] or min(lats) > box[1] or max(lngs) < box[2] or min(lngs) > box[3]:
+            return False
+    if len(segment) == 1:
+        return project(route, segment[0])[0] <= within
+    dlat = within / 111_320.0
+    dlng = dlat / max(0.1, math.cos(math.radians(route[0]["lat"])))
+    for p, q in zip(segment, segment[1:]):
+        lo_lat, hi_lat = min(p["lat"], q["lat"]) - dlat, max(p["lat"], q["lat"]) + dlat
+        lo_lng, hi_lng = min(p["lng"], q["lng"]) - dlng, max(p["lng"], q["lng"]) + dlng
+        for a, b in zip(route, route[1:]):
+            if (max(a["lat"], b["lat"]) < lo_lat or min(a["lat"], b["lat"]) > hi_lat
+                    or max(a["lng"], b["lng"]) < lo_lng or min(a["lng"], b["lng"]) > hi_lng):
+                continue  # bounds too far apart to be within `within`
+            if segment_distance_m(p, q, a, b) <= within:
+                return True
     return False
 
 
@@ -136,6 +173,8 @@ class Watch:
     city_version: tuple = ()
     alert_id: Optional[str] = None
     started_near_station: bool = True
+    last_fix_at: Optional[float] = None   # a fix is counted once, not every tick
+    alert_city_version: tuple = ()        # the city state the open alert was about
 
 
 _watches: dict[str, Watch] = {}
@@ -171,6 +210,16 @@ def _leg(incident: dict) -> tuple[Optional[str], list[dict], Optional[float]]:
 
 
 # --- analysis ---------------------------------------------------------------------
+
+CONNECT_SPEED_MPS = 8.0  # about 30 km/h for the short hop to a route point
+
+
+def _closed_between(points: list[dict], within: float = 10.0) -> bool:
+    """Is a closed road on this short stretch?"""
+    if not city_state.ready or not city_state.closed_edges:
+        return False
+    return any(_near_route(seg["coordinates"], points, within) for seg in city_state.closure_overlay())
+
 
 def _disruptions_near(route: list[dict], within: float) -> dict:
     """Closures, accidents and the worst congestion on (or near) a polyline."""
@@ -260,6 +309,7 @@ def alternatives(origin: dict, destination: dict, fallbacks: list[dict] = ()) ->
     if not best:
         return []
     routes = [_route_summary(best, "Recommended")]
+    routes[0]["_from"] = start  # which start it left from (removed before publishing)
     penalty: dict[int, float] = {}
     for label in ("Alternative A", "Alternative B"):
         for r in routes:
@@ -272,7 +322,7 @@ def alternatives(origin: dict, destination: dict, fallbacks: list[dict] = ()) ->
         shared_len = sum(local_router.edge_len[e] for e in shared)
         if alt["distance_m"] and shared_len / alt["distance_m"] > ALT_MAX_OVERLAP:
             continue
-        routes.append(_route_summary(alt, label))
+        routes.append(_route_summary(alt, label) | {"_from": start})
     return routes
 
 
@@ -323,12 +373,30 @@ def analyse(incident: dict, unit: dict, leg: str, route: list[dict], eta_s: Opti
     # snap to the opposite carriageway of a divided road, which leads
     # nowhere). Off its route, start from where it actually is.
     behind = list(reversed(route[max(0, progress - 4):progress + 1]))
+    hop_corridor = None
     if trigger == "deviation":
         routes = alternatives(position, destination, behind)
     else:
         ahead = route[progress + 1:progress + 2]
+        # The next route point is a start only if the unit can drive there:
+        # not when the closure lies between it and the unit, or a path from
+        # the far side would look usable when it is not.
+        if ahead and _closed_between([position, ahead[0]]):
+            ahead = []
         starts = behind[:1] + ahead + behind[1:] + [position]
         routes = alternatives(starts[0], destination, starts[1:])
+        if routes and ahead and routes[0].get("_from") is ahead[0]:
+            # Include the drive to that point in the route and its ETA (the
+            # route's points then lead one ahead of its edges, so the
+            # green-corridor junctions are worked out before this).
+            hop = _dist(position, ahead[0])
+            hop_corridor = corridor(routes[0])
+            for r in routes:
+                r["coordinates"] = [position] + list(r["coordinates"])
+                r["distance_m"] = r["distance_m"] + hop
+                r["eta_s"] = r["eta_s"] + hop / CONNECT_SPEED_MPS
+            for j in hop_corridor:
+                j["eta_min"] = round(j["eta_min"] + hop / CONNECT_SPEED_MPS / 60, 1)
     total = polyline_length(route) or 1.0
     planned_remaining = eta_s * polyline_length(remaining) / total if eta_s else None
     # No route at all from where the unit is (say, a closed one-way flyover):
@@ -345,7 +413,7 @@ def analyse(incident: dict, unit: dict, leg: str, route: list[dict], eta_s: Opti
         gain = (new_eta - backup["eta_s"]) if backup else None
         recommend_backup = bool(backup) and gain >= BACKUP_MIN_GAIN_S and gain / new_eta >= BACKUP_MIN_GAIN_FRACTION
     recommendation = "dispatch_backup" if recommend_backup else ("reroute" if routes else "hold")
-    green = corridor(routes[0]) if routes else []
+    green = hop_corridor if hop_corridor is not None else (corridor(routes[0]) if routes else [])
 
     where = "to the scene" if leg == "to_scene" else "to the hospital"
     first = (f"{unit['unit_id']} left its planned route" if trigger == "deviation"
@@ -393,7 +461,7 @@ def analyse(incident: dict, unit: dict, leg: str, route: list[dict], eta_s: Opti
         "planned_remaining_s": planned_remaining,
         "new_eta_s": new_eta,
         "delay_s": delay,
-        "routes": [{k: v for k, v in r.items() if k != "edge_ids"} for r in routes],
+        "routes": [{k: v for k, v in r.items() if k not in ("edge_ids", "_from")} for r in routes],
         "backup": ({k: v for k, v in backup.items() if k != "route"}
                    | {"route": {k: v for k, v in backup["route"].items() if k != "edge_ids"}}) if backup else None,
         "recommendation": recommendation,
@@ -423,12 +491,15 @@ def tick(incidents: list[dict]) -> list[tuple[str, dict]]:
         if leg is None or len(route) < 2:
             continue
         watch = _watches.setdefault(unit["unit_id"], Watch())
-        leg_key = f"{incident['incident_id']}:{leg}:{len(route)}:{route[0]['lat']:.5f}"
+        from agents.simulator import route_key
+
+        leg_key = f"{incident['incident_id']}:{leg}:{route_key(route)}"
         if watch.leg_key != leg_key:
             # A new leg (or an accepted reroute): start watching it afresh.
-            new_leg = watch.leg_key.rsplit(":", 2)[0] != leg_key.rsplit(":", 2)[0]
+            new_leg = watch.leg_key.rsplit(":", 1)[0] != leg_key.rsplit(":", 1)[0]
             watch.leg_key, watch.progress, watch.off_count, watch.alert_id = leg_key, 0, 0, None
             watch.city_version = ()
+            watch.alert_city_version = ()
             if new_leg:
                 # Only a new call or leg decides whether a phone unit is
                 # watched for deviations; a reroute of the same leg keeps it.
@@ -440,12 +511,20 @@ def tick(incidents: list[dict]) -> list[tuple[str, dict]]:
         off, index = project(route, point, watch.progress)
         accuracy = pos.get("accuracy_m") or 0.0
         usable = accuracy <= MAX_ACCURACY_M and watch.started_near_station
+        fresh = pos.get("at") is None or pos.get("at") != watch.last_fix_at
+        watch.last_fix_at = pos.get("at")
         if off <= OFF_ROUTE_M + accuracy:
             watch.progress = max(watch.progress, index)
             watch.off_count = 0
-        elif usable:
+        elif usable and fresh:
+            # Three distinct fixes, not one fix seen on three ticks (a phone
+            # that sent one bad fix and then went quiet).
             watch.off_count += 1
 
+        if watch.alert_id is not None:
+            # One open alert per unit. The city state is not marked as seen
+            # meanwhile, so a new closure is still checked once it is handled.
+            continue
         trigger = None
         if watch.off_count >= OFF_ROUTE_FIXES:
             trigger = "deviation"
@@ -454,13 +533,13 @@ def tick(incidents: list[dict]) -> list[tuple[str, dict]]:
             ahead = _disruptions_near(route[watch.progress:], NEAR_ROUTE_M)
             if ahead["closed"] or ahead["incident"]:
                 trigger = "blocked_ahead"
-        if trigger is None or watch.alert_id is not None:
+        if trigger is None:
             continue
         alert = analyse(incident, unit, leg, route, eta_s, watch.progress, trigger)
         if alert is None:
             continue
         watch.alert_id = alert["alert_id"]
-        watch.city_version = version
+        watch.city_version = watch.alert_city_version = version
         _log(incident["incident_id"], unit["unit_id"], trigger, alert["explanation"],
              alert_id=alert["alert_id"], recommendation=alert["recommendation"])
         logger.info("Monitoring alert %s for %s: %s", alert["alert_id"], unit["unit_id"], trigger)
@@ -474,4 +553,6 @@ def clear_alert(unit_id: str) -> None:
     if watch:
         watch.alert_id = None
         watch.off_count = 0
-        watch.city_version = _city_version()
+        # Handled: the city state the alert was about. If the city changed
+        # since (a second closure), the next tick checks the route again.
+        watch.city_version = watch.alert_city_version or _city_version()
