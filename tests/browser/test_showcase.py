@@ -895,3 +895,33 @@ def test_evening_rush_and_rain_preset_in_one_click(context, server):
         restored = context.request.post(server + "/api/city/conditions", headers=auth,
                                         data={"hour": before["hour"], "weather": before["weather"]})
         assert restored.ok, restored.text()
+
+
+def test_guided_demo_runs_the_official_scenario(context, server):
+    unlock(context, server)
+    auth = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
+    context.request.post(server + "/api/monitoring/reset", headers=auth, data={})
+    page = context.new_page()
+    page.route("https://tile.openstreetmap.org/**", lambda route: route.abort())
+    try:
+        page.goto(server + "/demo")
+        expect(page.get_by_title("Dispatch screen")).to_be_visible()
+        status = page.get_by_role("status").first
+        captions = ["recommends", "dispatched", "monitoring agent", "The agent", "Dispatch",
+                    "patient aboard", "ER has the patient"]
+        for i, expected in enumerate(captions):
+            page.get_by_role("button", name="Next step").click()
+            expect(page.get_by_role("button", name="Next step").or_(page.get_by_role("button", name="Run again"))).to_be_enabled(timeout=90000)
+            expect(page.get_by_role("alert")).to_have_count(0)
+            expect(status).to_contain_text(expected)
+            if i == 2:
+                # The crew screen opened this call, not just the queue.
+                crew = page.frame_locator("iframe[title='Ambulance crew screen']")
+                expect(crew.get_by_text("Drive to the patient")).to_be_visible(timeout=15000)
+        expect(page.get_by_role("button", name="Run again")).to_be_visible()
+        # One report only: retries never file a second one.
+        listed = context.request.get(server + "/api/incidents/", headers=auth).json()["incidents"]
+        assert sum(1 for i in listed if (i.get("citizen_text") or "").startswith("Demo: my father")) == 1
+    finally:
+        page.close()
+        context.request.post(server + "/api/monitoring/reset", headers=auth, data={})

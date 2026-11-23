@@ -497,10 +497,12 @@ async def _logout(request: Request, response: Response):
 # Only directives that cannot break the app: no framing (clickjacking), no
 # plugins, no <base> or form redirection. Script and connect sources are left
 # open because the voice model and map tiles load from third-party CDNs.
-CONTENT_SECURITY_POLICY = "frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'"
+# Framing only by this site itself (the guided demo shows the four role
+# screens side by side); no other site can frame it (clickjacking).
+CONTENT_SECURITY_POLICY = "frame-ancestors 'self'; object-src 'none'; base-uri 'self'; form-action 'self'"
 _SECURITY_HEADERS = [
     (b"content-security-policy", CONTENT_SECURITY_POLICY.encode()),
-    (b"x-frame-options", b"DENY"),
+    (b"x-frame-options", b"SAMEORIGIN"),
     (b"x-content-type-options", b"nosniff"),
     (b"referrer-policy", b"strict-origin-when-cross-origin"),
     (b"permissions-policy", b"camera=(), geolocation=(self), microphone=(self)"),
