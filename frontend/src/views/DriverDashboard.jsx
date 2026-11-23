@@ -12,7 +12,7 @@ import { Check, ChevronLeft, Building2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import MapOverlay from '../components/MapOverlay';
 import CallerDetails from '../components/CallerDetails';
-import useUnitTrack from '../hooks/useUnitTrack';
+import useUnitTrack, { liveEtaMinutes } from '../hooks/useUnitTrack';
 import useShareLocation from '../hooks/useShareLocation';
 import LiveEmergencyChat from '../components/LiveEmergencyChat';
 import {
@@ -290,7 +290,9 @@ export default function DriverDashboard() {
             <Stat
               ink
               label="Time to destination"
-              value={stage === 'pickup' ? (view.phase1_eta_minutes ?? '--') : (view.eta_minutes ?? '--')}
+              value={stage === 'pickup'
+                ? (liveEtaMinutes(track, 'to_scene') ?? view.phase1_eta_minutes ?? '--')
+                : (liveEtaMinutes(track, 'to_hospital') ?? view.eta_minutes ?? '--')}
               unit="min"
               tone="signal"
               modelled

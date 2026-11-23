@@ -217,6 +217,38 @@ def _leg(incident: dict) -> tuple[Optional[str], list[dict], Optional[float]]:
     return None, [], None
 
 
+def live_status(incident: dict, unit: Optional[dict]) -> Optional[dict]:
+    """What the agent sees for this call right now: how far along the leg
+    the unit is, how far off the route, and the modelled road time still to
+    go (the leg's ETA scaled by the distance left, the same rule the alerts
+    use). None when no unit is driving a leg."""
+    leg, route, eta_s = _leg(incident)
+    if unit is None or leg is None or len(route) < 2:
+        return None
+    pos = unit.get("position") or {}
+    if "lat" not in pos or "lng" not in pos:
+        return None
+    point = {"lat": pos["lat"], "lng": pos["lng"]}
+    off, index = project(route, point)
+    _d, t = point_segment_m(point, route[index], route[index + 1])
+    total = polyline_length(route) or 1.0
+    done = polyline_length(route[: index + 1]) + _dist(route[index], route[index + 1]) * t
+    remaining_m = max(0.0, total - done)
+    watch = _watches.get(unit["unit_id"])
+    return {
+        "leg": leg,
+        "off_route_m": round(off, 1),
+        "progress": round(min(1.0, done / total), 3),
+        "remaining_m": round(remaining_m),
+        "remaining_s": round(eta_s * remaining_m / total) if eta_s else None,
+        "fix_source": pos.get("source"),
+        "fix_age_s": round(max(0.0, time.time() - pos["at"]), 1) if pos.get("at") else None,
+        "watching": watch is not None,
+        "open_alert": bool(watch and watch.alert_id),
+        "provenance": "modelled",
+    }
+
+
 # --- analysis ---------------------------------------------------------------------
 
 CONNECT_SPEED_MPS = 8.0  # about 30 km/h for the short hop to a route point

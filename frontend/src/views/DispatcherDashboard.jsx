@@ -14,7 +14,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { AlertTriangle, Check, CornerUpRight, X } from 'lucide-react';
 import MapOverlay from '../components/MapOverlay';
-import useUnitTrack from '../hooks/useUnitTrack';
+import useUnitTrack, { liveEtaMinutes } from '../hooks/useUnitTrack';
 import MonitoringPanel from '../components/MonitoringPanel';
 import ControlRoomLog from '../components/ControlRoomLog';
 import CallerDetails from '../components/CallerDetails';
@@ -454,8 +454,8 @@ export default function DispatcherDashboard() {
               {(view.eta_minutes != null || view.distance_meters != null) && (
                 <div className="flex flex-wrap items-center gap-x-8 gap-y-3 border-t border-rule px-5 py-3">
                   <Stat
-                    label="Hub to patient"
-                    value={view.phase1_eta_minutes ?? '--'}
+                    label={liveEtaMinutes(track, 'to_scene') != null ? 'Unit to patient, now' : 'Hub to patient'}
+                    value={liveEtaMinutes(track, 'to_scene') ?? view.phase1_eta_minutes ?? '--'}
                     unit="min"
                     modelled
                     sub={view.phase1_hub?.name}
@@ -469,8 +469,8 @@ export default function DispatcherDashboard() {
                   ) : (
                     <>
                       <Stat
-                        label="Patient to ER"
-                        value={view.eta_minutes ?? '--'}
+                        label={liveEtaMinutes(track, 'to_hospital') != null ? 'Patient to ER, now' : 'Patient to ER'}
+                        value={liveEtaMinutes(track, 'to_hospital') ?? view.eta_minutes ?? '--'}
                         unit="min"
                         modelled
                         tone="signal"
@@ -595,7 +595,7 @@ export default function DispatcherDashboard() {
 
         {/* ---- Rationale -------------------------------------------------- */}
         <div className="grid min-w-0 content-start gap-3 md:col-span-2 md:grid-cols-2 xl:col-span-1 xl:grid-cols-1">
-          {selected && <MonitoringPanel key={selected.incident_id} incident={selected} onChanged={loadOverlay} />}
+          {selected && <MonitoringPanel key={selected.incident_id} incident={selected} live={track.live} simSpeed={track.simSpeed} onChanged={loadOverlay} />}
           <CityControls onChange={loadOverlay} />
           <ControlRoomLog />
 
