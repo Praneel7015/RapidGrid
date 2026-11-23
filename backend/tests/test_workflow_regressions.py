@@ -1097,7 +1097,8 @@ def test_a_slow_ranking_never_holds_up_pickup(client, mocked_route, monkeypatch)
         assert _picked_up(client).status_code == 200
         assert _t.monotonic() - started < 3
         _t.sleep(0.8)
-    assert calls and cancelled, "the ranking never ran, or the timeout did not cancel it"
+        # Inside the block: teardown would cancel the task anyway.
+        assert calls and cancelled, "the ranking never ran, or the timeout did not cancel it"
     assert "pickup_ranking" not in incident.ACTIVE_INCIDENTS[0]
 
 

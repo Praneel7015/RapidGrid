@@ -455,6 +455,7 @@ def analyse(incident: dict, unit: dict, leg: str, route: list[dict], eta_s: Opti
         "status": "open",
         "unit_id": unit["unit_id"],
         "leg": leg,
+        "destination": {"lat": destination["lat"], "lng": destination["lng"]},
         "trigger": trigger,
         "position": position,
         "cause": cause,
