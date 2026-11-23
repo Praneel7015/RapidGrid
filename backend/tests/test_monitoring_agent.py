@@ -223,8 +223,12 @@ def test_a_unit_with_no_way_round_gets_a_backup(city):
     city_state.close_road(into_scene, "test: scene cut off")
     alert = monitor.tick([incident])[0][1]
     assert alert["routes"] == [] and alert["new_eta_s"] is None
-    assert alert["recommendation"] in {"dispatch_backup", "hold"}
+    # Every road into the scene is closed, so no backup can get there
+    # either: the honest advice is to hold and clear the road.
+    assert alert["recommendation"] == "hold"
+    assert alert["backup"] is None
     assert "cannot get through" in alert["explanation"]
+    assert "Hold AMB-01 and clear the road" in alert["explanation"]
 
 
 

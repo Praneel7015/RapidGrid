@@ -465,7 +465,7 @@ export default function CitizenDashboard() {
               : incident?.status === 'patient_picked_up'
                 ? 'Your unit is transporting you to the receiving hospital.'
                 : dispatched
-              ? `A ${incident.vehicle_required?.toLowerCase() ?? 'unit'} is on the way to you.`
+              ? `${/^[aeiou]/i.test(incident.vehicle_required ?? 'unit') ? 'An' : 'A'} ${incident.vehicle_required?.toLowerCase() ?? 'unit'} is on the way to you.`
               : 'Your report is with the city dispatcher for approval.'}
           </p>
           {view?.hospital_name && (

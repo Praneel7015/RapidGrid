@@ -99,7 +99,10 @@ async def accept_reroute(incident_id: str, alert_id: str, choice: AcceptRoute, r
         alert.update(status="rerouted", decided_at=time.time(), decided_by=who[1], route_index=choice.route_index)
         await incident_router.commit(inc)
     monitor.clear_alert(alert["unit_id"])
-    text = (f"Dispatcher accepted {route['label'].lower()} for {alert['unit_id']}; "
+    label = route["label"]
+    named = "the recommended route" if label == "Recommended" else \
+        (f"alternative route {label.split()[-1]}" if label.startswith("Alternative") else label.lower())
+    text = (f"Dispatcher accepted {named} for {alert['unit_id']}; "
             f"new ETA {route['eta_s'] / 60:.1f} min.")
     monitor._log(incident_id, alert["unit_id"], "decision", text, alert_id=alert_id)
     from routers.chat import post_system_message
@@ -358,6 +361,10 @@ async def reset_event_state() -> dict:
         city_state.weather = "Clear"
         city_state.interventions.clear()
         city_state.clear()
+        # A known clock after reset: Bengaluru's hour now (not the hour the
+        # server happened to boot at, nor one left over from a rehearsal).
+        from agents.city_state import city_hour
+        city_state.set_hour(city_hour())
         incident_router.route_agent._cache.clear()
         incident_router._reports.clear()
         save_collection("hospital_capacity", {}, database=incident_router.persistence_path())

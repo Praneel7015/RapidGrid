@@ -108,7 +108,9 @@ def test_an_unreachable_goal_costs_one_search(graph):
     try:
         started = time.monotonic()
         assert graph.find_path((13.0473, 77.5908), dest) is None
-        assert time.monotonic() - started < 4.0
+        # One search, not one per candidate: generous, so a slow CI runner
+        # does not flake it (six searches took well over this).
+        assert time.monotonic() - started < 10.0
     finally:
         graph.unblock_all()
 

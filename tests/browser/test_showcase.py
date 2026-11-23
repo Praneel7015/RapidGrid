@@ -739,9 +739,9 @@ def test_official_scenario_route_blocked_ahead_is_explained_and_rerouted(context
     page.get_by_role("button", name="Accept recommended route").click()
     expect(page.get_by_text("Rerouted", exact=False).first).to_be_visible(timeout=10000)
     # The decision shows in the control-room log and in the incident channel.
-    expect(page.get_by_text("Dispatcher accepted recommended", exact=False).first).to_be_visible(timeout=10000)
+    expect(page.get_by_text("Dispatcher accepted the recommended route", exact=False).first).to_be_visible(timeout=10000)
     expect(page.get_by_role("log", name="Incident messages")).to_contain_text(
-        "Dispatcher accepted recommended", timeout=10000)
+        "Dispatcher accepted the recommended route", timeout=10000)
     context.request.post(server + "/api/city/clear", headers={"Authorization": f"Bearer {ACCESS_TOKEN}"})
     context.request.post(server + "/api/incidents/clear", headers={"Authorization": f"Bearer {ACCESS_TOKEN}"})
 
