@@ -145,9 +145,19 @@ async def lifespan(app: FastAPI):
     sim_task = asyncio.create_task(simulator.run())
 
     logger.info("All agents initialised and registered ✓")
-    yield  # ← app runs
-    sim_task.cancel()
-    logger.info("GeoAgentic backend shutting down …")
+    try:
+        yield  # ← app runs
+    finally:
+        # On a normal shutdown and on an error alike: stop the simulator and
+        # wait for it, so it never keeps moving units after the app is gone.
+        sim_task.cancel()
+        try:
+            await sim_task
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            logger.exception("Simulator stopped with an error")
+        logger.info("GeoAgentic backend shutting down …")
 
 
 # ---------------------------------------------------------------------------

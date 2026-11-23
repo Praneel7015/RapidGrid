@@ -159,3 +159,20 @@ def test_a_busy_log_makes_the_purge_report_failure(monkeypatch):
     r = c.post("/api/session/purge", json={})
     assert r.status_code == 503
     assert "retry" in r.json()["detail"].lower() or "again" in r.json()["detail"].lower()
+
+
+def test_a_report_in_flight_during_a_purge_keeps_no_account_details(monkeypatch):
+    import citizens
+    c, _ = _seed(monkeypatch)
+    real = citizens.current_async
+
+    async def account_then_purged(request):
+        me = await real(request)
+        storage.clear_citizens(database=storage.data_path())  # the purge lands meanwhile
+        return me
+
+    monkeypatch.setattr(citizens, "current_async", account_then_purged)
+    r = c.post("/api/incidents", json={"citizen_text": "late report", "location": {"lat": 13.035, "lng": 77.597}})
+    assert r.status_code == 202
+    stored = next(i for i in incident_router.ACTIVE_INCIDENTS if i["incident_id"] == r.json()["incident_id"])
+    assert stored["citizen_id"] is None and "98000" not in str(stored.get("citizen_phone"))

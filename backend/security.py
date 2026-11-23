@@ -572,11 +572,21 @@ async def purge_personal_data(request: Request, response: Response):
 
     from routers.chat import manager
 
+    from routers import incident as incident_router
+
     result = await reset_event_state()
     database = storage.data_path()
-    accounts = storage.clear_citizens(database=database)
-    # Older snapshot layouts kept for rollback also hold callers' details.
-    storage.delete_collection("incidents", database=database)
+    # Under the incident lock: a report that was in flight either committed
+    # before this (and is deleted here) or commits after it (and finds its
+    # caller's account gone, so it keeps no account details).
+    async with incident_router._INCIDENTS_LOCK:
+        accounts = storage.clear_citizens(database=database)
+        incident_router.ACTIVE_INCIDENTS.clear()
+        import fleet
+        fleet.reset()  # a unit reserved by a report that came in meanwhile is freed
+        incident_router.save_db()
+        # Older snapshot layouts kept for rollback also hold callers' details.
+        storage.delete_collection("incidents", database=database)
     legacy = database.parent / "incidents_db.json"
     if legacy.exists():
         legacy.unlink()

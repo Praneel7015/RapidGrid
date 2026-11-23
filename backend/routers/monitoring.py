@@ -116,12 +116,36 @@ async def dispatch_backup(incident_id: str, alert_id: str, request: Request = No
     who = require_staff(request, "dispatcher")
     from routers import incident as incident_router
 
+    # The proposal's route is from where the backup was when the alert was
+    # raised; it may have moved since. Route it again from where it is now,
+    # off the event loop and outside the lock, before anything changes.
+    async with incident_router._INCIDENTS_LOCK:
+        inc, alert = await _with_alert(incident_id, alert_id)
+        _same_leg(inc, alert)  # a stale alert gets the right answer before any routing
+        if alert["leg"] != "to_scene" or not alert.get("backup"):
+            raise HTTPException(status_code=409, detail="No backup unit was proposed for this alert")
+        proposed = (alert.get("backup") or {}).get("unit_id")
+        scene = dict(inc["location"]) if inc.get("location") else None
+    here = (fleet.get(proposed) or {}).get("position") if proposed else None
+    fresh = None
+    if here and scene:
+        path = await asyncio.to_thread(local_router.find_path, (here["lat"], here["lng"]),
+                                       (scene["lat"], scene["lng"]))
+        if not path:
+            raise HTTPException(status_code=409, detail=(
+                "The proposed backup has no road route to the scene from where it is now; "
+                "the current unit stays assigned"))
+        fresh = monitor._route_summary(path, "Backup")
+
     async with incident_router._INCIDENTS_LOCK:
         inc, alert = await _with_alert(incident_id, alert_id)
         _same_leg(inc, alert)
         backup = alert.get("backup")
-        if alert["leg"] != "to_scene" or not backup:
+        if alert["leg"] != "to_scene" or not backup or backup.get("unit_id") != proposed:
             raise HTTPException(status_code=409, detail="No backup unit was proposed for this alert")
+        if fresh is not None:
+            backup = {**backup, "route": {k: v for k, v in fresh.items() if k != "edge_ids"},
+                      "eta_s": fresh["eta_s"]}
         candidate = fleet.get(backup["unit_id"])
         if candidate is None:
             raise HTTPException(status_code=409, detail="The proposed backup unit no longer exists")

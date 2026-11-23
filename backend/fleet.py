@@ -59,6 +59,8 @@ def _save(strict: bool = False) -> None:
     """Store assignments. strict: raise on failure, so a caller that gave a
     unit to a call can undo it instead of reporting a change that a restart
     would lose (the unit could then be sent to a second call)."""
+    if not _loaded:
+        return  # never overwrite stored assignments with an unloaded fleet
     snapshot = {uid: {k: u[k] for k in ("status", "incident_id")} for uid, u in _units.items()}
     try:
         storage.save_collection(_COLLECTION, snapshot)
@@ -68,15 +70,27 @@ def _save(strict: bool = False) -> None:
             raise
 
 
-def load() -> None:
+def load(attempts: int = 3) -> None:
     """(Re)build the fleet from the directory, keeping stored assignments."""
-    global _loaded
+    global _loaded, _load_failed_at
     with _lock:
-        try:
-            stored = storage.load_collection(_COLLECTION, {}) or {}
-        except Exception:
-            logger.exception("Could not read fleet state; starting all units available")
-            stored = {}
+        stored = None
+        for attempt in range(attempts):
+            try:
+                stored = storage.load_collection(_COLLECTION, {}) or {}
+                break
+            except Exception:
+                logger.exception("Could not read fleet state (attempt %d of %d)", attempt + 1, attempts)
+                if attempt + 1 < attempts:
+                    time.sleep(0.2)
+        if stored is None:
+            # Not an empty fleet: unknown assignments. Marking every unit
+            # free would let one go to two calls, so the fleet stays unloaded
+            # (no unit is handed out) and the next use tries the read again.
+            logger.error("Fleet state unreadable; units are unavailable until it can be read")
+            _load_failed_at = time.monotonic()
+            return
+        _load_failed_at = None
         units: dict[str, dict] = {}
         for entry in contacts.directory().units:
             station = _station_location(entry.type, entry.station)
@@ -101,9 +115,19 @@ def load() -> None:
         _loaded = True
 
 
+_load_failed_at = None  # monotonic time of the last failed read, if it failed
+RELOAD_EVERY_S = 10.0
+
+
 def _ensure() -> None:
-    if not _loaded:
+    if _loaded:
+        return
+    if _load_failed_at is None:
         load()
+    elif time.monotonic() - _load_failed_at >= RELOAD_EVERY_S:
+        # After a failed read: one quick retry at most every RELOAD_EVERY_S,
+        # so requests never wait out repeated retries while storage is down.
+        load(attempts=1)
 
 
 def units() -> list[dict]:
@@ -266,6 +290,10 @@ def phone_tracking(unit_id: str) -> bool:
 def reset() -> None:
     """Tests and the demo reset: every unit available at its station."""
     with _lock:
+        if not _loaded:
+            # Assignments unknown (unreadable): saving would overwrite the
+            # stored ones with "all free". Leave them for the next load.
+            return
         for u in _units.values():
             u.update(status="available", incident_id=None,
                      position={**u["station_location"], "at": time.time(), "source": "station", "accuracy_m": None})

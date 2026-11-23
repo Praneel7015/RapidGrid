@@ -314,3 +314,73 @@ def test_a_closure_delay_is_positive_and_adds_up(city):
     assert alert["delay_s"] > 0
     assert abs(alert["new_eta_s"] - (alert["planned_remaining_s"] + alert["delay_s"])) < 1.0
     assert "Delay: +" in alert["explanation"]
+
+
+def test_a_fire_engine_stays_at_the_scene_after_the_backup_ambulance_picks_up(city):
+    from agents import simulator
+    incident = call_to((12.985, 77.594), ASTER_HUB)  # assigns AMB-01 as the fleet unit
+    incident["vehicle_required"] = "Fire Engine"
+    hospital_leg = local_router.find_path((12.985, 77.594), (13.0473, 77.5908))
+    incident.update(status="patient_picked_up")
+    incident["citizen_view"].update(route_coordinates=hospital_leg["coordinates"], eta_minutes=10)
+    before = dict(fleet.get("AMB-01")["position"])
+    simulator.step([incident])
+    assert simulator.fleet_leg(incident)[0] is None
+    assert fleet.get("AMB-01")["position"]["lat"] == before["lat"]  # not driven to hospital
+    assert monitor.tick([incident]) == [] and monitor.live_status(incident, fleet.get("AMB-01")) is None
+
+
+def test_an_unreadable_fleet_state_hands_out_no_units_and_retries(monkeypatch):
+    import storage as _storage
+
+    calls = {"n": 0}
+    real = _storage.load_collection
+
+    def failing(name, *a, **k):
+        if name == fleet._COLLECTION:
+            calls["n"] += 1
+            raise OSError("disk unreadable")
+        return real(name, *a, **k)
+
+    monkeypatch.setattr(_storage, "load_collection", failing)
+    monkeypatch.setattr(fleet, "_loaded", False)
+    monkeypatch.setattr(fleet, "_units", {})
+    monkeypatch.setattr(fleet.time, "sleep", lambda s: None)
+    fleet.load()  # startup: three tries
+    assert fleet._loaded is False and calls["n"] == 3
+    # Later requests retry once, at most every RELOAD_EVERY_S, and get no unit.
+    monkeypatch.setattr(fleet, "_load_failed_at", fleet._load_failed_at - fleet.RELOAD_EVERY_S)
+    assert fleet.assign("INC-x", "Ambulance", near={"lat": 13.0, "lng": 77.6}) is None
+    assert calls["n"] == 4
+    assert fleet.assign("INC-x", "Ambulance", near={"lat": 13.0, "lng": 77.6}) is None
+    assert calls["n"] == 4  # no retry storm
+    # A reset while unloaded leaves the stored assignments alone.
+    saved = []
+    monkeypatch.setattr(_storage, "save_collection", lambda *a, **k: saved.append(a))
+    fleet.reset()
+    assert saved == []
+    monkeypatch.undo()
+    fleet._load_failed_at = None
+    fleet.load()
+
+
+def test_a_backup_is_routed_from_where_it_is_now(city, monkeypatch):
+    from fastapi.testclient import TestClient
+    from main import app
+    from routers import incident as incident_router
+    from tests.test_monitoring_agent import MANIPAL_HUB
+
+    monkeypatch.setenv("RAPIDGRID_MODE", "demo")
+    scene = (MANIPAL_HUB[0] + 0.004, MANIPAL_HUB[1] + 0.003)
+    incident = call_to(scene, ASTER_HUB)
+    alert = _stage(incident)
+    assert alert["recommendation"] == "dispatch_backup"
+    incident.setdefault("monitoring", {"alerts": []})["alerts"].insert(0, alert)
+    backup = alert["backup"]["unit_id"]
+    # The backup moved after the alert (say, repositioned 1 km north).
+    moved = {"lat": MANIPAL_HUB[0] + 0.009, "lng": MANIPAL_HUB[1]}
+    fleet.record_position(backup, moved["lat"], moved["lng"], source="simulated")
+    r = TestClient(app).post(f"/api/incidents/INC-mon/alerts/{alert['alert_id']}/backup")
+    assert r.status_code == 200, r.text
+    first = incident_router.ACTIVE_INCIDENTS[-1]["citizen_view"]["phase1_route_coordinates"][0]
+    assert monitor._dist(first, moved) < 300  # the new route starts where the unit is

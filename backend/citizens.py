@@ -107,17 +107,26 @@ def _sign(*parts: str) -> str:
     return hmac.new(staff._secret(), ("citizen-session:" + ":".join(parts)).encode(), hashlib.sha256).hexdigest()
 
 
-def _cookie(cid: str) -> str:
+def _cookie(cid: str, gen: str) -> str:
     issued = str(int(time.time()))
     sid = secrets.token_urlsafe(18)
-    return ".".join((issued, sid, cid, _sign(issued, sid, cid)))
+    return ".".join((issued, sid, cid, gen, _sign(issued, sid, cid, gen)))
 
 
-def _parse(cookie: str) -> Optional[tuple[str, str, float]]:
+def _generation(account: Optional[dict]) -> str:
+    """The account's registration generation: random per registration, so a
+    cookie for a purged account never opens the same number registered
+    again, whatever the timing. Accounts made before this have "0"."""
+    return str((account or {}).get("gen") or "0")
+
+
+def _parse(cookie: str) -> Optional[tuple[str, str, float, str]]:
     parts = cookie.split(".")
-    if len(parts) != 4:
+    if len(parts) != 5:
         return None
-    issued, sid, cid, signature = parts
+    issued, sid, cid, gen, signature = parts
+    if not re.fullmatch(r"[0-9a-f]{1,32}", gen):
+        return None
     if not (issued.isascii() and issued.isdigit() and len(issued) <= 12):
         return None
     if not re.fullmatch(r"[0-9a-f]{32}", cid) or not 16 <= len(sid) <= 64 or not sid.isascii():
@@ -125,9 +134,9 @@ def _parse(cookie: str) -> Optional[tuple[str, str, float]]:
     age = time.time() - int(issued)
     if not 0 <= age < SESSION_SECONDS:
         return None
-    if not hmac.compare_digest(signature.encode(), _sign(issued, sid, cid).encode()):
+    if not hmac.compare_digest(signature.encode(), _sign(issued, sid, cid, gen).encode()):
         return None
-    return sid, cid, int(issued) + SESSION_SECONDS
+    return sid, cid, int(issued) + SESSION_SECONDS, gen
 
 
 def _account(cid: str) -> Optional[dict]:
@@ -153,17 +162,19 @@ def current(connection: Optional[HTTPConnection]) -> Optional[dict]:
     if account is None:
         return None
     # The id comes from the phone number, so an account registered again after
-    # a purge has the same id: a cookie issued before this account existed
-    # belongs to the deleted one and must not open the new one.
+    # a purge has the same id: a cookie issued for an earlier registration
+    # (another generation) belongs to the deleted account.
+    if not hmac.compare_digest(parsed[3], _generation(account)):
+        return None
     issued = parsed[2] - SESSION_SECONDS
     if issued < int(account.get("created_at") or 0):
         return None
     return {"id": parsed[1], "name": account["name"], "phone": account["phone"]}
 
 
-def _set_cookie(request: Request, response: Response, cid: str) -> None:
+def _set_cookie(request: Request, response: Response, cid: str, gen: str) -> None:
     secure = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
-    response.set_cookie(COOKIE_NAME, _cookie(cid), max_age=SESSION_SECONDS, httponly=True,
+    response.set_cookie(COOKIE_NAME, _cookie(cid, gen), max_age=SESSION_SECONDS, httponly=True,
                         secure=secure, samesite="strict", path="/")
     response.headers["Cache-Control"] = "no-store"
 
@@ -221,7 +232,8 @@ async def register(payload: Registration, request: Request, response: Response):
     cid = citizen_id(phone)
     salt = secrets.token_bytes(16)
     record = {"name": payload.name, "phone": phone, "salt": salt.hex(),
-              "pin_hash": await _hash(payload.pin, salt), "created_at": time.time()}
+              "pin_hash": await _hash(payload.pin, salt), "created_at": time.time(),
+              "gen": secrets.token_hex(8)}
     created = await asyncio.to_thread(storage.insert_citizen, cid, json.dumps(record),
                                        database=storage.data_path())
     if not created:
@@ -229,7 +241,7 @@ async def register(payload: Registration, request: Request, response: Response):
         # (a silent success) would leave a caller unable to tell why sign-in
         # fails. Registrations are rate limited per client instead.
         raise HTTPException(status_code=409, detail="This number already has an account. Sign in instead.")
-    _set_cookie(request, response, cid)
+    _set_cookie(request, response, cid, record["gen"])
     logger.info("Citizen account created")
     return {"name": payload.name, "phone": phone}
 
@@ -265,7 +277,7 @@ async def _check_pin(payload, request, response, cid, account_key, client):
         staff._fail(account_key, client)
         raise HTTPException(status_code=401, detail="Wrong phone number or PIN")
     staff._succeed(account_key, client)
-    _set_cookie(request, response, cid)
+    _set_cookie(request, response, cid, _generation(account))
     return {"name": account["name"], "phone": account["phone"]}
 
 

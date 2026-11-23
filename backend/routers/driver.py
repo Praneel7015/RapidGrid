@@ -271,9 +271,15 @@ async def arrived_pickup(payload: ClaimPayload, request: Request = None):
         if not no_road:
             raise unreachable
         for candidate in fallbacks[:3]:
+            # Divert is checked right before and right after routing: a
+            # hospital that went on divert meanwhile is skipped, not chosen.
+            if canonical_of(candidate) in hospital_agent.diverted:
+                continue
             try:
                 route = await _route(origin, dict(candidate["location"]))
             except HTTPException:
+                continue
+            if canonical_of(candidate) in hospital_agent.diverted:
                 continue
             switched = candidate
             break

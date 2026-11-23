@@ -54,6 +54,8 @@ CLIENT_WINDOW_S = 10 * 60
 # client with no failures on that account may try. A stranger therefore
 # cannot lock the real dispatcher out, and many addresses buy one guess each.
 ACCOUNT_FAILURES = 30
+ACCOUNT_HARD_FAILURES = 100   # failures in ACCOUNT_WINDOW_S, from any client
+ACCOUNT_SPACING_S = 30.0       # then one attempt per this many seconds
 ACCOUNT_WINDOW_S = 60 * 60
 
 _lock = threading.Lock()
@@ -131,7 +133,22 @@ def _pair(account: str, client: str) -> str:
     return account + "\x00" + client
 
 
-def _wait(account: str, client: str) -> int:
+KNOWN_COOKIE = "rapidgrid_known"
+KNOWN_SECONDS = 30 * 24 * 3600
+
+
+def _known_value(account: str) -> str:
+    return hmac.new(_secret(), ("known-device:" + account).encode(), hashlib.sha256).hexdigest()
+
+
+def known_device(connection, account: str) -> bool:
+    """Has this browser signed in to this account before? (A signed cookie
+    set on success; a stranger cannot make one.)"""
+    value = connection.cookies.get(KNOWN_COOKIE, "") if connection is not None else ""
+    return bool(value) and hmac.compare_digest(value, _known_value(account))
+
+
+def _wait(account: str, client: str, known: bool = False) -> int:
     now = time.monotonic()
     with _lock:
         failures, not_before = _accounts.get(_pair(account, client), (0, 0.0))
@@ -146,6 +163,17 @@ def _wait(account: str, client: str) -> int:
         # account-wide ceiling: one typo by the real user never locks them out.
         if failures >= FREE_FAILURES and len(on_account) >= ACCOUNT_FAILURES:
             waits.append(ACCOUNT_WINDOW_S - (now - on_account[0]))
+        # A guess-rate cap per account that no client key can avoid (a forged
+        # forwarding header makes every request a "new client"): past
+        # ACCOUNT_HARD_FAILURES in the window, the account takes one attempt
+        # every ACCOUNT_SPACING_S from anyone. The real user waits seconds,
+        # a guesser gets ~120 tries an hour against a million PINs.
+        # A browser that has signed in to this account before is exempt, so
+        # a stranger cannot keep the real user out by guessing slowly.
+        if len(on_account) >= ACCOUNT_HARD_FAILURES and not known:
+            spacing = ACCOUNT_SPACING_S - (now - on_account[-1])
+            if spacing > 0:
+                waits.append(spacing)
     return int(max(waits)) + 1 if waits else 0
 
 
@@ -288,7 +316,7 @@ async def staff_login(payload: StaffLogin, request: Request, response: Response)
     subject = "dispatch" if payload.role == "dispatcher" else payload.subject
     account = f"{payload.role}:{subject}"
     client = security.client_key(request)
-    wait = _wait(account, client)
+    wait = _wait(account, client, known=known_device(request, account))
     if wait:
         raise HTTPException(status_code=429, detail="Too many wrong PINs. Try again shortly.",
                             headers={"Retry-After": str(wait)})
@@ -305,6 +333,10 @@ async def staff_login(payload: StaffLogin, request: Request, response: Response)
     secure = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
     response.set_cookie(COOKIE_NAME, _cookie_value(payload.role, subject), max_age=SESSION_SECONDS,
                         httponly=True, secure=secure, samesite="strict", path="/")
+    # Remembers that this browser knows the PIN: it is let through the
+    # account-wide guess cap later (staff sign-in only; it grants nothing else).
+    response.set_cookie(KNOWN_COOKIE, _known_value(account), max_age=KNOWN_SECONDS,
+                        httponly=True, secure=secure, samesite="strict", path="/api/staff")
     response.headers["Cache-Control"] = "no-store"
     logger.info("Staff sign-in: %s", log_safe(account))
     return {"enabled": True, "role": payload.role, "subject": subject}

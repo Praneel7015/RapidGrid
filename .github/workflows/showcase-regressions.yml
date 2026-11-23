@@ -21,7 +21,7 @@ jobs:
       - run: pip install -r backend/requirements-dev.txt
       - run: python -m pytest backend/tests -q
         env:
-          RAPIDGRID_DATA_DIR: ${{ runner.temp }}/rapidgrid-unit-data
+          RAPIDGRID_TEST_DATA_DIR: ${{ runner.temp }}/rapidgrid-unit-data
           GOOGLE_ROUTES_API_KEY: ''
           OPENWEATHER_API_KEY: ''
 
