@@ -154,15 +154,24 @@ def step(incidents: list[dict], dt_s: float = TICK_S) -> int:
             # Carry on from the last real fix: its distance along the leg,
             # on the leg as already driven (not back to its first point).
             here = unit["position"]
-            driven = [start] + route if start is not None else route
+            driven = [start, *route] if start is not None else route
             travelled = along(driven, here)
         elif previous_key != leg_key or handover:
             travelled = 0.0
-            # A unit that is not at the leg's start (a backup taking over, or
-            # a phone that stopped sending) drives from where it is, not
-            # from a jump back to the first point. Fixed for the whole leg.
             here = unit["position"]
-            start = {"lat": here["lat"], "lng": here["lng"]} if _distance(here, route[0]) > 50 else None
+            start = None
+            if _distance(here, route[0]) > 50:
+                from agents.monitor import project
+
+                if project(route, here)[0] <= 50:
+                    # Already on the leg (a phone tracked it from dispatch,
+                    # then went quiet): carry on from that point of it.
+                    travelled = along(route, here)
+                else:
+                    # Off the leg (a backup taking over from elsewhere):
+                    # drive from where it is, not from a jump to the first
+                    # point. Fixed for the whole leg.
+                    start = {"lat": here["lat"], "lng": here["lng"]}
         if start is not None:
             route = [start] + route
         total = length(route)
@@ -191,7 +200,9 @@ def _closure_on(route: list[dict], start_m: float, end_m: float) -> Optional[flo
     travelled = 0.0
     for a, b in zip(route, route[1:]):
         seg = _distance(a, b)
-        if travelled + seg >= start_m and travelled <= end_m:
+        # A segment starting just past the tick's end can hold a closure
+        # whose stopping point (15 m before it) is inside the tick.
+        if travelled + seg >= start_m and travelled <= end_m + 15.0:
             first = None
             for c in closed:
                 p, q = c["coordinates"]
@@ -205,7 +216,7 @@ def _closure_on(route: list[dict], start_m: float, end_m: float) -> Optional[flo
                         first = lo if first is None else min(first, lo)
             if first is not None:
                 return max(0.0, first - 15.0)
-        if travelled > end_m:
+        if travelled > end_m + 15.0:
             break
         travelled += seg
     return None
@@ -257,6 +268,13 @@ async def store_alerts(alerts: list[tuple[str, dict]]) -> None:
             inc = next((i for i in incident_router.ACTIVE_INCIDENTS if i["incident_id"] == incident_id), None)
             if inc is None:
                 continue
+            # Computed off the lock: if the call's leg or destination changed
+            # meanwhile (the crew picked another hospital), it is stale.
+            leg, route, _eta = _leg(inc)
+            where = alert.get("destination")
+            if leg != alert.get("leg") or (where and route and (
+                    abs(route[-1]["lat"] - where["lat"]) > 1e-6 or abs(route[-1]["lng"] - where["lng"]) > 1e-6)):
+                continue
             monitoring = inc.setdefault("monitoring", {"alerts": []})
             monitoring["alerts"] = [alert] + monitoring.get("alerts", [])[:9]
             try:
@@ -306,11 +324,18 @@ async def run() -> None:
                 alerts = await asyncio.to_thread(monitor.tick, active)
                 if alerts:
                     await store_alerts(alerts)
-                # Every call, finished ones included: an open alert on a
-                # completed call must close too. Writes only what is stale.
-                await supersede_stale_alerts()
         except asyncio.CancelledError:
             raise
         except Exception:
             logger.exception("Simulator tick failed")
+        try:
+            # Every call, finished ones included, and even after a failed
+            # tick: an open alert on a completed call must close. Writes only
+            # what is stale.
+            async with TICK_LOCK:
+                await supersede_stale_alerts()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Closing stale alerts failed")
         await asyncio.sleep(TICK_S)

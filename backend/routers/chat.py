@@ -22,6 +22,9 @@ class ConnectionManager:
         # Writes and a full clear (reset, purge) exclude each other, so a
         # message accepted before a purge can never be stored after it.
         self._writes = asyncio.Lock()
+        # Bumped by every clear: a history read that was in flight across a
+        # clear must neither cache nor return its (purged) rows.
+        self._generation = 0
 
     async def connect(self, websocket: WebSocket, incident_id: str):
         await websocket.accept()
@@ -43,9 +46,12 @@ class ConnectionManager:
     async def load(self, incident_id: str) -> List[Dict]:
         """Cached history; on a miss, read it off the event loop."""
         if incident_id not in self.chat_history:
+            generation = self._generation
             messages = await asyncio.to_thread(
                 storage.load_chat_migrating, incident_id, database=persistence_path()
             )
+            if generation != self._generation:
+                return []  # cleared while reading: those rows are gone
             # Another request may have filled the cache while this one waited.
             self.chat_history.setdefault(incident_id, messages)
         return self.chat_history[incident_id]
@@ -54,6 +60,7 @@ class ConnectionManager:
         database = persistence_path()
         storage.clear_chat(database=database)
         storage.delete_collections("chat:", database=database)
+        self._generation += 1
         self.chat_history.clear()
 
     def forget(self, incident_ids) -> None:

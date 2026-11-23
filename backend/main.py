@@ -137,8 +137,11 @@ async def lifespan(app: FastAPI):
     # Units from the contacts directory, with their stored assignments, and
     # the simulator that moves units without a phone sending GPS.
     fleet.load()
+    # Only calls a unit is driving hold one. A unit stored against a call
+    # still awaiting approval is left over from an approval whose write (and
+    # whose compensating release) failed; it is free again.
     fleet.reconcile({i["incident_id"] for i in incident.ACTIVE_INCIDENTS
-                     if i.get("status") not in incident._FINISHED})
+                     if i.get("status") in ("dispatched", "patient_picked_up")})
     sim_task = asyncio.create_task(simulator.run())
 
     logger.info("All agents initialised and registered ✓")
@@ -281,7 +284,8 @@ async def websocket_chat_endpoint(websocket: WebSocket, incident_id: str):
                 role = payload.get("sender_role", "citizen")
                 if not body or len(body) > chat.MAX_MESSAGE_CHARS or role not in chat.CHAT_ROLES:
                     continue
-                role = chat.sender_role_for(websocket, role, incident_id)
+                claimed = role
+                role = chat.sender_role_for(websocket, claimed, incident_id)
                 if role is None:
                     continue  # staff not on this call
                 msg_data = chat._build_message(
@@ -290,9 +294,22 @@ async def websocket_chat_endpoint(websocket: WebSocket, incident_id: str):
                     chat.safe_sender_name(str(payload.get("sender_name") or "Anonymous")[: chat.MAX_NAME_CHARS]),
                     body,
                 )
-                await chat.manager.broadcast(incident_id, msg_data)
+                # As on the HTTP path: a unit's or hospital's membership is
+                # checked again at the write.
+                recheck = (lambda: chat.sender_role_for(websocket, claimed, incident_id) == role) \
+                    if role in {"driver", "hospital"} else None
+                stored = await chat.manager.broadcast(incident_id, msg_data, still_allowed=recheck)
             except Exception:
                 logger.exception("WebSocket chat message failed for %s", log_safe(incident_id))
+                continue
+            if not stored:
+                # Not stored (the call was cleared, or the sender left it):
+                # end this channel, as the HTTP path refuses the message.
+                try:
+                    await websocket.close(code=1008)
+                except Exception:
+                    pass  # the peer may already be gone
+                return
     except WebSocketDisconnect:
         pass
     finally:
