@@ -145,6 +145,20 @@ export default function MonitoringPanel({ incident, onChanged, live = null, simS
               </div>
             </dl>
 
+            {Array.isArray(open.trace) && open.trace.length > 0 && (
+              <details data-testid="agent-trace" className="rounded-sm border border-rule bg-paper px-3 py-2 text-[12px]">
+                <summary className="cursor-pointer font-semibold text-text">How the agent decided</summary>
+                <ol className="mt-2 space-y-1">
+                  {open.trace.map((s) => (
+                    <li key={s.step} className="grid grid-cols-[5.5rem_1fr] gap-2">
+                      <span className="font-semibold text-text-muted">{s.step}</span>
+                      <span>{s.text}{Number.isFinite(s.ms) && s.step !== 'Total' ? ` (${s.ms} ms)` : ''}</span>
+                    </li>
+                  ))}
+                </ol>
+              </details>
+            )}
+
             <div className="space-y-1.5">
               {open.routes.map((r, i) => (
                 <Button
