@@ -48,7 +48,28 @@ async function post(url, body) {
   return data;
 }
 
-export default function MonitoringPanel({ incident, onChanged }) {
+/** What the agent sees this second, in one line (the server's live status). */
+function Watching({ live, simSpeed }) {
+  if (!live) return null;
+  const km = (m) => (m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round(m)} m`);
+  const source = live.fix_source === 'gps' ? 'live GPS' : live.fix_source === 'simulated' ? 'simulated position' : 'station';
+  const age = Number.isFinite(live.fix_age_s) ? `, ${Math.round(live.fix_age_s)} s old` : '';
+  const road = Number.isFinite(live.remaining_s) ? `${(live.remaining_s / 60).toFixed(1)} min road time` : 'time unknown';
+  return (
+    <dl data-testid="agent-watching" className="grid grid-cols-2 gap-x-4 gap-y-1 rounded-sm border border-rule bg-paper-sunk px-3 py-2 text-[12px]">
+      <dt className="text-text-muted">Leg</dt>
+      <dd className="font-medium">{live.leg === 'to_scene' ? 'To the patient' : 'To the hospital'}, {Math.round(live.progress * 100)}% done</dd>
+      <dt className="text-text-muted">Still to go</dt>
+      <dd className="font-medium">{km(live.remaining_m)}, {road}{simSpeed && live.fix_source === 'simulated' ? ` (shown ×${simSpeed} faster)` : ''}</dd>
+      <dt className="text-text-muted">Off the route</dt>
+      <dd className="font-medium">{km(live.off_route_m)}</dd>
+      <dt className="text-text-muted">Position</dt>
+      <dd className="font-medium">{source}{age}</dd>
+    </dl>
+  );
+}
+
+export default function MonitoringPanel({ incident, onChanged, live = null, simSpeed = null }) {
   const [busy, setBusy] = useState(null);
   const [message, setMessage] = useState(null);
   const [error, setError] = useState(null);
@@ -87,9 +108,12 @@ export default function MonitoringPanel({ incident, onChanged }) {
           <p className="text-text-muted">Monitoring starts when a unit is dispatched.</p>
         )}
         {moving && !open && (
-          <p className="text-text-muted">
-            The agent is watching the unit on its planned route. No deviation or blockage.
-          </p>
+          <>
+            <p className="text-text-muted">
+              The agent is watching the unit on its planned route. No deviation or blockage.
+            </p>
+            <Watching live={live} simSpeed={simSpeed} />
+          </>
         )}
 
         {open && (

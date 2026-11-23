@@ -232,3 +232,28 @@ def test_the_accepted_route_is_named_plainly(monkeypatch):
     text = monitor.decision_log[0]["text"]
     assert text.startswith("Dispatcher accepted the recommended route for AMB-01"), text
     incident_router.ACTIVE_INCIDENTS.clear()
+
+
+def test_the_live_remaining_time_counts_down_as_the_unit_drives(city):
+    incident = call_to((12.985, 77.594), ASTER_HUB)
+    drive(incident, 1)
+    first = monitor.live_status(incident, fleet.unit_for_incident("INC-mon"))
+    drive(incident, 5)
+    later = monitor.live_status(incident, fleet.unit_for_incident("INC-mon"))
+    assert first["leg"] == "to_scene" and first["provenance"] == "modelled"
+    assert later["remaining_s"] < first["remaining_s"]
+    assert later["remaining_m"] < first["remaining_m"]
+    assert later["progress"] > first["progress"]
+    assert later["off_route_m"] < 30  # the simulator drives on the route
+    assert later["fix_source"] == "simulated"
+
+
+def test_the_track_endpoint_carries_the_live_status(city, monkeypatch):
+    from fastapi.testclient import TestClient
+    from main import app
+
+    monkeypatch.setenv("RAPIDGRID_MODE", "demo")
+    incident = call_to((12.985, 77.594), ASTER_HUB)
+    drive(incident, 2)
+    body = TestClient(app).get("/api/incidents/INC-mon/track").json()
+    assert body["live"]["leg"] == "to_scene" and body["live"]["remaining_s"] > 0

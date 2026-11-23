@@ -1,6 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
 
-const EMPTY = { incidentId: null, unit: null, trail: [], simSpeed: null };
+const EMPTY = { incidentId: null, unit: null, trail: [], simSpeed: null, live: null };
+
+/**
+ * Minutes still to drive on this leg, from where the unit is now (the
+ * server's live status), or null when the unit is not on that leg. Every
+ * screen uses this, so they all show the same, counting-down figure.
+ */
+export function liveEtaMinutes(track, leg) {
+  const live = track?.live;
+  if (!live || live.leg !== leg || !Number.isFinite(live.remaining_s)) return null;
+  return Math.max(1, Math.round(live.remaining_s / 60));
+}
 
 /**
  * Live position of the unit on a call: polls /api/incidents/{id}/track every
@@ -34,7 +45,8 @@ export default function useUnitTrack(incidentId, active) {
         if (!res.ok) return;
         const data = await res.json();
         if (cancelled || request !== latest.current) return;
-        setTrack({ incidentId, unit: data.unit, trail: data.trail ?? [], simSpeed: data.sim_speed ?? null });
+        setTrack({ incidentId, unit: data.unit, trail: data.trail ?? [], simSpeed: data.sim_speed ?? null,
+          live: data.live ?? null });
       } catch {
         // Keep the last known position for this same call; the next poll retries.
       } finally {

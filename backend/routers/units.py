@@ -16,7 +16,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 import fleet
-from agents import simulator
+from agents import monitor, simulator
 from staff import require as require_staff
 
 router = APIRouter(tags=["Fleet"])
@@ -91,4 +91,6 @@ async def track_incident(incident_id: str):
         "stage": incident.get("driver_stage"),
         "status": incident.get("status"),
         "sim_speed": simulator.sim_speed(),
+        # One live remaining time for every screen, from where the unit is.
+        "live": monitor.live_status(incident, unit),
     }

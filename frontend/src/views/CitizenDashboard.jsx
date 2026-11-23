@@ -9,7 +9,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { MapPin, Phone, Check, AlertTriangle, ChevronLeft } from 'lucide-react';
 import MapOverlay from '../components/MapOverlay';
-import useUnitTrack from '../hooks/useUnitTrack';
+import useUnitTrack, { liveEtaMinutes } from '../hooks/useUnitTrack';
 import LiveEmergencyChat from '../components/LiveEmergencyChat';
 import MicButton from '../components/MicButton';
 import CallButton from '../components/CallButton';
@@ -482,21 +482,34 @@ export default function CitizenDashboard() {
 
         {view && (
           <div className="flex flex-wrap items-center gap-x-8 gap-y-4 border-t border-rule px-4 py-3.5">
-            <Stat
-              label="Unit reaches you in"
-              value={view.phase1_eta_minutes ?? '--'}
-              unit="min"
-              tone="signal"
-              modelled
-              sub={view.phase1_hub?.name}
-            />
-            <Stat
-              label="Then to hospital"
-              value={view.eta_minutes ?? '--'}
-              unit="min"
-              modelled
-              sub={`${fmt.km(view.distance_meters)} km`}
-            />
+            {incident?.status !== 'patient_picked_up' ? (
+              <>
+                <Stat
+                  label="Unit reaches you in"
+                  value={liveEtaMinutes(track, 'to_scene') ?? view.phase1_eta_minutes ?? '--'}
+                  unit="min"
+                  tone="signal"
+                  modelled
+                  sub={view.phase1_hub?.name}
+                />
+                <Stat
+                  label="Then to hospital"
+                  value={view.eta_minutes ?? '--'}
+                  unit="min"
+                  modelled
+                  sub={`${fmt.km(view.distance_meters)} km`}
+                />
+              </>
+            ) : (
+              <Stat
+                label="Arriving at hospital in"
+                value={liveEtaMinutes(track, 'to_hospital') ?? view.eta_minutes ?? '--'}
+                unit="min"
+                tone="signal"
+                modelled
+                sub={view.hospital_name}
+              />
+            )}
           </div>
         )}
       </Panel>

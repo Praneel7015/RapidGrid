@@ -681,6 +681,14 @@ def test_a_dispatched_unit_moves_on_the_map(context, server):
     assert (first["lat"], first["lng"]) != (second["lat"], second["lng"])
     # The marker moved in place: its popup is still open.
     expect(page.locator(".leaflet-popup-content")).to_contain_text("Simulated GPS")
+    # The agent's live view of the unit, and one remaining time that counts down.
+    watching = page.get_by_test_id("agent-watching")
+    expect(watching).to_contain_text("To the patient")
+    expect(watching).to_contain_text("simulated position")
+    live1 = context.request.get(server + f"/api/incidents/{incident_id}/track").json()["live"]
+    page.wait_for_timeout(4500)
+    live2 = context.request.get(server + f"/api/incidents/{incident_id}/track").json()["live"]
+    assert live2["remaining_m"] < live1["remaining_m"]
     context.request.post(server + "/api/incidents/clear", headers={"Authorization": f"Bearer {ACCESS_TOKEN}"})
 
 
