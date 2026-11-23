@@ -93,7 +93,16 @@ export default function DispatcherDashboard() {
                   approved_route: inc.action_plan?.recommended_route?.route_id ?? '',
                 }),
               }).catch(() => null);
-              // Only update local state on success — do NOT retry 409/500 on next tick.
+              // Only update local state on success; do not retry 409/500 on the
+              // next tick, except "no unit free": that clears when a unit is back.
+              if (res && res.status === 409) {
+                const body = await res.clone().json().catch(() => ({}));
+                if (typeof body.detail === 'string' && body.detail.includes('is free right now')) {
+                  autoAttempted.current.delete(inc.incident_id);
+                  if (!cancelled) setActionError(`No unit is free for ${inc.incident_id}; it will be approved when one is back.`);
+                  continue;
+                }
+              }
               if (!res?.ok && !cancelled) setActionError(`Auto-approval failed for ${inc.incident_id}${res ? ` (HTTP ${res.status})` : ''}. Review and approve manually.`);
               if (res?.ok) {
                 const updated = await res.json().catch(() => null);

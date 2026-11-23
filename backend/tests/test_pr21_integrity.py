@@ -156,3 +156,18 @@ def test_a_disruption_is_not_staged_after_the_call_moved_on(client, monkeypatch)
     monkeypatch.setattr(monitoring.city_state, "close_road", lambda *a, **k: closed.append(a) or {})
     r = client.post("/api/monitoring/demo/INC-review", json={"action": "close_road_ahead"})
     assert r.status_code == 409 and closed == []
+
+
+def test_a_scene_call_backup_goes_to_the_next_open_hospital(client, mocked_route):
+    from agents.hospital_intelligence import hospital_agent
+
+    first = {"hospital_id": "blr-007", "name": "Aster CMI Hospital (Hebbal)", "location": {"lat": 13.0473, "lng": 77.5908}}
+    second = {"hospital_id": "blr-001", "name": "Next Open", "location": {"lat": 12.97, "lng": 77.6}}
+    report = seed(vehicle_required="Fire Engine", include_ambulance_backup=True,
+                  action_plan={"response_profile": "scene", "recommended_hospital": first,
+                               "all_hospitals": [first, second]})
+    hospital_agent._on_divert.add("blr-007")
+    r = client.post("/api/incidents/INC-review/approve", json={"dispatcher_id": "r", "approved_route": "scene"})
+    assert r.status_code == 200, r.text
+    assert report["approved_hospital_id"] == "blr-001"
+    assert report["citizen_view"]["hospital_location"] == second["location"]

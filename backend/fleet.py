@@ -205,6 +205,14 @@ def swap(incident_id: str, new_unit_id: str) -> dict:
         return dict(new)
 
 
+def put_back(unit_id: str, position: dict) -> None:
+    """Restore a unit's last position (undoing a swap that could not be stored)."""
+    _ensure()
+    with _lock:
+        if unit_id in _units:
+            _units[unit_id]["position"] = dict(position)
+
+
 def release(incident_id: str) -> None:
     """Free every unit on this call and park it back at its station."""
     _ensure()

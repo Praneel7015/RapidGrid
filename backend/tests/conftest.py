@@ -40,7 +40,10 @@ def _fresh_report_limits(monkeypatch):
     import staff
     from routers import incident
 
+    import citizens
+
     monkeypatch.setattr(incident, "_reports", {})
+    monkeypatch.setattr(citizens, "_registrations", {})
     staff.reset_throttle()
 
 
