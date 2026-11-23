@@ -15,6 +15,8 @@ from routers.incident import (
     ACTIVE_INCIDENTS, _INCIDENTS_LOCK, commit, required_units, route_agent, unit_statuses,
 )
 
+from logsafe import log_safe
+
 logger = logging.getLogger("geoagentic.driver")
 
 router = APIRouter(prefix="/api/driver", tags=["Driver Queue"])
@@ -244,7 +246,27 @@ async def arrived_pickup(payload: ClaimPayload, request: Request = None):
             raise HTTPException(status_code=409, detail="Approved patient and hospital locations are required")
         emergency = incident.get("emergency_type") or "general"
         current_id = incident.get("approved_hospital_id")
-    route = await _route(origin, destination)
+        # The other reviewed destinations, in rank order: if a closure leaves
+        # no road to the planned hospital, the patient still goes somewhere.
+        from agents.hospital_intelligence import hospital_agent
+        from routers.hospital import _resolve
+
+        fallbacks = [h for h in ((incident.get("action_plan") or {}).get("all_hospitals") or [])
+                     if h.get("location") and h.get("location") != destination
+                     and (_resolve(str(h.get("hospital_id", ""))) or h.get("hospital_id")) not in hospital_agent.diverted]
+    switched = None
+    try:
+        route = await _route(origin, destination)
+    except HTTPException as unreachable:
+        for candidate in fallbacks[:3]:
+            try:
+                route = await _route(origin, dict(candidate["location"]))
+            except HTTPException:
+                continue
+            switched = candidate
+            break
+        if switched is None:
+            raise unreachable
     async with _INCIDENTS_LOCK:
         incident = _incident(payload.incident_id)
         _require_driver(incident, payload.driver_id, payload.unit_type)
@@ -256,9 +278,22 @@ async def arrived_pickup(payload: ClaimPayload, request: Request = None):
         if view.get("hospital_location") != destination:
             raise HTTPException(status_code=409, detail="The destination changed; retry pickup confirmation")
         view.update(route)
+        if switched is not None:
+            planned = view.get("hospital_name") or "the planned hospital"
+            view.update({"hospital_name": switched["name"], "hospital_location": dict(switched["location"])})
+            incident["hospital_name"] = switched["name"]
+            incident["approved_hospital_id"] = (_resolve(str(switched.get("hospital_id", "")))
+                                                or switched.get("hospital_id"))
+            current_id = incident["approved_hospital_id"]
+            destination = view["hospital_location"]
+            logger.info("Pickup for %s: no road to the planned hospital; going to the next reviewed one",
+                        log_safe(payload.incident_id))
         states[payload.unit_type] = "patient_picked_up"
         view["unit_statuses"] = states
-        view.update({"status": "patient_picked_up", "message": f"Patient picked up. Transporting to {view.get('hospital_name', 'Hospital ER')}."})
+        message = f"Patient picked up. Transporting to {view.get('hospital_name', 'Hospital ER')}."
+        if switched is not None:
+            message += f" No road route to {planned} right now (closure), so the next reviewed hospital."
+        view.update({"status": "patient_picked_up", "message": message})
         incident.update({"driver_stage": "hospital", "status": "patient_picked_up", "citizen_view": view,
                          "unit_statuses": states})
 

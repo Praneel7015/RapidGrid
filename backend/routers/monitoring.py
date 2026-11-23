@@ -174,7 +174,7 @@ async def dismiss_alert(incident_id: str, alert_id: str, request: Request = None
         inc, alert = await _with_alert(incident_id, alert_id)
         alert.update(status="dismissed", decided_at=time.time(), decided_by=who[1])
         await incident_router.commit(inc)
-    monitor.clear_alert(alert["unit_id"])
+    monitor.clear_alert(alert["unit_id"], dismissed_deviation=alert.get("trigger") == "deviation")
     monitor._log(incident_id, alert["unit_id"], "decision", "Dispatcher dismissed the alert.", alert_id=alert_id)
     return {"status": "dismissed"}
 
@@ -191,13 +191,24 @@ def _ahead(route: list[dict], start: int, metres: float) -> int:
     return len(route) - 1
 
 
-def edges_to_close(route: list[dict], start: int, position: dict) -> list[int]:
+def edges_to_close(route: list[dict], start: int, position: dict,
+                   keep_open: list[tuple[dict, dict]] = ()) -> list[int]:
     """Graph edges on a stretch of the route ahead (about 350 m long, starting
     300 m or more ahead) whose closure still leaves the unit a way round. On a
     one-way flyover with no exit, closing the next stretch would trap it, so
-    later stretches are tried, up to about 3 km ahead."""
+    later stretches are tried, up to about 3 km ahead.
+
+    keep_open: other trips the call still needs (scene to hospital, say). A
+    stretch is chosen only if each of them still has a way round too, so a
+    staged closure can never leave the patient with no route to hospital."""
     destination = (route[-1]["lat"], route[-1]["lng"])
     origin = (position["lat"], position["lng"])
+
+    def still_open(closed: set) -> bool:
+        for a, b in keep_open:
+            if not local_router.find_path((a["lat"], a["lng"]), (b["lat"], b["lng"]), also_blocked=closed):
+                return False
+        return True
     for begin in range(300, 3000, 350):
         a, b = _ahead(route, start, begin), _ahead(route, start, begin + 350)
         if b <= a:
@@ -205,9 +216,11 @@ def edges_to_close(route: list[dict], start: int, position: dict) -> list[int]:
         stretch = local_router.find_path((route[a]["lat"], route[a]["lng"]), (route[b]["lat"], route[b]["lng"]))
         if not stretch:
             continue
-        avoid = {e: 1e6 for e in stretch["edge_ids"]}
-        around = local_router.find_path(origin, destination, penalty=avoid)
-        if around and not set(around["edge_ids"]) & set(stretch["edge_ids"]):
+        # Tested as the closure will really be: blocked, not just costly
+        # (a block also changes which road a point can start from).
+        closed = set(stretch["edge_ids"])
+        around = local_router.find_path(origin, destination, also_blocked=closed)
+        if around and still_open(closed):
             return stretch["edge_ids"]
     return []
 
@@ -287,7 +300,12 @@ async def stage_disruption(incident_id: str, demo: DemoAction, request: Request 
         monitor._log(incident_id, unit["unit_id"], "demo", f"Demo: {unit['unit_id']} takes a wrong turn.")
         return {"status": "staged", "action": demo.action}
 
-    edges = await asyncio.to_thread(edges_to_close, route, index, position)
+    # On the way to the scene, the trip on to hospital must survive too.
+    view = snapshot.get("citizen_view") or {}
+    keep_open = []
+    if leg == "to_scene" and view.get("hospital_location") and snapshot.get("location"):
+        keep_open.append((dict(snapshot["location"]), dict(view["hospital_location"])))
+    edges = await asyncio.to_thread(edges_to_close, route, index, position, keep_open)
     await unchanged()
     if not edges:
         raise HTTPException(status_code=409, detail="The unit is too close to its destination to stage this")
