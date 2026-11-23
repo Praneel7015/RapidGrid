@@ -90,6 +90,7 @@ class ConnectionManager:
             except asyncio.CancelledError:
                 try:
                     await write
+                    history.append(message_data)  # stored: keep the cache in step
                 except Exception:
                     pass
                 raise

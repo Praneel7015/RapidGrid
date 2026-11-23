@@ -63,6 +63,20 @@ def point_along(route: list[dict], distance_m: float) -> tuple[dict, float, bool
     return dict(route[-1]), _bearing(route[-2], route[-1]), True
 
 
+def along(route: list[dict], point: dict) -> float:
+    """Distance along the polyline of the point on it nearest to `point`."""
+    from agents.monitor import point_segment_m
+
+    best, best_at, travelled = float("inf"), 0.0, 0.0
+    for a, b in zip(route, route[1:]):
+        seg = _distance(a, b)
+        d, t = point_segment_m(point, a, b)
+        if d < best:
+            best, best_at = d, travelled + seg * t
+        travelled += seg
+    return best_at
+
+
 def length(route: list[dict]) -> float:
     return sum(_distance(a, b) for a, b in zip(route, route[1:]))
 
@@ -136,7 +150,13 @@ def step(incidents: list[dict], dt_s: float = TICK_S) -> int:
         # A phone that stopped sending: simulation takes over from its last
         # real fix, not from where the simulation had left the unit.
         handover = unit["position"].get("source") == "gps"
-        if previous_key != leg_key or handover:
+        if handover and previous_key == leg_key:
+            # Carry on from the last real fix: its distance along the leg,
+            # on the leg as already driven (not back to its first point).
+            here = unit["position"]
+            driven = [start] + route if start is not None else route
+            travelled = along(driven, here)
+        elif previous_key != leg_key or handover:
             travelled = 0.0
             # A unit that is not at the leg's start (a backup taking over, or
             # a phone that stopped sending) drives from where it is, not
@@ -177,10 +197,13 @@ def _closure_on(route: list[dict], start_m: float, end_m: float) -> Optional[flo
                 p, q = c["coordinates"]
                 (dp, tp), (dq, tq) = point_segment_m(p, a, b), point_segment_m(q, a, b)
                 if dp < 8 and dq < 8:
-                    # Where along this segment the closure begins.
-                    at = travelled + seg * min(tp, tq)
-                    first = at if first is None else min(first, at)
-            if first is not None and first - 15.0 <= end_m and first >= start_m - 15.0:
+                    # Where along this segment the closure begins and ends.
+                    lo, hi = travelled + seg * min(tp, tq), travelled + seg * max(tp, tq)
+                    # Reached this tick, and not entirely behind the unit
+                    # (a unit already on a road that just closed stops too).
+                    if lo - 15.0 <= end_m and hi >= start_m - 15.0:
+                        first = lo if first is None else min(first, lo)
+            if first is not None:
                 return max(0.0, first - 15.0)
         if travelled > end_m:
             break

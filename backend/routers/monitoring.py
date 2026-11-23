@@ -124,6 +124,7 @@ async def dispatch_backup(incident_id: str, alert_id: str, request: Request = No
         from routers.driver import units_on_calls
         if backup["unit_id"] in units_on_calls(incident_id):
             raise HTTPException(status_code=409, detail="The proposed backup unit is on another call")
+        released_before = fleet.get(alert["unit_id"])
         try:
             # One step: the old unit is released only if the backup is taken.
             unit = fleet.swap(incident_id, backup["unit_id"])
@@ -147,6 +148,8 @@ async def dispatch_backup(incident_id: str, alert_id: str, request: Request = No
             # The call record was restored; give the call back its first unit.
             try:
                 fleet.swap(incident_id, released)
+                if released_before:  # where it was, not back at its station
+                    fleet.put_back(released, released_before["position"])
             except Exception:
                 logger.exception("Could not hand %s back to %s after a failed save", incident_id, released)
             raise

@@ -105,3 +105,14 @@ def test_a_cookie_from_a_purged_account_does_not_open_the_same_number_registered
     assert second.post("/api/citizens/register", json={**body, "name": "New Owner"}).status_code == 200
     assert second.get("/api/citizens/session").json().get("signed_in") is True
     assert first.get("/api/citizens/session").json().get("signed_in") is not True
+
+
+@pytest.mark.parametrize("text,hidden", [
+    ("Call 98450 / 12345 now", True),
+    ("Call 98450 - 12345 now", True),
+    ("Since 23-11-2026 at 14:30", False),
+    ("Pin 13.035 77.597 near gate", False),
+])
+def test_number_masking_catches_spaced_numbers_but_not_dates_or_coordinates(text, hidden):
+    masked = incident_router._mask_numbers(text)
+    assert ("[number hidden]" in masked) is hidden, masked
