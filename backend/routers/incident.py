@@ -86,6 +86,10 @@ async def commit(incident: dict) -> None:
     write fails the record is restored and the error propagates, so the client
     sees a failure and state that matches what is on disk.
     """
+    if not any(i is incident for i in ACTIVE_INCIDENTS):
+        # Cleared meanwhile (a demo reset or a purge): a late task must not
+        # write the record back to disk.
+        return
     payload = _dump(incident)
     database = persistence_path()
     try:
@@ -292,14 +296,26 @@ def security_same_origin(request) -> bool:
     return bool(request.headers.get("origin")) and security.same_origin(request)
 
 
-# A run of 10+ digits (up to three spaces, dashes or slashes between, a
-# leading + allowed): a phone number a caller typed into the report. Dots
-# are not separators, so dates and coordinates are left alone.
-_PHONE_IN_TEXT = re.compile(r"\+?\d(?:[ \t/-]{0,3}\d){9,}")
+# A run of 10+ digits (up to three spaces, dots, dashes or slashes between,
+# a leading + allowed): a phone number a caller typed into the report.
+_PHONE_IN_TEXT = re.compile(r"\+?\d(?:[ \t./-]{0,3}\d){9,}")
+# A latitude/longitude pair ("13.035 77.597", "13.0358, 77.5970") is a
+# place, not a number to hide; dates have too few digits to match at all.
+_COORDINATES = re.compile(r"\d{1,3}\.\d+[ ,]+\d{1,3}\.\d+")
+# A date ("12.05.2026", "12-05-26"), possibly with a time after it, is not
+# a phone number either.
+_DATE = re.compile(r"\d{1,2}[./-]\d{1,2}[./-]\d{2,4}")
+
+
+def _keep(match: str) -> bool:
+    match = match.strip()
+    return bool(_COORDINATES.fullmatch(match) or _DATE.match(match))
 
 
 def _mask_numbers(text):
-    return _PHONE_IN_TEXT.sub("[number hidden]", text) if isinstance(text, str) else text
+    if not isinstance(text, str):
+        return text
+    return _PHONE_IN_TEXT.sub(lambda m: m.group(0) if _keep(m.group(0)) else "[number hidden]", text)
 
 
 def _article(word: str) -> str:
@@ -576,6 +592,20 @@ async def report_incident(payload: IncidentReportPayload, response: Response, re
         "action_plan": None
     }
     async with _INCIDENTS_LOCK:
+        try:
+            account_still_there = (not me) or bool(await asyncio.to_thread(
+                storage.load_citizen, me["id"], database=storage.data_path()))
+        except Exception:
+            # Cannot check: keep the report (an emergency), without the
+            # account's details.
+            logger.exception("Could not re-check the caller's account; filing the report without it")
+            account_still_there = False
+        if me and not account_still_there:
+            # The account was deleted (a purge) while this report was on its
+            # way: keep none of its details.
+            incident.update(citizen_id=None, citizen_name=payload.citizen_name or "Anonymous Citizen",
+                            citizen_phone=payload.citizen_phone or "Unregistered")
+            me = None
         # Checked and appended without a suspension between them, so
         # concurrent reports cannot overshoot the pending cap.
         charge = _admit_report(request, signed_in=bool(me))
@@ -743,11 +773,13 @@ async def incident_contacts(incident_id: str, response: Response, request: Reque
 
 
 @router.get("/")
-async def get_all_incidents(request: Request = None):
+async def get_all_incidents(response: Response = None, request: Request = None):
     """For Dispatcher to see all active incidents. With staff sign-in on, only
     dispatch: the list holds every caller's location and words, and the
     incident ids that open each call's channel (A01)."""
     require_staff(request, "dispatcher")
+    if response is not None:
+        response.headers["Cache-Control"] = "no-store"  # not kept for the next person at this browser
     async with _INCIDENTS_LOCK:
         incidents = [public_incident(i) for i in ACTIVE_INCIDENTS]
     for inc in incidents:
@@ -839,6 +871,10 @@ async def approve_incident(incident_id: str, payload: ApprovePayload, request: R
                         "Every ranked hospital is on divert; the backup ambulance has nowhere to go"))
                 view.update({"hospital_name": backup_hospital["name"],
                              "hospital_location": backup_hospital["location"]})
+                # The route to the diverted hospital no longer applies; pickup
+                # routes afresh to this destination.
+                for stale in ("route_coordinates", "eta_minutes", "distance_meters"):
+                    view.pop(stale, None)
             unit_id, created = _reserve_unit(inc)
             inc.update({"status": "dispatched", "driver_stage": "pickup", "dispatcher_id": payload.dispatcher_id,
                         "approved_hospital_id": (backup_hospital or {}).get("hospital_id"), "citizen_view": view})

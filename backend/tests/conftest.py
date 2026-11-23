@@ -17,8 +17,12 @@ import pytest
 
 # Before any app module is imported: routers/incident.py loads and saves the
 # incident store at import, so without this a local run would read and
-# rewrite the developer's backend/data database. CI sets its own directory.
-os.environ.setdefault("RAPIDGRID_DATA_DIR", tempfile.mkdtemp(prefix="rapidgrid-tests-"))
+# rewrite the developer's database. Always a test-only directory: a data
+# directory exported for the app is never used (RAPIDGRID_TEST_DATA_DIR
+# can name a specific one, e.g. in CI).
+os.environ["RAPIDGRID_DATA_DIR"] = (os.environ.get("RAPIDGRID_TEST_DATA_DIR")
+                                    or tempfile.mkdtemp(prefix="rapidgrid-tests-"))
+os.makedirs(os.environ["RAPIDGRID_DATA_DIR"], exist_ok=True)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 

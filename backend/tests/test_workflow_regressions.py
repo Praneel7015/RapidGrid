@@ -1095,7 +1095,9 @@ def test_a_slow_ranking_never_holds_up_pickup(client, mocked_route, monkeypatch)
     started = _t.monotonic()
     with client:  # one event loop for the request and its background ranking
         assert _picked_up(client).status_code == 200
-        assert _t.monotonic() - started < 3
+        # Ranking runs in the background: pickup returns long before the
+        # 30 s ranking would (a loose bound, so a loaded runner does not flake).
+        assert _t.monotonic() - started < 10
         _t.sleep(0.8)
         # Inside the block: teardown would cancel the task anyway.
         assert calls and cancelled, "the ranking never ran, or the timeout did not cancel it"

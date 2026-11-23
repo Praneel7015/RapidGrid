@@ -658,6 +658,8 @@ def test_staff_sign_in_with_a_pin_scopes_the_session(browser, staff_server):
 
 def test_a_dispatched_unit_moves_on_the_map(context, server):
     unlock(context, server)
+    # A closure left by an earlier test would stop the unit; start clean.
+    context.request.post(server + "/api/monitoring/reset", headers={"Authorization": f"Bearer {ACCESS_TOKEN}"}, data={})
     created = context.request.post(server + "/api/incidents", data={
         "citizen_text": "Test scenario: chest pain near Hebbal.",
         "citizen_name": "Tracking browser test", "citizen_phone": "TEST-TRACK-ONLY",

@@ -116,3 +116,69 @@ def test_a_cookie_from_a_purged_account_does_not_open_the_same_number_registered
 def test_number_masking_catches_spaced_numbers_but_not_dates_or_coordinates(text, hidden):
     masked = incident_router._mask_numbers(text)
     assert ("[number hidden]" in masked) is hidden, masked
+
+
+@pytest.mark.parametrize("text,hidden", [
+    ("Call 98450.12345 now", True),
+    ("Call +91.98450.12345", True),
+    ("Pin 13.0358, 77.5970 at the gate", False),
+])
+def test_dotted_numbers_are_masked_but_coordinates_are_not(text, hidden):
+    masked = incident_router._mask_numbers(text)
+    assert ("[number hidden]" in masked) is hidden, masked
+
+
+def test_an_old_cookie_fails_even_when_the_number_is_registered_again_in_the_same_second(monkeypatch):
+    import citizens
+    import time
+
+    monkeypatch.setenv("RAPIDGRID_MODE", "demo")
+    monkeypatch.setenv("RAPIDGRID_SECRET", "test-only-secret-at-least-32-characters")
+    monkeypatch.setattr(citizens, "_registrations", {})
+    monkeypatch.setattr(security, "_revoked", None)
+    monkeypatch.setattr(time, "time", lambda: 1_900_000_000.25)  # one frozen second
+    first = TestClient(app, base_url="http://testserver", headers=ORIGIN)
+    body = {"name": "Asha Rao", "phone": "+91 98000 00078", "pin": "246810"}
+    assert first.post("/api/citizens/register", json=body).status_code == 200
+    storage.clear_citizens(database=storage.data_path())
+    second = TestClient(app, base_url="http://testserver", headers=ORIGIN)
+    assert second.post("/api/citizens/register", json={**body, "name": "New Owner"}).status_code == 200
+    assert second.get("/api/citizens/session").json().get("signed_in") is True
+    assert first.get("/api/citizens/session").json().get("signed_in") is not True
+
+
+def test_forged_client_addresses_cannot_out_guess_the_account_cap(pins, monkeypatch):
+    import staff as _staff
+
+    _staff.reset_throttle()
+    for i in range(_staff.ACCOUNT_HARD_FAILURES):
+        _staff._fail("dispatcher:dispatch", f"forged-{i}")
+    # A brand-new "client" (a new forged header) must still wait.
+    assert _staff._wait("dispatcher:dispatch", "forged-new") > 0
+    assert _staff._wait("dispatcher:dispatch", "forged-new") <= _staff.ACCOUNT_SPACING_S + 1
+    _staff.reset_throttle()
+
+
+def test_a_browser_that_signed_in_before_is_not_held_by_the_account_cap(pins):
+    import staff as _staff
+
+    _staff.reset_throttle()
+    dispatcher = signed_in("dispatcher", "dispatch", "11111111")  # sets the known-device cookie
+    for i in range(_staff.ACCOUNT_HARD_FAILURES):
+        _staff._fail("dispatcher:dispatch", f"forged-{i}")
+    stranger = TestClient(app, base_url="http://testserver", headers=ORIGIN)
+    assert stranger.post("/api/staff/session", json={"role": "dispatcher", "pin": "11111111"}).status_code == 429
+    again = dispatcher.post("/api/staff/session", json={"role": "dispatcher", "pin": "11111111"})
+    assert again.status_code == 200, again.text
+    _staff.reset_throttle()
+
+
+@pytest.mark.parametrize("text,hidden", [
+    ("Since 12.05.2026 10.30 he has pain", False),
+    ("Call 98450.12345 since 12.05.2026", True),
+])
+def test_dates_with_times_are_not_taken_for_phone_numbers(text, hidden):
+    masked = incident_router._mask_numbers(text)
+    assert ("[number hidden]" in masked) is hidden, masked
+    if hidden:
+        assert "12.05.2026" in masked

@@ -105,6 +105,15 @@ def project(route: list[dict], point: dict, start_index: int = 0) -> tuple[float
     return best
 
 
+def projection(route: list[dict], point: dict, start_index: int = 0) -> tuple[int, dict]:
+    """(segment index, the point on the route nearest to `point`)."""
+    _off, index = project(route, point, start_index)
+    index = min(index, len(route) - 2)
+    a, b = route[index], route[index + 1]
+    _d, t = point_segment_m(point, a, b)
+    return index, {"lat": a["lat"] + (b["lat"] - a["lat"]) * t, "lng": a["lng"] + (b["lng"] - a["lng"]) * t}
+
+
 def polyline_length(route: list[dict]) -> float:
     return sum(_dist(a, b) for a, b in zip(route, route[1:]))
 
@@ -222,7 +231,9 @@ def live_status(incident: dict, unit: Optional[dict]) -> Optional[dict]:
     the unit is, how far off the route, and the modelled road time still to
     go (the leg's ETA scaled by the distance left, the same rule the alerts
     use). None when no unit is driving a leg."""
-    leg, route, eta_s = _leg(incident)
+    from agents.simulator import fleet_leg
+
+    leg, route, eta_s = fleet_leg(incident)
     if unit is None or leg is None or len(route) < 2:
         return None
     pos = unit.get("position") or {}
@@ -518,7 +529,11 @@ def analyse(incident: dict, unit: dict, leg: str, route: list[dict], eta_s: Opti
                 j["eta_min"] = round(j["eta_min"] + hop / CONNECT_SPEED_MPS / 60, 1)
     routes_ms = (time.perf_counter() - started) * 1000
     total = polyline_length(route) or 1.0
-    planned_remaining = eta_s * polyline_length(remaining) / total if eta_s else None
+    # The plan's time left is measured along the plan, from the unit's point
+    # on it: from an off-route fix, the straight line to the destination
+    # would inflate it (and hide a real delay).
+    seg, on_plan = projection(route, position, max(0, progress - 2))
+    planned_remaining = eta_s * polyline_length([on_plan] + route[seg + 1:]) / total if eta_s else None
     # No route at all from where the unit is (say, a closed one-way flyover):
     # it cannot get there, so the only useful advice is a backup.
     new_eta = routes[0]["eta_s"] if routes else None
@@ -608,6 +623,8 @@ def tick(incidents: list[dict]) -> list[tuple[str, dict]]:
     Returns (incident_id, alert) pairs for new alerts; the caller stores them.
     Pure computation, safe to run off the event loop.
     """
+    from agents.simulator import fleet_leg
+
     new_alerts: list[tuple[str, dict]] = []
     by_id = {i["incident_id"]: i for i in incidents}
     version = _city_version()
@@ -617,7 +634,7 @@ def tick(incidents: list[dict]) -> list[tuple[str, dict]]:
             _watches.pop(unit["unit_id"], None)
             _last_off.pop(unit["unit_id"], None)
             continue
-        leg, route, eta_s = _leg(incident)
+        leg, route, eta_s = fleet_leg(incident)
         if leg is None or len(route) < 2:
             continue
         watch = _watches.setdefault(unit["unit_id"], Watch())
@@ -669,7 +686,10 @@ def tick(incidents: list[dict]) -> list[tuple[str, dict]]:
             trigger = "deviation"
         elif watch.city_version != version:
             watch.city_version = version
-            ahead = _disruptions_near(route[watch.progress:], NEAR_ROUTE_M)
+            # From where the unit is on its route, not the vertex behind it:
+            # a crossing it has already passed must not count as "ahead".
+            seg, here = projection(route, point, watch.progress)
+            ahead = _disruptions_near([here] + route[seg + 1:], NEAR_ROUTE_M)
             if ahead["closed"] or ahead["incident"]:
                 trigger = "blocked_ahead"
         if trigger is None:

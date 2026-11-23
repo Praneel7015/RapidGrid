@@ -225,9 +225,14 @@ def compact(*, database: Path | None = None, attempts: int = 10) -> None:
     with _connection(database) as connection:
         connection.commit()  # VACUUM cannot run inside a transaction
         connection.execute("VACUUM")
-        for _ in range(attempts):
+    # Each checkpoint attempt takes the shared lock on its own, and the wait
+    # between attempts happens without it, so request handlers that read
+    # storage are never held up behind the retries.
+    for attempt in range(attempts):
+        with _connection(database) as connection:
             busy, _log, _done = connection.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
-            if not busy:
-                return
+        if not busy:
+            return
+        if attempt + 1 < attempts:
             _time.sleep(0.2)
     raise CompactIncomplete("write-ahead log still in use")

@@ -100,7 +100,7 @@ def route_key(route: list[dict]) -> str:
 
 
 def leg_key(incident: dict) -> Optional[str]:
-    key, route, _eta = _leg(incident)
+    key, route, _eta = fleet_leg(incident)
     return f"{incident['incident_id']}:{key}:{route_key(route)}" if key and len(route) >= 2 else None
 
 
@@ -122,6 +122,17 @@ def _leg(incident: dict) -> tuple[Optional[str], list[dict], Optional[float]]:
     return None, [], None
 
 
+def fleet_leg(incident: dict) -> tuple[Optional[str], list[dict], Optional[float]]:
+    """The leg the call's fleet unit drives. On a police, fire or rescue
+    call, the fleet unit is that vehicle: it drives to the scene and stays
+    there. The hospital leg belongs to the backup ambulance that picked the
+    patient up, not to the fire engine."""
+    leg = _leg(incident)
+    if leg[0] == "to_hospital" and (incident.get("vehicle_required") or "Ambulance") not in ("Ambulance", "Medical"):
+        return None, [], None
+    return leg
+
+
 def step(incidents: list[dict], dt_s: float = TICK_S) -> int:
     """Advance every simulated unit by one tick. Returns how many moved."""
     moved = 0
@@ -130,7 +141,7 @@ def step(incidents: list[dict], dt_s: float = TICK_S) -> int:
         incident = by_id.get(unit.get("incident_id") or "")
         if incident is None or fleet.phone_tracking(unit["unit_id"]):
             continue
-        key, route, eta_s = _leg(incident)
+        key, route, eta_s = fleet_leg(incident)
         if key is None or len(route) < 2:
             continue
         leg_key = f"{incident['incident_id']}:{key}:{route_key(route)}"
@@ -287,8 +298,20 @@ async def store_alerts(alerts: list[tuple[str, dict]]) -> None:
             try:
                 await incident_router.commit(inc)
             except Exception:  # one incident's save failing must not drop the others' alerts
+                # The record was restored without it: do not announce an
+                # alert that dispatch cannot see or act on.
                 logger.exception("Could not save a monitoring alert")
+                continue
             stored.append((incident_id, alert))
+    # The monitor marked each of these units as having an open alert; one
+    # that was not stored (stale, or its save failed) must not leave the
+    # unit unwatched for the rest of the leg with nothing to act on.
+    from agents import monitor
+
+    kept = {id(a) for _i, a in stored}
+    for _incident_id, alert in alerts:
+        if id(alert) not in kept and alert.get("unit_id"):
+            monitor.clear_alert(alert["unit_id"])
     if stored:
         # The channel includes the caller: post the facts (cause, new ETA),
         # not the dispatcher's advice (backup, hold), which stays on the
