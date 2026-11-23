@@ -744,6 +744,11 @@ def test_official_scenario_route_blocked_ahead_is_explained_and_rerouted(context
     expect(alert).to_contain_text("Cause: road closed ahead")
     expect(alert).to_contain_text("Delay")
     expect(alert).to_contain_text("Backup:")
+    # The agent's steps, one by one, with their numbers.
+    trace = alert.get_by_test_id("agent-trace")
+    trace.locator("summary").click()
+    for step in ("Observe", "Detect", "Explain", "Predict", "Options", "Advise"):
+        expect(trace).to_contain_text(step)
     page.get_by_role("button", name="Accept recommended route").click()
     expect(page.get_by_text("Rerouted", exact=False).first).to_be_visible(timeout=10000)
     # The decision shows in the control-room log and in the incident channel.

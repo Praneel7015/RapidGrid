@@ -412,6 +412,40 @@ def _route_key(route: list[dict]) -> str:
     return route_key(route)
 
 
+def _trace(unit, off_m, trigger, cause, planned_s, new_eta, delay, routes, backup, recommendation, gain,
+           routes_ms, cause_ms, backup_ms, total_ms) -> list[dict]:
+    """The agent's loop for this alert, one step at a time, with the numbers
+    each step used and how long it took (answers "what did it actually do?")."""
+    pos = unit["position"]
+    source = {"gps": "live GPS", "simulated": "simulated position"}.get(pos.get("source"), "station")
+    steps = [
+        {"step": "Observe", "text": f"{unit['unit_id']}: {source}, {off_m:.0f} m from its planned route."},
+        {"step": "Detect", "text": (
+            f"{OFF_ROUTE_FIXES} position fixes in a row more than {OFF_ROUTE_M:.0f} m off the route."
+            if trigger == "deviation" else
+            f"A closure or accident within {NEAR_ROUTE_M:.0f} m of the route ahead.")},
+        {"step": "Explain", "text": f"Cause: {cause['text']}" + (" (likely, not certain)." if cause.get("likely") else "."),
+         "ms": round(cause_ms)},
+        {"step": "Predict", "text": (
+            f"Planned time left {_minutes(planned_s)}; best route now {_minutes(new_eta)}"
+            + (f" ({'+' if delay >= 0 else ''}{delay / 60:.1f} min)." if delay is not None else "."))},
+        {"step": "Options", "text": (
+            "; ".join(f"{r['label']} {_minutes(r['eta_s'])}" for r in routes) or "No road route from here.")
+            + (f" Backup {backup['unit_id']} {_minutes(backup['eta_s'])}." if backup else " No backup available."),
+         "ms": round(routes_ms + backup_ms)},
+        {"step": "Advise", "text": {
+            "dispatch_backup": (f"Send the backup: it saves {gain / 60:.1f} min (rule: at least "
+                                f"{BACKUP_MIN_GAIN_S / 60:.0f} min and {BACKUP_MIN_GAIN_FRACTION:.0%})."
+                                if gain is not None else "Send the backup: this unit cannot get through."),
+            "reroute": "Keep this unit on the recommended route"
+                       + (f" (a backup would save only {max(0.0, gain) / 60:.1f} min)." if gain is not None else "."),
+            "hold": "Hold this unit and clear the road: no route and no backup.",
+        }[recommendation]},
+    ]
+    steps.append({"step": "Total", "text": f"Worked out in {total_ms / 1000:.2f} s.", "ms": round(total_ms)})
+    return steps
+
+
 def _delay_line(delay: float, new_eta: Optional[float]) -> str:
     """The delay against the plan, worded honestly in either direction."""
     if delay >= 30:
@@ -448,7 +482,9 @@ def _minutes(seconds: Optional[float]) -> str:
 
 def analyse(incident: dict, unit: dict, leg: str, route: list[dict], eta_s: Optional[float],
             progress: int, trigger: str) -> Optional[dict]:
+    started = time.perf_counter()
     position = {"lat": unit["position"]["lat"], "lng": unit["position"]["lng"]}
+    off_now = project(route, position)[0]
     remaining = [position] + route[progress + 1:]
     destination = route[-1]
     # Where to search from. On its route, the unit is on a known carriageway:
@@ -480,15 +516,20 @@ def analyse(incident: dict, unit: dict, leg: str, route: list[dict], eta_s: Opti
                 r["eta_s"] = r["eta_s"] + hop / CONNECT_SPEED_MPS
             for j in hop_corridor:
                 j["eta_min"] = round(j["eta_min"] + hop / CONNECT_SPEED_MPS / 60, 1)
+    routes_ms = (time.perf_counter() - started) * 1000
     total = polyline_length(route) or 1.0
     planned_remaining = eta_s * polyline_length(remaining) / total if eta_s else None
     # No route at all from where the unit is (say, a closed one-way flyover):
     # it cannot get there, so the only useful advice is a backup.
     new_eta = routes[0]["eta_s"] if routes else None
     delay = new_eta - planned_remaining if (planned_remaining is not None and new_eta is not None) else None
+    mark = time.perf_counter()
     cause = find_cause(remaining, position, trigger)
+    cause_ms = (time.perf_counter() - mark) * 1000
 
+    mark = time.perf_counter()
     backup = best_backup(unit, destination) if leg == "to_scene" else None
+    backup_ms = (time.perf_counter() - mark) * 1000
     if backup and new_eta is None:
         recommend_backup = True
         gain = None
@@ -552,6 +593,9 @@ def analyse(incident: dict, unit: dict, leg: str, route: list[dict], eta_s: Opti
         "recommendation": recommendation,
         "corridor": green,
         "explanation": " ".join(lines),
+        "trace": _trace(unit, off_now, trigger, cause, planned_remaining, new_eta, delay, routes, backup,
+                        recommendation, gain, routes_ms, cause_ms, backup_ms,
+                        (time.perf_counter() - started) * 1000),
         "provenance": "modelled",
     }
 

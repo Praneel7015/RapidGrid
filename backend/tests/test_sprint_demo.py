@@ -257,3 +257,20 @@ def test_the_track_endpoint_carries_the_live_status(city, monkeypatch):
     drive(incident, 2)
     body = TestClient(app).get("/api/incidents/INC-mon/track").json()
     assert body["live"]["leg"] == "to_scene" and body["live"]["remaining_s"] > 0
+
+
+def test_each_alert_carries_the_agents_steps(city):
+    incident = call_to((12.985, 77.594), ASTER_HUB)
+    drive(incident)
+    unit = fleet.unit_for_incident("INC-mon")
+    route = incident["citizen_view"]["phase1_route_coordinates"]
+    _off, index = monitor.project(route, unit["position"])
+    city_state.close_road(monitoring.edges_to_close(route, index, unit["position"]), "closure")
+    alert = monitor.tick([incident])[0][1]
+    steps = [s["step"] for s in alert["trace"]]
+    assert steps == ["Observe", "Detect", "Explain", "Predict", "Options", "Advise", "Total"]
+    text = {s["step"]: s["text"] for s in alert["trace"]}
+    assert "AMB-01" in text["Observe"] and "closure or accident" in text["Detect"]
+    assert alert["cause"]["text"] in text["Explain"]
+    assert "Recommended" in text["Options"]
+    assert alert["trace"][-1]["ms"] > 0
