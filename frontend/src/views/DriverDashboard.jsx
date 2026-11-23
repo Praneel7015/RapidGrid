@@ -129,7 +129,7 @@ export default function DriverDashboard() {
     }
   };
 
-  const divertTo = async (hospitalName) => {
+  const divertTo = async (hospitalName, hospitalId) => {
     if (busy) return;
     setBusy(true);
     setActionError(null);
@@ -140,6 +140,7 @@ export default function DriverDashboard() {
         body: JSON.stringify({
           incident_id: active.incident_id,
           hospital_name: hospitalName,
+          hospital_id: hospitalId ?? undefined,
         }),
       });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || `Destination change failed (HTTP ${res.status})`);
@@ -359,12 +360,13 @@ export default function DriverDashboard() {
                 : "If the assigned ER diverts, pick another. The route and the caller's screen update immediately."}
             </p>
             <div className="space-y-1.5">
-              {(active.pickup_ranking?.hospitals ?? active.action_plan.all_hospitals).slice(0, 4).map((h, i) => {
-                const current = view.hospital_name === h.name;
+              {(active.pickup_ranking?.hospitals ?? active.action_plan.all_hospitals.slice(0, 4)).map((h, i) => {
+                // The ranking marks the current destination by id; names repeat (branches).
+                const current = typeof h.current === 'boolean' ? h.current : view.hospital_name === h.name;
                 return (
                   <button
                     key={h.hospital_id ?? i}
-                    onClick={() => divertTo(h.name)}
+                    onClick={() => divertTo(h.name, h.hospital_id)}
                     disabled={busy || current}
                     className={`flex w-full items-center justify-between gap-3 rounded-sm border px-3 py-2.5 text-left transition-colors ${
                       current
