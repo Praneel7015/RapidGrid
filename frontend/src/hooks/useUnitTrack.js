@@ -20,7 +20,12 @@ export default function useUnitTrack(incidentId, active) {
       return undefined;
     }
     let cancelled = false;
+    let inFlight = false;
     const load = async () => {
+      // One request at a time: on a slow link a new poll would otherwise
+      // supersede every response before it arrived, freezing the unit.
+      if (inFlight) return;
+      inFlight = true;
       const request = ++latest.current;
       try {
         const res = await fetch(`/api/incidents/${encodeURIComponent(incidentId)}/track`, {
@@ -32,6 +37,8 @@ export default function useUnitTrack(incidentId, active) {
         setTrack({ incidentId, unit: data.unit, trail: data.trail ?? [], simSpeed: data.sim_speed ?? null });
       } catch {
         // Keep the last known position for this same call; the next poll retries.
+      } finally {
+        inFlight = false;
       }
     };
     load();

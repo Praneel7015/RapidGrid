@@ -75,21 +75,25 @@ function toLatLngs(coords) {
     .filter(Boolean);
 }
 
+// One shared empty list for omitted props: a fresh [] on every render would
+// look like new data and redraw (and close popups on) the route layers.
+const NONE = Object.freeze([]);
+
 export default function MapOverlay({
   routeCoordinates,
   phase1Coordinates,
   origin,
   hospital,
   hub,
-  closures = [],
-  congestion = [],
+  closures = NONE,
+  congestion = NONE,
   activePhase = 2,
   unit = null,
-  trail = [],
+  trail = NONE,
   simSpeed = null,
-  proposals = [],
+  proposals = NONE,
   alertPoint = null,
-  corridor = [],
+  corridor = NONE,
   focusKey = null,
   height = '400px',
   theme = 'light',
@@ -319,7 +323,7 @@ export default function MapOverlay({
         /* bounds can be degenerate while data is still arriving */
       }
     }
-  }, [routeCoordinates, phase1Coordinates, origin, hospital, hub, closures, congestion, activePhase, proposals, alertPoint, corridor]);
+  }, [routeCoordinates, phase1Coordinates, origin, hospital, hub, closures, congestion, activePhase, proposals, alertPoint, corridor, focusKey]);
 
   // The responding unit and its trajectory live on their own layer and are
   // moved in place on every poll, so an open popup stays open. Not part of
@@ -340,7 +344,7 @@ export default function MapOverlay({
           .addTo(unitLayer.current);
       }
     } else if (trailLine.current) {
-      trailLine.current.remove();
+      unitLayer.current.removeLayer(trailLine.current); // out of the group, not just off the map
       trailLine.current = null;
     }
 
@@ -362,7 +366,7 @@ export default function MapOverlay({
           .addTo(unitLayer.current);
       }
     } else if (unitMarker.current) {
-      unitMarker.current.remove();
+      unitLayer.current.removeLayer(unitMarker.current);
       unitMarker.current = null;
     }
   }, [unit, trail, simSpeed]);

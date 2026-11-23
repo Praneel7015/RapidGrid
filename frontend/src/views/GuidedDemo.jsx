@@ -100,15 +100,22 @@ const STEPS = [
   {
     title: 'Dispatch approves the plan',
     run: async (ctx) => {
-      const approved = await api(`/api/incidents/${encodeURIComponent(ctx.id)}/approve`, {
-        method: 'POST',
-        body: {
-          dispatcher_id: 'guided-demo',
-          approved_hospital: ctx.plan?.recommended_hospital?.hospital_id ?? ctx.plan?.recommended_hospital?.name,
-          approved_route: ctx.plan?.recommended_route?.route_id ?? 'recommended',
-        },
-      });
-      ctx.unit = approved.assigned_unit ?? approved.citizen_view?.assigned_unit;
+      // A retry after a lost response: the call may already be approved
+      // (approving again would be refused). Read it first.
+      const before = await incident(ctx.id);
+      if (before.status === 'awaiting_dispatcher_approval') {
+        const approved = await api(`/api/incidents/${encodeURIComponent(ctx.id)}/approve`, {
+          method: 'POST',
+          body: {
+            dispatcher_id: 'guided-demo',
+            approved_hospital: ctx.plan?.recommended_hospital?.hospital_id ?? ctx.plan?.recommended_hospital?.name,
+            approved_route: ctx.plan?.recommended_route?.route_id ?? 'recommended',
+          },
+        });
+        ctx.unit = approved.assigned_unit ?? approved.citizen_view?.assigned_unit;
+      } else {
+        ctx.unit = before.assigned_unit ?? before.citizen_view?.assigned_unit;
+      }
       if (!ctx.unit) throw new Error('No free unit was assigned; reset the demo and try again.');
       // The crew screen opens this call (not just the queue).
       try { sessionStorage.setItem('rapidgrid_driver_incident', ctx.id); } catch { /* storage off */ }
