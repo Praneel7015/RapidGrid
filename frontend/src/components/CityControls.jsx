@@ -8,7 +8,7 @@
  * displaced off the closed road congests the streets around it.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, RotateCcw, CloudRain, Clock } from 'lucide-react';
 import { Panel, PanelHead, Button, Provenance } from './ui';
 
@@ -21,10 +21,19 @@ export default function CityControls({ onChange }) {
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState(null);
 
+  // One condition change at a time, and a state read that started before a
+  // change never overwrites what that change returned.
+  const running = useRef(false);
+  const changes = useRef(0);
+
   const load = async () => {
+    const seen = changes.current;
     try {
       const res = await fetch('/api/city/state');
-      if (res.ok) setState(await res.json());
+      if (res.ok) {
+        const data = await res.json();
+        if (seen === changes.current) setState(data);
+      }
     } catch { /* the console still works without the city model */ }
   };
 
@@ -51,6 +60,9 @@ export default function CityControls({ onChange }) {
   }, [query]);
 
   const act = async (url, body, describe) => {
+    if (running.current) return;
+    running.current = true;
+    changes.current += 1;
     setBusy(true);
     setNote(null);
     try {
@@ -70,6 +82,7 @@ export default function CityControls({ onChange }) {
     } catch {
       setNote('Cannot reach the city model.');
     } finally {
+      running.current = false;
       setBusy(false);
     }
   };
@@ -126,6 +139,7 @@ export default function CityControls({ onChange }) {
             </label>
             <select
               id="city-hour"
+              disabled={busy}
               value={state?.hour ?? 9}
               onChange={(e) =>
                 act('/api/city/conditions', { hour: Number(e.target.value) }, (d) =>
@@ -148,6 +162,7 @@ export default function CityControls({ onChange }) {
             </label>
             <select
               id="city-weather"
+              disabled={busy}
               value={state?.weather ?? 'Clear'}
               onChange={(e) =>
                 act('/api/city/conditions', { weather: e.target.value }, (d) =>

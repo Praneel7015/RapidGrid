@@ -3,7 +3,7 @@
  * across all calls. This is the backend's reasoning made visible.
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Panel, PanelHead } from './ui';
 
 const KIND = {
@@ -16,6 +16,9 @@ const KIND = {
 export default function ControlRoomLog() {
   const [entries, setEntries] = useState([]);
   const [resetState, setResetState] = useState(null);
+  // Bumped by a reset and by each poll: only the newest poll may write the
+  // list, and none that started before a reset finished.
+  const generation = useRef(0);
 
   const resetDemo = async () => {
     if (!window.confirm('Reset the demo? This clears every call, message, closure and divert, and returns all units to their stations. Citizen accounts stay.')) return;
@@ -24,6 +27,8 @@ export default function ControlRoomLog() {
       const res = await fetch('/api/monitoring/reset', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(typeof data.detail === 'string' ? data.detail : `HTTP ${res.status}`);
+      generation.current += 1;
+      setEntries([]);
       setResetState(`Reset: ${data.incidents_cleared} call(s) cleared.`);
     } catch (err) {
       setResetState(`Reset failed: ${err.message}`);
@@ -32,14 +37,20 @@ export default function ControlRoomLog() {
 
   useEffect(() => {
     let cancelled = false;
+    let inFlight = false;
     const load = async () => {
+      if (inFlight) return; // polls never overlap, so none lands out of order
+      inFlight = true;
+      const started = generation.current;
       try {
         const res = await fetch('/api/monitoring/log?limit=12', { signal: AbortSignal.timeout(5000) });
         if (!res.ok) return;
         const data = await res.json();
-        if (!cancelled) setEntries(data.decisions ?? []);
+        if (!cancelled && started === generation.current) setEntries(data.decisions ?? []);
       } catch {
         // keep the last list
+      } finally {
+        inFlight = false;
       }
     };
     load();

@@ -17,6 +17,12 @@ export default function useIncidentContacts(incidentId) {
         const res = await fetch(`/api/incidents/${encodeURIComponent(incidentId)}/contacts`, {
           signal: AbortSignal.timeout(5000),
         });
+        if ([401, 403, 404].includes(res.status)) {
+          // An authoritative "no" (signed out, no access, call gone): drop
+          // the old numbers. Other failures keep the last answer.
+          if (!cancelled) setState({ incidentId, contacts: null });
+          return;
+        }
         if (!res.ok) return;
         const data = await res.json();
         if (!cancelled) setState({ incidentId, contacts: data });

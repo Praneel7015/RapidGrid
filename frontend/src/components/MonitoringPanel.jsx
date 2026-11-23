@@ -30,11 +30,19 @@ const DECIDED = {
 const minutes = (s) => (Number.isFinite(s) ? `${(s / 60).toFixed(1)} min` : '--');
 
 async function post(url, body) {
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  let res;
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: body ? JSON.stringify(body) : undefined,
+      // A stalled request must not leave every control disabled.
+      signal: AbortSignal.timeout(20000),
+    });
+  } catch (err) {
+    throw new Error(err?.name === 'TimeoutError' || err?.name === 'AbortError'
+      ? 'The server did not answer in time; try again.' : 'Cannot reach the server; try again.');
+  }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(typeof data.detail === 'string' ? data.detail : `Request failed (HTTP ${res.status})`);
   return data;
