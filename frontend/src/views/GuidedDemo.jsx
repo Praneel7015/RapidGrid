@@ -17,12 +17,22 @@ const REPORT_TEXT = 'Demo: my father collapsed with severe chest pain and is bar
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function api(url, { method = 'GET', body } = {}) {
-  const res = await fetch(url, {
-    method,
-    headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
+async function api(url, { method = 'GET', body, timeoutMs = 20000 } = {}) {
+  let res;
+  try {
+    // Every request has a deadline, so a stalled one ends the step with an
+    // error the presenter can retry, instead of "Working…" forever.
+    res = await fetch(url, {
+      method,
+      headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  } catch (err) {
+    throw new Error(err?.name === 'TimeoutError' || err?.name === 'AbortError'
+      ? 'The server did not answer in time. Press "Next step" to retry this step.'
+      : 'Cannot reach the server. Press "Next step" to retry this step.');
+  }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     const detail = typeof data.detail === 'string' ? data.detail : `HTTP ${res.status}`;
@@ -140,8 +150,11 @@ const STEPS = [
       const alert = ctx.alert;
       const base = `/api/incidents/${encodeURIComponent(ctx.id)}/alerts/${encodeURIComponent(alert.alert_id)}`;
       if (alert.recommendation === 'dispatch_backup' && alert.backup) {
-        const sent = await api(`${base}/backup`, { method: 'POST' });
-        ctx.unit = sent.unit_id;
+        if (!ctx.backupUnit) { // a retry of a failed claim must not dispatch again
+          const sent = await api(`${base}/backup`, { method: 'POST' });
+          ctx.backupUnit = sent.unit_id;
+        }
+        ctx.unit = ctx.backupUnit;
         await api('/api/driver/claim', { method: 'POST', body: { incident_id: ctx.id, driver_id: ctx.unit } });
         return `The agent advised a backup: ${ctx.unit} is closer now. Dispatch sent it and released the first unit. The decision is in the control-room log and the incident channel.`;
       }
