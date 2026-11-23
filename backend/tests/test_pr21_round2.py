@@ -117,21 +117,38 @@ def test_startup_frees_a_unit_left_on_a_call_still_awaiting_approval(client, mon
         assert fleet.unit_for_incident("INC-review") is None
 
 
-def test_an_alert_for_a_unit_a_backup_replaced_is_not_published(client):
+def _backup_case():
     report = seed("dispatched")
     route = [{"lat": 13.0, "lng": 77.0}, {"lat": 13.035, "lng": 77.597}]
     report["citizen_view"]["phase1_route_coordinates"] = route
     first = fleet.assign("INC-review", "Ambulance", near=report["location"])["unit_id"]
     alert = {"alert_id": "B1", "status": "open", "leg": "to_scene", "unit_id": first,
              "destination": dict(route[-1]), "route_key": simulator.route_key(route), "explanation": "x"}
-    # Meanwhile dispatch sent a backup: another unit and its own route, same scene.
+    return report, route, first, alert
+
+
+def _published(report):
+    return [a["alert_id"] for a in (report.get("monitoring") or {}).get("alerts", [])]
+
+
+def test_an_alert_for_a_unit_a_backup_replaced_is_not_published(client):
+    report, route, _first, alert = _backup_case()
+    # Another unit holds the call now; the route and scene are unchanged.
     backup = next(u["unit_id"] for u in fleet.units() if u["type"] == "Ambulance" and u["status"] == "available")
     fleet.swap("INC-review", backup)
+    asyncio.run(simulator.store_alerts([("INC-review", alert)]))
+    assert _published(report) == []
+
+
+def test_an_alert_for_a_route_that_changed_is_not_published(client):
+    report, route, _first, alert = _backup_case()
+    # Same unit, a different route to the same scene.
     report["citizen_view"]["phase1_route_coordinates"] = [{"lat": 12.99, "lng": 77.6}, dict(route[-1])]
     asyncio.run(simulator.store_alerts([("INC-review", alert)]))
-    assert not (report.get("monitoring") or {}).get("alerts")
-    # The same alert for the unit and route on the call is published.
-    fleet.swap("INC-review", first)
-    report["citizen_view"]["phase1_route_coordinates"] = route
-    asyncio.run(simulator.store_alerts([("INC-review", dict(alert, alert_id="B2"))]))
-    assert report["monitoring"]["alerts"][0]["alert_id"] == "B2"
+    assert _published(report) == []
+
+
+def test_an_alert_for_the_unit_and_route_on_the_call_is_published(client):
+    report, _route, _first, alert = _backup_case()
+    asyncio.run(simulator.store_alerts([("INC-review", alert)]))
+    assert _published(report) == ["B1"]
