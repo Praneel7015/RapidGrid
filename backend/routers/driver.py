@@ -73,11 +73,22 @@ def _require_driver(incident: dict, driver_id: str, unit_type: str) -> None:
             if unit.get("incident_id") not in (None, "", incident["incident_id"]):
                 raise HTTPException(status_code=409, detail="This ambulance is on another call")
             # A backup claim is not in the fleet record: check the other calls.
-            for other in ACTIVE_INCIDENTS:
-                if other is incident or other.get("status") not in {"dispatched", "patient_picked_up"}:
-                    continue
-                if driver_id in {other.get("assigned_unit"), *_assignments(other).values()}:
-                    raise HTTPException(status_code=409, detail="This ambulance is on another call")
+            if driver_id in units_on_calls(except_incident=incident["incident_id"]):
+                raise HTTPException(status_code=409, detail="This ambulance is on another call")
+
+
+def units_on_calls(except_incident: str | None = None) -> set:
+    """Units holding any slot (dispatched, claimed or backup) on an active
+    call. The fleet record knows only the dispatched unit; a backup claim
+    lives on the incident, so allocation must check here too."""
+    held: set = set()
+    for other in ACTIVE_INCIDENTS:
+        if other.get("incident_id") == except_incident:
+            continue
+        if other.get("status") not in {"dispatched", "patient_picked_up"}:
+            continue
+        held.update(v for v in (other.get("assigned_unit"), *_assignments(other).values()) if v)
+    return held
 
 
 def _claim(incident: dict, driver_id: str, unit_type: str) -> None:
@@ -123,7 +134,8 @@ async def get_active_dispatches(request: Request = None):
             # ambulance slot is still open if it is a free ambulance (A01).
             import fleet
             me = fleet.get(who[1]) or {}
-            free_ambulance = me.get("type") == "Ambulance" and not me.get("incident_id")
+            free_ambulance = (me.get("type") == "Ambulance" and not me.get("incident_id")
+                              and who[1] not in units_on_calls())
             dispatches = [d for d in dispatches
                           if who[1] in {d.get("assigned_unit"), *d["unit_assignments"].values()}
                           or (free_ambulance and "ambulance" in required_units(d)

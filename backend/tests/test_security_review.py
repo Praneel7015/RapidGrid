@@ -248,3 +248,19 @@ def test_the_open_demo_lists_stay_open(monkeypatch):
     c = TestClient(app, base_url="http://testserver", headers=ORIGIN)
     for url in ("/api/incidents/", "/api/driver/active", "/api/hospital/incoming/all"):
         assert c.get(url).status_code == 200, url
+
+
+def test_an_ambulance_holding_a_backup_slot_is_not_dispatched_elsewhere(pins):
+    first, _a, _ = a_call(vehicle_required="Police Cruiser", unit="POL-01", include_ambulance_backup=True)
+    amb = signed_in("unit", "AMB-02", "333333")
+    assert amb.post("/api/driver/claim", json={"incident_id": first, "driver_id": "AMB-02",
+                                               "unit_type": "ambulance"}).status_code == 200
+    # A new medical call: the allocator must skip AMB-02 (it holds a slot).
+    second, stored, _ = a_call(unit=None)
+    stored["citizen_view"] = {}
+    incident_router._assign_unit(stored)
+    assert stored["assigned_unit"] != "AMB-02"
+    # And AMB-02 no longer sees other calls' open backup slots.
+    third, _c, _ = a_call(vehicle_required="Police Cruiser", unit=None, include_ambulance_backup=True)
+    seen = [d["incident_id"] for d in amb.get("/api/driver/active").json()["dispatches"]]
+    assert third not in seen and first in seen
