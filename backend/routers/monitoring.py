@@ -27,6 +27,7 @@ import fleet
 from agents import monitor, simulator
 from agents.city_state import city_state
 from agents.local_router import local_router
+from logsafe import log_safe
 from staff import require as require_staff
 
 logger = logging.getLogger(__name__)
@@ -151,7 +152,8 @@ async def dispatch_backup(incident_id: str, alert_id: str, request: Request = No
                 if released_before:  # where it was, not back at its station
                     fleet.put_back(released, released_before["position"])
             except Exception:
-                logger.exception("Could not hand %s back to %s after a failed save", incident_id, released)
+                logger.exception("Could not hand %s back to %s after a failed save",
+                                 log_safe(incident_id), log_safe(released))
             raise
     monitor.clear_alert(alert["unit_id"])
     text = (f"Dispatcher sent backup {backup['unit_id']} from {backup['station']}; "
