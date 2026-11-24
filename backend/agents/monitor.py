@@ -861,7 +861,12 @@ def tick(incidents: list[dict]) -> list[tuple[str, dict]]:
         if alert is None:
             continue
         watch.alert_id = alert["alert_id"]
-        watch.city_version = watch.alert_city_version = version
+        if trigger in ("blocked_ahead", "slowing_ahead"):
+            watch.city_version = watch.alert_city_version = version
+        else:
+            # A deviation did not look at the city: leave its state (and any
+            # retry of a lost closure alert) to be checked once this is handled.
+            watch.alert_city_version = watch.city_version
         _log(incident["incident_id"], unit["unit_id"], trigger, alert["explanation"],
              alert_id=alert["alert_id"], recommendation=alert["recommendation"])
         logger.info("Monitoring alert %s for %s: %s", alert["alert_id"], unit["unit_id"], trigger)

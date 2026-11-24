@@ -611,3 +611,28 @@ def test_a_lost_closure_alert_survives_another_alert_in_between(city):
     monitor.clear_alert("AMB-01")  # dispatch dismisses that other alert
     again = monitor.tick([incident])
     assert len(again) == 1 and again[0][1]["trigger"] == "blocked_ahead"
+
+
+def test_a_wrong_turn_alert_does_not_hide_a_lost_closure_alert(city):
+    incident = call_to((12.985, 77.594), ASTER_HUB)
+    drive(incident)
+    unit = fleet.unit_for_incident("INC-mon")
+    route = incident["citizen_view"]["phase1_route_coordinates"]
+    _off, index = monitor.project(route, unit["position"])
+    city_state.close_road(monitoring.edges_to_close(route, index, unit["position"]), "closure")
+    lost = monitor.tick([incident])[0][1]
+    # Meanwhile the unit takes a wrong turn: three fresh fixes 1 km off route
+    # (counted while the alert is still open).
+    here = fleet.get("AMB-01")["position"]
+    import time as _time
+    for i in range(monitor.OFF_ROUTE_FIXES):
+        fleet.record_position("AMB-01", here["lat"] + 0.009, here["lng"], source="simulated",
+                              at=_time.time() + 10 * (i + 1))
+        assert monitor.tick([incident]) == []
+    monitor.forget_unstored("AMB-01", lost)  # the closure alert's save had failed
+    deviation = monitor.tick([incident])
+    assert deviation and deviation[0][1]["trigger"] == "deviation"
+    monitor.clear_alert("AMB-01")  # dispatch handles the wrong turn
+    fleet.record_position("AMB-01", here["lat"], here["lng"], source="simulated", at=_time.time() + 100)
+    again = monitor.tick([incident])
+    assert len(again) == 1 and again[0][1]["trigger"] == "blocked_ahead"
