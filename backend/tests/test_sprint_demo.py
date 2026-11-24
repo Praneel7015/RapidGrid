@@ -5,6 +5,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import fleet
@@ -432,3 +434,16 @@ def test_live_status_after_a_reroute_uses_the_new_route(city):
     import json
     json.dumps(live, allow_nan=False)  # no infinity in the response
     assert live["off_route_m"] < 5 and live["progress"] < 0.05
+
+
+@pytest.mark.parametrize("text", ["Call 98-76-5432 10", "Call 45.67.8901 23", "Call 12.05.2026 25:61",
+                                  "Call 1.2.345 12.34.56"])
+def test_a_phone_number_shaped_like_a_date_is_still_masked(text):
+    from routers import incident as incident_router
+    assert "[number hidden]" in incident_router._mask_numbers(text), text
+
+
+def test_real_dates_and_times_stay_readable():
+    from routers import incident as incident_router
+    for text in ("Since 12.05.2026 10:30", "On 05/12/2026", "At 31-12-2025 23.59.59", "At 2026-05-12 10:30"):
+        assert incident_router._mask_numbers(text) == text, text

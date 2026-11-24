@@ -137,6 +137,10 @@ def _ensure() -> None:
         # Load and reconcile under one hold of the (re-entrant) lock, so no
         # unit is handed out between them and then freed by the reconcile.
         with _lock:
+            # Re-check under the lock: another thread may have recovered
+            # (and reconciled) while this one waited; never repeat that.
+            if _loaded or _load_failed_at is None or time.monotonic() - _load_failed_at < RELOAD_EVERY_S:
+                return
             load(attempts=1)
             if _loaded and active_calls is not None:
                 try:
