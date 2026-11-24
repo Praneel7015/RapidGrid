@@ -18,6 +18,8 @@ import { Button, Panel, PanelHead, Provenance } from './ui';
 const TRIGGER = {
   deviation: 'Left the planned route',
   blocked_ahead: 'Route blocked ahead',
+  destination_divert: 'Destination on divert',
+  slowing_ahead: 'Slowed on its route',
 };
 
 const DECIDED = {
@@ -173,7 +175,9 @@ export default function MonitoringPanel({ incident, onChanged, live = null, simS
                   }
                 >
                   <span className="inline-flex items-center gap-1.5">
-                    <Route size={13} /> {i === 0 ? 'Accept recommended route' : `Use ${r.label.toLowerCase()}`}
+                    <Route size={13} /> {i === 0
+                    ? (open.new_destination ? `Go to ${open.new_destination.name}` : 'Accept recommended route')
+                    : `Use ${r.label.toLowerCase()}`}
                   </span>
                   <span className="font-mono">{minutes(r.eta_s)}</span>
                 </Button>

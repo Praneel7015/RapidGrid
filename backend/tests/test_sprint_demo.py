@@ -437,7 +437,7 @@ def test_live_status_after_a_reroute_uses_the_new_route(city):
 
 
 @pytest.mark.parametrize("text", ["Call 98-76-5432 10", "Call 45.67.8901 23", "Call 12.05.2026 25:61",
-                                  "Call 1.2.345 12.34.56"])
+                                  "Call 1.2.345 12.34.56", "Call 12.05.2026 10:99"])
 def test_a_phone_number_shaped_like_a_date_is_still_masked(text):
     from routers import incident as incident_router
     assert "[number hidden]" in incident_router._mask_numbers(text), text
@@ -465,3 +465,121 @@ def test_only_one_disruption_is_staged_at_a_time(city, monkeypatch):
     simulator._detours["AMB-01"] = ("k", [], 0.0)
     r = client.post("/api/monitoring/demo/INC-mon", json={"action": "wrong_turn"})
     assert r.status_code == 409 and "wrong turn" in r.json()["detail"]
+
+
+def test_a_destination_that_goes_on_divert_during_transport_is_flagged_and_switched(city, monkeypatch):
+    from fastapi.testclient import TestClient
+    from main import app
+    from agents.hospital_intelligence import hospital_agent
+
+    monkeypatch.setenv("RAPIDGRID_MODE", "demo")
+    scene = (13.0358, 77.597)
+    first = {"hospital_id": "blr-007", "name": "Aster CMI Hospital (Hebbal)", "location": {"lat": 13.0473, "lng": 77.5908}}
+    second = {"hospital_id": "blr-001", "name": "Next Open Hospital", "location": {"lat": 13.02, "lng": 77.59}}
+    leg = local_router.find_path(scene, (first["location"]["lat"], first["location"]["lng"]))
+    incident = call_to(scene, ASTER_HUB)
+    incident.update(status="patient_picked_up", approved_hospital_id="blr-007",
+                    action_plan={"all_hospitals": [first, second]})
+    incident["citizen_view"].update(route_coordinates=leg["coordinates"], eta_minutes=6,
+                                    hospital_name=first["name"], hospital_location=first["location"])
+    fleet.record_position("AMB-01", scene[0], scene[1], source="simulated")
+    assert monitor.tick([incident]) == []
+    previous = set(hospital_agent._on_divert)
+    hospital_agent.set_divert("blr-007", on_divert=True)
+    try:
+        alerts = monitor.tick([incident])
+        assert len(alerts) == 1
+        alert = alerts[0][1]
+        assert alert["trigger"] == "destination_divert" and alert["cause"]["kind"] == "divert"
+        assert alert["new_destination"]["name"] == "Next Open Hospital" and alert["routes"]
+        assert "went on divert" in alert["explanation"] and "patient is on board" in alert["explanation"]
+        assert monitor.tick([incident]) == []  # raised once
+        incident.setdefault("monitoring", {"alerts": []})["alerts"].insert(0, alert)
+        r = TestClient(app).post(f"/api/incidents/INC-mon/alerts/{alert['alert_id']}/accept", json={"route_index": 0})
+        assert r.status_code == 200, r.text
+        assert incident["citizen_view"]["hospital_name"] == "Next Open Hospital"
+        assert incident["approved_hospital_id"] == "blr-001"
+        assert "to Next Open Hospital" in monitor.decision_log[0]["text"]
+    finally:
+        hospital_agent._on_divert.clear()
+        hospital_agent._on_divert.update(previous)
+
+
+def test_rush_hour_in_the_rain_alone_raises_a_slowing_alert(city):
+    incident = call_to((12.985, 77.594), ASTER_HUB)  # planned at 03:00, clear
+    drive(incident, 2)
+    assert monitor.tick([incident]) == []
+    city_state.set_hour(18)
+    city_state.set_weather("Rain")
+    alerts = monitor.tick([incident])
+    assert len(alerts) == 1, "the evening rush in the rain raised no alert"
+    alert = alerts[0][1]
+    assert alert["trigger"] == "slowing_ahead"
+    assert alert["delay_s"] >= monitor.SLOWING_MIN_S
+    assert alert["cause"]["kind"] in {"congestion", "weather"}
+    assert alert["cause"]["text"] == "city-wide slowdown: evening rush hour (18:00, 71% of peak) and rain (x1.35 travel time)"
+    assert "left the planned route" not in alert["explanation"]
+    assert "is being slowed on its route" in alert["explanation"]
+    assert monitor.tick([incident]) == []  # once, not every tick
+
+
+def test_a_plan_slower_than_the_map_at_dispatch_raises_no_slowing_alert(city):
+    # A plan whose ETA came from elsewhere (say, Google) and is much shorter
+    # than the offline map's: no city change, so no "slowed" alert.
+    incident = call_to((12.985, 77.594), ASTER_HUB)
+    incident["citizen_view"]["phase1_eta_minutes"] = 2
+    drive(incident, 2)
+    assert monitor.tick([incident]) == []
+
+
+
+def test_a_plan_eta_from_another_source_never_raises_a_slowing_alert(city):
+    # The plan says 2 min (a provider's ETA); the map says much more. A city
+    # change elsewhere must not turn that disagreement into "slowed".
+    incident = call_to((12.985, 77.594), ASTER_HUB)
+    incident["citizen_view"]["phase1_eta_minutes"] = 2
+    drive(incident, 2)
+    assert monitor.tick([incident]) == []
+    city_state.close_road([1], "far away")  # an unrelated change anywhere in the city
+    assert monitor.tick([incident]) == []
+
+
+def test_a_dismissed_slowdown_alerts_again_only_if_it_gets_worse(city, monkeypatch):
+    from fastapi.testclient import TestClient
+    from main import app
+
+    monkeypatch.setenv("RAPIDGRID_MODE", "demo")
+    incident = call_to((12.985, 77.594), ASTER_HUB)
+    drive(incident, 2)
+    assert monitor.tick([incident]) == []
+    city_state.set_hour(18)
+    city_state.set_weather("Rain")
+    alert = monitor.tick([incident])[0][1]
+    incident.setdefault("monitoring", {"alerts": []})["alerts"].insert(0, alert)
+    assert TestClient(app).post(f"/api/incidents/INC-mon/alerts/{alert['alert_id']}/dismiss").status_code == 200
+    monitor.tick([incident])  # re-measures from today's conditions
+    city_state.close_road([1], "unrelated")  # an unrelated change, no further slowdown
+    assert monitor.tick([incident]) == []
+
+
+def test_a_divert_alert_that_was_not_stored_is_raised_again(city):
+    from agents.hospital_intelligence import hospital_agent
+
+    first = {"hospital_id": "blr-007", "name": "Aster CMI Hospital (Hebbal)", "location": {"lat": 13.0473, "lng": 77.5908}}
+    second = {"hospital_id": "blr-001", "name": "Next Open Hospital", "location": {"lat": 13.02, "lng": 77.59}}
+    scene = (13.0358, 77.597)
+    leg = local_router.find_path(scene, (first["location"]["lat"], first["location"]["lng"]))
+    incident = call_to(scene, ASTER_HUB)
+    incident.update(status="patient_picked_up", approved_hospital_id="blr-007", action_plan={"all_hospitals": [first, second]})
+    incident["citizen_view"].update(route_coordinates=leg["coordinates"], eta_minutes=6,
+                                    hospital_name=first["name"], hospital_location=first["location"])
+    previous = set(hospital_agent._on_divert)
+    hospital_agent.set_divert("blr-007", on_divert=True)
+    try:
+        lost = monitor.tick([incident])[0][1]
+        monitor.forget_unstored("AMB-01", lost)  # as store_alerts does when it drops one
+        again = monitor.tick([incident])
+        assert len(again) == 1 and again[0][1]["trigger"] == "destination_divert"
+    finally:
+        hospital_agent._on_divert.clear()
+        hospital_agent._on_divert.update(previous)

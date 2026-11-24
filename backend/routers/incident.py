@@ -333,7 +333,17 @@ def _keep(match: str) -> bool:
 def _mask_numbers(text):
     if not isinstance(text, str):
         return text
-    return _PHONE_IN_TEXT.sub(lambda m: m.group(0) if _keep(m.group(0)) else "[number hidden]", text)
+    def replace(m):
+        if not _keep(m.group(0)):
+            return "[number hidden]"
+        # The phone pattern stops at ":", so a colon time's minutes fall
+        # just outside the match: check them with the same bound.
+        after = re.match(r":(\d{2})", m.string[m.end():])
+        if after and int(after.group(1)) > 59:
+            return "[number hidden]"
+        return m.group(0)
+
+    return _PHONE_IN_TEXT.sub(replace, text)
 
 
 def _article(word: str) -> str:

@@ -68,6 +68,8 @@ ALT_PENALTY = 1.8
 ALT_MAX_OVERLAP = 0.7
 LOG_SIZE = 200
 DISMISS_QUIET_S = 60.0
+SLOWING_MIN_S = 180.0         # a slowdown worth an alert: at least 3 min ...
+SLOWING_MIN_FRACTION = 0.2    # ... and 20% over the planned time left
 DISMISS_FURTHER_M = 500.0
 
 
@@ -190,6 +192,12 @@ class Watch:
     # unit is back on route, is much further off, or this time has passed.
     quiet_until: float = 0.0
     quiet_off_m: float = 0.0
+    divert_alerted: Optional[str] = None  # the diverted destination already raised
+    # The agent's own best road time to the destination when it first looked
+    # at this route, and the route distance left then: "slowed" means slower
+    # than this, never slower than an ETA from another source.
+    baseline_s: Optional[float] = None
+    baseline_left_m: float = 0.0
 
 
 _watches: dict[str, Watch] = {}
@@ -352,8 +360,23 @@ def find_cause(remaining: list[dict], position: dict, trigger: str) -> dict:
         why = _CAUSE_WORDS.get(dominant["cause"], dominant["cause"]) if dominant else "congestion"
         return {"kind": "congestion", "road": readable_road(worst["road"]), "likely": trigger == "deviation",
                 "text": f"heavy congestion on {readable_road(worst['road'])} (x{worst['multiplier']:.2f}, from {why})"}
+    if trigger == "slowing_ahead" and city_state.ready:
+        # No single road stands out: the slowdown is city-wide (time of day,
+        # weather), so name those, with their modelled factors.
+        snap = city_state.snapshot()
+        parts = []
+        peak = snap.get("peak_factor") or 0.0  # 0 quietest hour .. 1 full peak
+        if peak > 0.1:
+            when = "morning" if snap.get("hour", 0) < 12 else "evening"
+            parts.append(f"{when} rush hour ({snap.get('hour', 0):02d}:00, {peak:.0%} of peak)")
+        if (snap.get("weather_multiplier") or 1.0) > 1.0:
+            parts.append(f"{str(snap.get('weather', 'bad weather')).lower()} (x{snap['weather_multiplier']:.2f} travel time)")
+        if parts:
+            kind = "weather" if len(parts) == 1 and "travel time" in parts[0] else "congestion"
+            return {"kind": kind, "road": None, "likely": False, "text": "city-wide slowdown: " + " and ".join(parts)}
     return {"kind": "unexplained", "road": None, "likely": False,
-            "text": "the unit left the planned route; no closure, accident or congestion found nearby"}
+            "text": ("the unit left the planned route; no closure, accident or congestion found nearby"
+                     if trigger == "deviation" else "slower than planned; no closure, accident or congestion found")}
 
 
 def _route_summary(path: dict, label: str) -> dict:
@@ -442,10 +465,11 @@ def _trace(unit, off_m, trigger, cause, planned_s, new_eta, delay, routes, backu
     source = {"gps": "live GPS", "simulated": "simulated position"}.get(pos.get("source"), "station")
     steps = [
         {"step": "Observe", "text": f"{unit['unit_id']}: {source}, {off_m:.0f} m from its planned route."},
-        {"step": "Detect", "text": (
-            f"{OFF_ROUTE_FIXES} position fixes in a row more than {OFF_ROUTE_M:.0f} m off the route."
-            if trigger == "deviation" else
-            f"A closure or accident within {NEAR_ROUTE_M:.0f} m of the route ahead.")},
+        {"step": "Detect", "text": {
+            "deviation": f"{OFF_ROUTE_FIXES} position fixes in a row more than {OFF_ROUTE_M:.0f} m off the route.",
+            "slowing_ahead": (f"The best time to the destination now is more than {SLOWING_MIN_S / 60:.0f} min "
+                              f"and {SLOWING_MIN_FRACTION:.0%} over the plan (traffic or weather)."),
+        }.get(trigger, f"A closure or accident within {NEAR_ROUTE_M:.0f} m of the route ahead.")},
         {"step": "Explain", "text": f"Cause: {cause['text']}" + (" (likely, not certain)." if cause.get("likely") else "."),
          "ms": round(cause_ms)},
         {"step": "Predict", "text": (
@@ -566,8 +590,9 @@ def analyse(incident: dict, unit: dict, leg: str, route: list[dict], eta_s: Opti
     green = hop_corridor if hop_corridor is not None else (corridor(routes[0]) if routes else [])
 
     where = "to the scene" if leg == "to_scene" else "to the hospital"
-    first = (f"{unit['unit_id']} left its planned route" if trigger == "deviation"
-             else f"{unit['unit_id']}'s planned route is blocked ahead")
+    first = {"deviation": f"{unit['unit_id']} left its planned route",
+             "slowing_ahead": f"{unit['unit_id']} is being slowed on its route"}.get(
+        trigger, f"{unit['unit_id']}'s planned route is blocked ahead")
     lines = [
         f"{first} on the way {where}.",
         f"Cause: {cause['text']}.",
@@ -626,6 +651,99 @@ def analyse(incident: dict, unit: dict, leg: str, route: list[dict], eta_s: Opti
     }
 
 
+def _slowed(watch, route: list[dict], point: dict, seg: int, here: dict) -> bool:
+    """Is the best road time now much longer than this agent's own baseline
+    for the same route (scaled by the distance left)? Comparing against the
+    plan's ETA instead would raise false alerts whenever that ETA came from
+    another source (a provider, rounded minutes)."""
+    if not watch.baseline_s or watch.baseline_left_m <= 0:
+        return False
+    expected = watch.baseline_s * polyline_length([here] + route[seg + 1:]) / watch.baseline_left_m
+    best = local_router.find_path((point["lat"], point["lng"]), (route[-1]["lat"], route[-1]["lng"]))
+    if not best or expected <= 0:
+        return False
+    over = best["travel_time_s"] - expected
+    return over >= SLOWING_MIN_S and over / expected >= SLOWING_MIN_FRACTION
+
+
+def _destination_diverted(incident: dict) -> Optional[str]:
+    """The diverted destination's key, if the hospital this call is heading
+    to has stopped accepting; else None."""
+    from agents.hospital_intelligence import hospital_agent
+    from routers.hospital import _resolve
+
+    assigned = incident.get("approved_hospital_id")
+    key = _resolve(str(assigned)) if assigned else None
+    if key is None:
+        name = (incident.get("citizen_view") or {}).get("hospital_name")
+        key = _resolve(name) if name else None
+    return key if key is not None and key in hospital_agent.diverted else None
+
+
+def analyse_divert(incident: dict, unit: dict, route: list[dict], eta_s: Optional[float],
+                   progress: int) -> Optional[dict]:
+    """The destination went on divert during transport: propose the next
+    open hospital the crew was shown (pickup ranking, else the plan), with
+    a route from where the unit is."""
+    from agents.hospital_intelligence import hospital_agent
+    from routers.hospital import _resolve
+
+    started = time.perf_counter()
+    position = {"lat": unit["position"]["lat"], "lng": unit["position"]["lng"]}
+    current = (incident.get("citizen_view") or {}).get("hospital_name") or "the destination"
+    ranked = ((incident.get("pickup_ranking") or {}).get("hospitals")
+              or (incident.get("action_plan") or {}).get("all_hospitals") or [])
+    target, routes = None, []
+    for h in ranked:
+        key = _resolve(str(h.get("hospital_id", ""))) or _resolve(h.get("name") or "") or h.get("hospital_id")
+        if not h.get("location") or h.get("name") == current or key in hospital_agent.diverted:
+            continue
+        routes = alternatives(position, dict(h["location"]))
+        if routes:
+            target = {"hospital_id": key, "name": h["name"], "location": dict(h["location"])}
+            routes = [dict(r, label="Recommended" if i == 0 else r["label"]) for i, r in enumerate(routes)]
+            break
+    seg, on_plan = projection(route, position, max(0, progress - 2))
+    total = polyline_length(route) or 1.0
+    planned_remaining = eta_s * polyline_length([on_plan] + route[seg + 1:]) / total if eta_s else None
+    new_eta = routes[0]["eta_s"] if routes else None
+    delay = new_eta - planned_remaining if (new_eta is not None and planned_remaining is not None) else None
+    cause = {"kind": "divert", "road": None, "likely": False, "text": f"{current} went on divert"}
+    lines = [f"{unit['unit_id']}'s destination, {current}, has stopped accepting patients (divert).",
+             f"Cause: {cause['text']}."]
+    if target:
+        lines.append(f"Recommended: go to {target['name']} instead, the next open hospital the crew was "
+                     f"shown; arrival in {_minutes(new_eta)}."
+                     + (f" ({'+' if delay >= 0 else ''}{delay / 60:.1f} min against the plan.)" if delay is not None else ""))
+        lines.append(f"Backup: not useful; the patient is on board. Keep {unit['unit_id']} and change its destination.")
+    else:
+        lines.append("No other open hospital with a road route was found: call the receiving hospital and dispatch.")
+    total_ms = (time.perf_counter() - started) * 1000
+    green = corridor(routes[0]) if routes else []
+    return {
+        "alert_id": uuid.uuid4().hex[:12], "at": time.time(), "status": "open",
+        "unit_id": unit["unit_id"], "leg": "to_hospital",
+        "destination": {"lat": route[-1]["lat"], "lng": route[-1]["lng"]},
+        "route_key": _route_key(route), "trigger": "destination_divert", "position": position,
+        "cause": cause, "planned_remaining_s": planned_remaining, "new_eta_s": new_eta, "delay_s": delay,
+        "routes": [{k: v for k, v in r.items() if k not in ("edge_ids", "_from")} for r in routes],
+        "backup": None, "recommendation": "reroute" if routes else "hold", "corridor": green,
+        "new_destination": target,
+        "explanation": " ".join(lines),
+        "trace": [
+            {"step": "Observe", "text": f"{unit['unit_id']} is taking the patient to {current}."},
+            {"step": "Detect", "text": f"{current} is now on divert (not accepting)."},
+            {"step": "Explain", "text": f"Cause: {cause['text']}."},
+            {"step": "Predict", "text": f"Planned time left {_minutes(planned_remaining)}; to the next hospital {_minutes(new_eta)}."},
+            {"step": "Options", "text": (f"{target['name']}: " + "; ".join(f"{r['label']} {_minutes(r['eta_s'])}" for r in routes))
+             if target else "No open reviewed hospital reachable by road."},
+            {"step": "Advise", "text": f"Change the destination to {target['name']}." if target else "Hold and call the hospital."},
+            {"step": "Total", "text": f"Worked out in {total_ms / 1000:.2f} s.", "ms": round(total_ms)},
+        ],
+        "provenance": "modelled",
+    }
+
+
 # --- the loop ---------------------------------------------------------------------
 
 def tick(incidents: list[dict]) -> list[tuple[str, dict]]:
@@ -664,7 +782,9 @@ def tick(incidents: list[dict]) -> list[tuple[str, dict]]:
             # was routed around must not raise the same alert again. A new
             # leg, or a city change after this, is checked afresh.
             watch.city_version = () if new_leg else handled
+            watch.baseline_s = None  # a new route: measure it afresh
             if new_leg:
+                watch.divert_alerted = None
                 # Only a new call or leg decides whether a phone unit is
                 # watched for deviations; a reroute of the same leg keeps it.
                 pos = unit["position"]
@@ -687,6 +807,30 @@ def tick(incidents: list[dict]) -> list[tuple[str, dict]]:
             # that sent one bad fix and then went quiet).
             watch.off_count += 1
 
+        if watch.baseline_s is None:
+            seg0, here0 = projection(route, point, watch.progress)
+            best0 = local_router.find_path((point["lat"], point["lng"]), (route[-1]["lat"], route[-1]["lng"]))
+            watch.baseline_s = best0["travel_time_s"] if best0 else 0.0
+            watch.baseline_left_m = polyline_length([here0] + route[seg0 + 1:])
+
+        # A diverted destination comes first, even over an open alert on the
+        # way there (that one would route to a hospital that is not taking
+        # patients); storing it supersedes the older alert.
+        if leg == "to_hospital":
+            diverted = _destination_diverted(incident)
+            if diverted is None:
+                watch.divert_alerted = None  # off divert: a later divert counts again
+            elif watch.divert_alerted != diverted:
+                watch.divert_alerted = diverted
+                alert = analyse_divert(incident, unit, route, eta_s, watch.progress)
+                if alert is not None:
+                    watch.alert_id = alert["alert_id"]
+                    watch.alert_city_version = watch.city_version
+                    _log(incident["incident_id"], unit["unit_id"], "destination_divert", alert["explanation"],
+                         alert_id=alert["alert_id"], recommendation=alert["recommendation"])
+                    new_alerts.append((incident["incident_id"], alert))
+                    continue
+
         if watch.alert_id is not None:
             # One open alert per unit. The city state is not marked as seen
             # meanwhile, so a new closure is still checked once it is handled.
@@ -696,6 +840,10 @@ def tick(incidents: list[dict]) -> list[tuple[str, dict]]:
         if watch.off_count >= OFF_ROUTE_FIXES and not quiet:
             trigger = "deviation"
         elif watch.city_version != version:
+            # A change to the city after this leg was planned (not the first
+            # look at a new leg): only then can "slower than planned" mean
+            # something, rather than two ETA sources disagreeing.
+            city_changed = watch.city_version != ()
             watch.city_version = version
             # From where the unit is on its route, not the vertex behind it:
             # a crossing it has already passed must not count as "ahead".
@@ -703,6 +851,10 @@ def tick(incidents: list[dict]) -> list[tuple[str, dict]]:
             ahead = _disruptions_near([here] + route[seg + 1:], NEAR_ROUTE_M)
             if ahead["closed"] or ahead["incident"]:
                 trigger = "blocked_ahead"
+            elif city_changed and _slowed(watch, route, point, seg, here):
+                # No closure or accident, but rush hour or weather has made
+                # even the best road time much longer than planned.
+                trigger = "slowing_ahead"
         if trigger is None:
             continue
         alert = analyse(incident, unit, leg, route, eta_s, watch.progress, trigger)
@@ -717,7 +869,20 @@ def tick(incidents: list[dict]) -> list[tuple[str, dict]]:
     return new_alerts
 
 
-def clear_alert(unit_id: str, dismissed_deviation: bool = False) -> None:
+def forget_unstored(unit_id: str, alert: dict) -> None:
+    """An alert the monitor raised was not stored (stale, or its save
+    failed): watch the unit again, and let a lost divert alert be raised
+    again rather than never."""
+    watch = _watches.get(unit_id)
+    if watch is None:
+        return
+    if watch.alert_id == alert.get("alert_id"):
+        watch.alert_id = None
+    if alert.get("trigger") == "destination_divert":
+        watch.divert_alerted = None
+
+
+def clear_alert(unit_id: str, dismissed_deviation: bool = False, rebaseline: bool = False) -> None:
     """The dispatcher acted on (or dismissed) the unit's alert; watch again.
 
     dismissed_deviation: dispatch saw the unit off its route and chose to
@@ -727,6 +892,10 @@ def clear_alert(unit_id: str, dismissed_deviation: bool = False) -> None:
     if watch and dismissed_deviation:
         watch.quiet_until = time.time() + DISMISS_QUIET_S
         watch.quiet_off_m = _last_off.get(unit_id, 0.0)
+    if watch and rebaseline:
+        # Dispatch saw the slowdown and kept the plan: measure from today's
+        # conditions, so only a further slowdown alerts again.
+        watch.baseline_s = None
     if watch:
         watch.alert_id = None
         watch.off_count = 0

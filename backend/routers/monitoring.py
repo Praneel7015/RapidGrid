@@ -95,6 +95,25 @@ async def accept_reroute(incident_id: str, alert_id: str, choice: AcceptRoute, r
         if choice.route_index >= len(alert["routes"]):
             raise HTTPException(status_code=422, detail="No such route")
         route = alert["routes"][choice.route_index]
+        new_destination = alert.get("new_destination")
+        if new_destination:
+            # A divert alert: the route leads to another hospital, so the
+            # destination changes with it (and must still be open).
+            from agents.hospital_intelligence import hospital_agent
+            if new_destination.get("hospital_id") in hospital_agent.diverted:
+                raise HTTPException(status_code=409, detail=f"{new_destination['name']} has gone on divert too; refresh")
+            view = inc.setdefault("citizen_view", {})
+            view.update({"hospital_name": new_destination["name"],
+                         "hospital_location": dict(new_destination["location"]),
+                         "message": f"Destination changed to {new_destination['name']}: the planned hospital went on divert."})
+            inc.update({"hospital_name": new_destination["name"],
+                        "approved_hospital_id": new_destination.get("hospital_id")})
+            ranking = inc.get("pickup_ranking")
+            if ranking:  # the crew's list marks the new hospital as current
+                from routers.driver import _is_current, _summarise
+                for h in ranking.get("hospitals", []):
+                    h["current"] = _is_current(h, new_destination.get("hospital_id"), new_destination["name"])
+                _summarise(ranking)
         _set_leg(inc, alert["leg"], route)
         alert.update(status="rerouted", decided_at=time.time(), decided_by=who[1], route_index=choice.route_index)
         await incident_router.commit(inc)
@@ -102,6 +121,8 @@ async def accept_reroute(incident_id: str, alert_id: str, choice: AcceptRoute, r
     label = route["label"]
     named = "the recommended route" if label == "Recommended" else \
         (f"alternative route {label.split()[-1]}" if label.startswith("Alternative") else label.lower())
+    if alert.get("new_destination"):
+        named += f" to {alert['new_destination']['name']}"
     text = (f"Dispatcher accepted {named} for {alert['unit_id']}; "
             f"new ETA {route['eta_s'] / 60:.1f} min.")
     monitor._log(incident_id, alert["unit_id"], "decision", text, alert_id=alert_id)
@@ -201,7 +222,8 @@ async def dismiss_alert(incident_id: str, alert_id: str, request: Request = None
         inc, alert = await _with_alert(incident_id, alert_id)
         alert.update(status="dismissed", decided_at=time.time(), decided_by=who[1])
         await incident_router.commit(inc)
-    monitor.clear_alert(alert["unit_id"], dismissed_deviation=alert.get("trigger") == "deviation")
+    monitor.clear_alert(alert["unit_id"], dismissed_deviation=alert.get("trigger") == "deviation",
+                        rebaseline=alert.get("trigger") == "slowing_ahead")
     monitor._log(incident_id, alert["unit_id"], "decision", "Dispatcher dismissed the alert.", alert_id=alert_id)
     return {"status": "dismissed"}
 
