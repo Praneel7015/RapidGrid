@@ -447,3 +447,21 @@ def test_real_dates_and_times_stay_readable():
     from routers import incident as incident_router
     for text in ("Since 12.05.2026 10:30", "On 05/12/2026", "At 31-12-2025 23.59.59", "At 2026-05-12 10:30"):
         assert incident_router._mask_numbers(text) == text, text
+
+
+def test_only_one_disruption_is_staged_at_a_time(city, monkeypatch):
+    from fastapi.testclient import TestClient
+    from main import app
+    from agents import simulator
+
+    monkeypatch.setenv("RAPIDGRID_MODE", "demo")
+    incident = call_to((12.985, 77.594), ASTER_HUB)
+    drive(incident, 2)
+    client = TestClient(app)
+    incident["monitoring"] = {"alerts": [{"alert_id": "O1", "status": "open", "leg": "to_scene", "unit_id": "AMB-01"}]}
+    r = client.post("/api/monitoring/demo/INC-mon", json={"action": "close_road_ahead"})
+    assert r.status_code == 409 and "open alert" in r.json()["detail"]
+    incident["monitoring"]["alerts"][0]["status"] = "dismissed"
+    simulator._detours["AMB-01"] = ("k", [], 0.0)
+    r = client.post("/api/monitoring/demo/INC-mon", json={"action": "wrong_turn"})
+    assert r.status_code == 409 and "wrong turn" in r.json()["detail"]
