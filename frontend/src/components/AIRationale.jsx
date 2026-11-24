@@ -63,6 +63,9 @@ function TradeOff({ winner, runnerUp }) {
     w[b].weighted_score - r[b].weighted_score > w[a].weighted_score - r[a].weighted_score ? b : a,
   );
 
+  // Equal to the precision shown: do not claim one "wins" on a factor.
+  const tied = Math.abs(Number(winner.score) - Number(runnerUp.score)) < 0.0005;
+
   const etaDelta =
     winner.road_eta_seconds && runnerUp.road_eta_seconds
       ? (runnerUp.road_eta_seconds - winner.road_eta_seconds) / 60
@@ -116,6 +119,14 @@ function TradeOff({ winner, runnerUp }) {
         <Column entry={wEntry} chosen factor={gained} otherFactor={conceded} />
         <Column entry={rEntry} factor={gained} otherFactor={conceded} />
       </div>
+      {tied ? (
+        <p data-testid="hospital-tie" className="mt-2.5 text-[12px] leading-relaxed text-text-muted">
+          <span className="font-semibold text-text">{winner.name}</span> and{' '}
+          <span className="font-semibold text-text">{runnerUp.name}</span> score the same
+          ({Number(winner.score).toFixed(3)} and {Number(runnerUp.score).toFixed(3)}): either is a sound choice.
+          The first is listed first only by ranking order; dispatch can pick the other below.
+        </p>
+      ) : (
       <p className="mt-2.5 text-[12px] leading-relaxed text-text-muted">
         <span className="font-semibold text-text">{runnerUp.name}</span> is stronger on{' '}
         <span className="font-semibold text-text">{conceded.toLowerCase()}</span>, but{' '}
@@ -132,6 +143,7 @@ function TradeOff({ winner, runnerUp }) {
         )}
         .
       </p>
+      )}
     </section>
   );
 }

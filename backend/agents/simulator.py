@@ -104,6 +104,10 @@ def leg_key(incident: dict) -> Optional[str]:
     return f"{incident['incident_id']}:{key}:{route_key(route)}" if key and len(route) >= 2 else None
 
 
+def has_detour(unit_id: str) -> bool:
+    return unit_id in _detours
+
+
 def set_detour(unit_id: str, incident: dict, detour: list[dict]) -> None:
     key = leg_key(incident)
     if key and len(detour) >= 2:

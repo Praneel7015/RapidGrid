@@ -247,7 +247,8 @@ export default function MonitoringPanel({ incident, onChanged, live = null, simS
                   key={action}
                   variant="quiet"
                   size="sm"
-                  disabled={Boolean(busy)}
+                  disabled={Boolean(busy) || Boolean(open)}
+                  title={open ? 'Handle the open alert first' : undefined}
                   onClick={() =>
                     act(action, `/api/monitoring/demo/${encodeURIComponent(incident.incident_id)}`, { action },
                       (d) => (d.road ? `${label}: ${d.road}.` : `${label}: staged.`))

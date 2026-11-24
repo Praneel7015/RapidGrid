@@ -301,6 +301,12 @@ async def stage_disruption(incident_id: str, demo: DemoAction, request: Request 
     leg, route, _eta = monitor._leg(snapshot)
     if unit is None or leg is None or len(route) < 2:
         raise HTTPException(status_code=409, detail="No unit is driving on this call")
+    # One disruption at a time: stacking them before dispatch has acted
+    # gives chained alerts that no audience can follow.
+    if any(a.get("status") == "open" for a in (snapshot.get("monitoring") or {}).get("alerts", [])):
+        raise HTTPException(status_code=409, detail="Handle the open alert first")
+    if simulator.has_detour(unit["unit_id"]):
+        raise HTTPException(status_code=409, detail="The unit is already off its route (a wrong turn is in progress)")
     if not city_state.ready:
         city_state.attach(local_router)
     position = unit["position"]
