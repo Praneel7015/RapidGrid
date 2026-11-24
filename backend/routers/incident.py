@@ -303,13 +303,14 @@ _PHONE_IN_TEXT = re.compile(r"\+?\d(?:[ \t./-]{0,3}\d){9,}")
 # place, not a number to hide; dates have too few digits to match at all.
 _COORDINATES = re.compile(r"\d{1,3}\.\d+[ ,]+\d{1,3}\.\d+")
 # A date ("12.05.2026", "12-05-26"), possibly with a time after it, is not
-# a phone number either.
-_DATE = re.compile(r"\d{1,2}[./-]\d{1,2}[./-]\d{2,4}")
+# a phone number either. Only a whole match is exempt: a date followed by a
+# phone number ("12.05.2026 9876543210") is still masked.
+_DATE = re.compile(r"\d{1,2}[./-]\d{1,2}[./-]\d{2,4}(?:[ \t]+\d{1,2}(?:[.:]\d{2}){0,2})?")
 
 
 def _keep(match: str) -> bool:
     match = match.strip()
-    return bool(_COORDINATES.fullmatch(match) or _DATE.match(match))
+    return bool(_COORDINATES.fullmatch(match) or _DATE.fullmatch(match))
 
 
 def _mask_numbers(text):

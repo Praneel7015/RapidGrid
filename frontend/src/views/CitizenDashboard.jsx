@@ -524,13 +524,17 @@ export default function CitizenDashboard() {
                   modelled
                   sub={view.phase1_hub?.name}
                 />
-                <Stat
-                  label="Then to hospital"
-                  value={view.eta_minutes ?? '--'}
-                  unit="min"
-                  modelled
-                  sub={`${fmt.km(view.distance_meters)} km`}
-                />
+                {(view.hospital_name || view.hospital_location) && (
+                  // Only when the response takes the patient to hospital (not
+                  // a scene-only police, fire or rescue response).
+                  <Stat
+                    label="Then to hospital"
+                    value={view.eta_minutes ?? '--'}
+                    unit="min"
+                    modelled
+                    sub={`${fmt.km(view.distance_meters)} km`}
+                  />
+                )}
               </>
             ) : (
               <Stat

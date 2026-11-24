@@ -42,13 +42,18 @@ export default function useUnitTrack(incidentId, active) {
         const res = await fetch(`/api/incidents/${encodeURIComponent(incidentId)}/track`, {
           signal: AbortSignal.timeout(5000),
         });
-        if (!res.ok) return;
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         if (cancelled || request !== latest.current) return;
         setTrack({ incidentId, unit: data.unit, trail: data.trail ?? [], simSpeed: data.sim_speed ?? null,
           live: data.live ?? null });
       } catch {
-        // Keep the last known position for this same call; the next poll retries.
+        // Keep the last known position for this same call, but not its live
+        // time to go: a figure that has stopped updating must not read as
+        // "now". The next successful poll restores it.
+        if (!cancelled && request === latest.current) {
+          setTrack((t) => (t.incidentId === incidentId ? { ...t, live: null } : t));
+        }
       } finally {
         inFlight = false;
       }

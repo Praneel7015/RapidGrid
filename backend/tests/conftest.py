@@ -68,6 +68,7 @@ def _fresh_fleet(monkeypatch, tmp_path):
     fleet._units.clear()
     fleet._trails.clear()
     monkeypatch.setattr(fleet, "_loaded", False)
+    fleet._load_failed_at = None  # never inherit a failed-load backoff from another test
     simulator.reset()
     yield
     fleet._units.clear()

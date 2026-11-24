@@ -119,15 +119,30 @@ _load_failed_at = None  # monotonic time of the last failed read, if it failed
 RELOAD_EVERY_S = 10.0
 
 
+# Set at startup (main.py): the ids of calls a unit is driving. After a
+# delayed load (the startup read failed), units stored against calls that
+# were cleared meanwhile are freed before any unit is handed out.
+active_calls = None
+
+
 def _ensure() -> None:
     if _loaded:
         return
     if _load_failed_at is None:
         load()
-    elif time.monotonic() - _load_failed_at >= RELOAD_EVERY_S:
+        return
+    if time.monotonic() - _load_failed_at >= RELOAD_EVERY_S:
         # After a failed read: one quick retry at most every RELOAD_EVERY_S,
         # so requests never wait out repeated retries while storage is down.
-        load(attempts=1)
+        # Load and reconcile under one hold of the (re-entrant) lock, so no
+        # unit is handed out between them and then freed by the reconcile.
+        with _lock:
+            load(attempts=1)
+            if _loaded and active_calls is not None:
+                try:
+                    reconcile(active_calls())
+                except Exception:
+                    logger.exception("Could not reconcile the fleet after a delayed load")
 
 
 def units() -> list[dict]:
