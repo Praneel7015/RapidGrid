@@ -64,7 +64,8 @@ function TradeOff({ winner, runnerUp }) {
   );
 
   // Equal to the precision shown: do not claim one "wins" on a factor.
-  const tied = Math.abs(Number(winner.score) - Number(runnerUp.score)) < 0.0005;
+  const tied = Number.isFinite(Number(winner.score)) && Number.isFinite(Number(runnerUp.score))
+    && Number(winner.score).toFixed(3) === Number(runnerUp.score).toFixed(3);
 
   const etaDelta =
     winner.road_eta_seconds && runnerUp.road_eta_seconds

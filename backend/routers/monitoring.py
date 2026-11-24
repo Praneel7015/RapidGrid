@@ -345,6 +345,9 @@ async def stage_disruption(incident_id: str, demo: DemoAction, request: Request 
             if (now is None or now_leg != leg or now_route != route
                     or (now_unit or {}).get("unit_id") != unit["unit_id"]):
                 raise HTTPException(status_code=409, detail="The call moved on while staging; nothing was staged")
+            if demo.action == "wrong_turn" and simulator.has_detour(unit["unit_id"]):
+                # A parallel request staged one while this one searched.
+                raise HTTPException(status_code=409, detail="The unit is already off its route (a wrong turn is in progress)")
 
     if demo.action == "wrong_turn":
         path = await asyncio.to_thread(wrong_turn_path, route, index, position)

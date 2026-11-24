@@ -880,6 +880,14 @@ def forget_unstored(unit_id: str, alert: dict) -> None:
         watch.alert_id = None
     if alert.get("trigger") == "destination_divert":
         watch.divert_alerted = None
+    elif alert.get("trigger") in ("blocked_ahead", "slowing_ahead"):
+        # The city state was marked as seen when this was raised; unmark
+        # it so the next tick looks again (a value no real version equals,
+        # and not the "first look at a leg" empty one).
+        watch.city_version = ("retry",)
+        # Also what a later dismissal restores, so another alert raised in
+        # between cannot mark the lost one's city state as handled.
+        watch.alert_city_version = ("retry",)
 
 
 def clear_alert(unit_id: str, dismissed_deviation: bool = False, rebaseline: bool = False) -> None:
