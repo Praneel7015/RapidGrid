@@ -848,6 +848,11 @@ def _assign_unit(inc: dict) -> None:
     _attach_unit(inc, unit_id)
 
 
+def _distance_m(a: dict, b: dict) -> float:
+    from agents.monitor import _dist
+    return _dist(a, b)
+
+
 async def _commit_approval(inc: dict, unit_id: str, created: bool) -> None:
     """Store the approval; if that fails, free the unit this approval
     reserved (a unit the call already held stays held)."""
@@ -860,6 +865,64 @@ async def _commit_approval(inc: dict, unit_id: str, created: bool) -> None:
             # call that is not being driven, so it cannot stay stuck.
             fleet.release(inc["incident_id"])
         raise
+    # The plan routed from the nearest station; if the unit sent is based
+    # elsewhere (that station's units were busy), route from where it is.
+    # Decided by where the unit is, not by station names: a unit from the
+    # planned station that is elsewhere (back from a call) needs it too, and
+    # one already at the route's start does not.
+    unit = fleet.get(unit_id) or {}
+    planned = (inc.get("citizen_view") or {}).get("phase1_route_coordinates") or []
+    pos = unit.get("position") or {}
+    if unit and planned and "lat" in pos and _distance_m(pos, planned[0]) > 300:
+        task = asyncio.create_task(_align_first_leg(inc["incident_id"], unit_id,
+                                                    (inc.get("citizen_view") or {}).get("phase1_route_coordinates")))
+        _ALIGN_TASKS.add(task)
+        task.add_done_callback(_ALIGN_TASKS.discard)
+
+
+_ALIGN_TASKS: set = set()
+
+
+async def _align_first_leg(incident_id: str, unit_id: str, planned: Optional[list]) -> None:
+    """Replace the to-scene route with one from the assigned unit's
+    position, so the agent does not see it as off its route from the start
+    (and the simulator does not drive a straight line to the planned one)."""
+    from agents.local_router import local_router
+
+    try:
+        await _align_first_leg_inner(incident_id, unit_id, planned, local_router)
+    except Exception:
+        logger.exception("Re-routing %s from where it is failed", log_safe(unit_id))
+
+
+async def _align_first_leg_inner(incident_id: str, unit_id: str, planned, local_router) -> None:
+    unit = fleet.get(unit_id)
+    async with _INCIDENTS_LOCK:
+        inc = next((i for i in ACTIVE_INCIDENTS if i["incident_id"] == incident_id), None)
+        scene = dict(inc["location"]) if inc and inc.get("location") else None
+    if unit is None or scene is None or not local_router.available:
+        return
+    pos = unit["position"]
+    try:
+        path = await asyncio.to_thread(local_router.find_path, (pos["lat"], pos["lng"]), (scene["lat"], scene["lng"]))
+    except Exception:
+        logger.exception("Could not route %s from its own station", log_safe(unit_id))
+        return
+    if not path:
+        return
+    async with _INCIDENTS_LOCK:
+        inc = next((i for i in ACTIVE_INCIDENTS if i["incident_id"] == incident_id), None)
+        if (inc is None or inc.get("status") != "dispatched" or inc.get("assigned_unit") != unit_id
+                or (inc.get("citizen_view") or {}).get("phase1_route_coordinates") != planned):
+            return  # the call moved on (or the route was already changed)
+        view = inc.setdefault("citizen_view", {})
+        view["phase1_hub"] = {"name": unit["station"], **unit["station_location"]}
+        view["phase1_route_coordinates"] = path["coordinates"]
+        view["phase1_eta_minutes"] = max(1, round(path["travel_time_s"] / 60))
+        try:
+            await commit(inc)
+        except Exception:
+            logger.exception("Could not store the route from %s's station", log_safe(unit_id))
 
 
 @router.post("/{incident_id}/approve")

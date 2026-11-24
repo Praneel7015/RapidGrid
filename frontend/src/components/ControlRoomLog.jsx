@@ -62,7 +62,7 @@ export default function ControlRoomLog() {
   }, []);
 
   return (
-    <Panel>
+    <Panel data-tour="control-log">
       <PanelHead
         label={`Control-room log · ${entries.length}`}
         right={

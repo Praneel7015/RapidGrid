@@ -636,3 +636,66 @@ def test_a_wrong_turn_alert_does_not_hide_a_lost_closure_alert(city):
     fleet.record_position("AMB-01", here["lat"], here["lng"], source="simulated", at=_time.time() + 100)
     again = monitor.tick([incident])
     assert len(again) == 1 and again[0][1]["trigger"] == "blocked_ahead"
+
+
+def test_a_unit_sent_from_another_station_gets_a_route_from_where_it_is(monkeypatch):
+    import asyncio as _asyncio
+    import time as _t
+    from fastapi.testclient import TestClient
+    from main import app
+    from routers import incident as incident_router
+    from tests.test_workflow_regressions import seed
+
+    if not local_router.available and not local_router.load():
+        import pytest as _pytest
+        _pytest.skip("offline road graph not available")
+    monkeypatch.setenv("RAPIDGRID_MODE", "demo")
+    monkeypatch.setattr(incident_router, "_INCIDENTS_LOCK", _asyncio.Lock())
+    monkeypatch.setattr(incident_router.route_agent, "compute_route",
+                        lambda req: type("R", (), {"confidence": 0.9, "coordinates": [req.origin, req.destination],
+                                                   "eta": 600.0, "distance": 3500.0})())
+    incident_router.ACTIVE_INCIDENTS.clear()
+    report = seed()
+    report["citizen_view"]["phase1_hub"] = {"name": "Aster CMI Emergency Ambulance Hub", "lat": 13.0473, "lng": 77.5908}
+    report["citizen_view"]["phase1_route_coordinates"] = [{"lat": 13.0473, "lng": 77.5908}, {"lat": 13.035, "lng": 77.597}]
+    with TestClient(app) as client:  # (startup reloads the fleet)
+        for u in fleet._units.values():  # the planned station's units are all busy
+            if u["station"] == "Aster CMI Emergency Ambulance Hub":
+                u.update(status="assigned", incident_id="INC-elsewhere")
+        if not any(i["incident_id"] == "INC-review" for i in incident_router.ACTIVE_INCIDENTS):
+            incident_router.ACTIVE_INCIDENTS.append(report)  # startup reloads the calls too
+        r = client.post("/api/incidents/INC-review/approve",
+                        json={"dispatcher_id": "r", "approved_hospital": "blr-007", "approved_route": "x"})
+        assert r.status_code == 200, r.text
+        sent = fleet.get(r.json()["assigned_unit"])
+        assert sent["station"] != "Aster CMI Emergency Ambulance Hub"
+        deadline = _t.monotonic() + 10
+        while report["citizen_view"]["phase1_hub"]["name"] != sent["station"] and _t.monotonic() < deadline:
+            _t.sleep(0.2)
+    assert report["citizen_view"]["phase1_hub"]["name"] == sent["station"]
+    first = report["citizen_view"]["phase1_route_coordinates"][0]
+    assert monitor._dist(first, sent["position"]) < 400
+    incident_router.ACTIVE_INCIDENTS.clear()
+
+
+def test_advice_for_an_earlier_route_is_refused(monkeypatch):
+    import asyncio as _asyncio
+    from fastapi.testclient import TestClient
+    from main import app
+    from agents import simulator
+    from routers import incident as incident_router
+    from tests.test_workflow_regressions import seed
+
+    monkeypatch.setenv("RAPIDGRID_MODE", "demo")
+    monkeypatch.setattr(incident_router, "_INCIDENTS_LOCK", _asyncio.Lock())
+    incident_router.ACTIVE_INCIDENTS.clear()
+    report = seed("dispatched")
+    old = [{"lat": 13.0, "lng": 77.6}, {"lat": 13.035, "lng": 77.597}]
+    report["citizen_view"]["phase1_route_coordinates"] = [{"lat": 13.01, "lng": 77.61}, {"lat": 13.035, "lng": 77.597}]
+    report["monitoring"] = {"alerts": [{"alert_id": "R1", "status": "open", "leg": "to_scene", "unit_id": "AMB-01",
+                                        "route_key": simulator.route_key(old),
+                                        "routes": [{"label": "Recommended", "coordinates": old, "eta_s": 60.0,
+                                                    "distance_m": 500.0, "roads": []}]}]}
+    r = TestClient(app).post("/api/incidents/INC-review/alerts/R1/accept", json={"route_index": 0})
+    assert r.status_code == 409 and "earlier route" in r.json()["detail"]
+    incident_router.ACTIVE_INCIDENTS.clear()

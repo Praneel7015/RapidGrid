@@ -408,6 +408,7 @@ export default function MapOverlay({
   return (
     <div
       ref={holder}
+      data-tour="map"
       style={{ height, width: '100%' }}
       className={`${theme === 'ink' ? 'map-ink' : 'map-tinted'} overflow-hidden rounded-md border border-rule ${className}`}
     />

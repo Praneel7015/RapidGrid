@@ -61,9 +61,14 @@ async def _with_alert(incident_id: str, alert_id: str):
 def _same_leg(inc: dict, alert: dict) -> None:
     """An alert for a leg the unit has finished (say, raised on the way to the
     scene, acted on after pickup) must not change the current leg."""
-    current, _route, _eta = monitor._leg(inc)
+    current, route, _eta = monitor._leg(inc)
     if current != alert["leg"]:
         raise HTTPException(status_code=409, detail="This alert is for an earlier leg of the call")
+    from agents.simulator import route_key
+    if alert.get("route_key") and route and route_key(route) != alert["route_key"]:
+        # The route changed since (say, re-planned from where the unit is):
+        # advice worked out on the old one no longer fits.
+        raise HTTPException(status_code=409, detail="This alert is for an earlier route of the call")
 
 
 def _set_leg(inc: dict, leg: str, route: dict) -> None:
