@@ -932,7 +932,9 @@ def test_guided_demo_runs_the_official_scenario(context, server):
     page.route("https://tile.openstreetmap.org/**", lambda route: route.abort())
     try:
         page.goto(server + "/demo")
-        expect(page.get_by_title("Dispatch screen")).to_be_visible()
+        # One screen at a time, starting with the caller's.
+        expect(page.get_by_title("Caller screen")).to_be_visible()
+        expect(page.get_by_title("Dispatch screen")).to_be_hidden()
         status = page.get_by_role("status").first
         captions = ["recommends", "dispatched", "monitoring agent", "The agent", "Dispatch",
                     "patient aboard", "ER has the patient"]
@@ -942,13 +944,26 @@ def test_guided_demo_runs_the_official_scenario(context, server):
             expect(page.get_by_role("alert")).to_have_count(0)
             expect(status).to_contain_text(expected)
             if i == 2:
+                # The step shows the dispatch screen and outlines what the agent watches.
+                expect(page.get_by_title("Dispatch screen")).to_be_visible()
+                dispatch = page.frame_locator("iframe[title='Dispatch screen']")
+                expect(dispatch.locator(".rg-tour-target")).to_have_count(1, timeout=15000)
                 # The crew screen opened this call, not just the queue.
+                page.get_by_role("button", name="Ambulance crew").click()
                 crew = page.frame_locator("iframe[title='Ambulance crew screen']")
                 expect(crew.get_by_text("Drive to the patient")).to_be_visible(timeout=15000)
+            if i == 3:
+                # The agent's alert is the thing outlined, with its steps open.
+                dispatch = page.frame_locator("iframe[title='Dispatch screen']")
+                expect(dispatch.locator("[data-tour='agent-alert'].rg-tour-target")).to_be_visible(timeout=15000)
+                expect(page.get_by_text("Where to look")).to_be_visible()
         expect(page.get_by_role("button", name="Run again")).to_be_visible()
         # The caller's screen closes the call with a summary, not a bare home screen.
         caller = page.frame_locator("iframe[title='Caller screen']")
         expect(caller.get_by_test_id("call-summary")).to_contain_text("complete", timeout=15000)
+        # The caller's screen was reloaded by this step; the outline is on the new page.
+        expect(caller.locator(".rg-tour-target")).to_have_count(1, timeout=15000)
+        expect(page.get_by_text("It is outlined in amber below.")).to_be_visible()
         # One report only: retries never file a second one.
         listed = context.request.get(server + "/api/incidents/", headers=auth).json()["incidents"]
         assert sum(1 for i in listed if (i.get("citizen_text") or "").startswith("Demo: my father")) == 1

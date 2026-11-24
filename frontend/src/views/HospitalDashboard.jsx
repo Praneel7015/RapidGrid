@@ -234,7 +234,7 @@ export default function HospitalDashboard() {
       )}
       {saving && <p role="status" className="text-xs text-text-muted">Saving capacity…</p>}
       {capacityError && <p role="alert" className="text-sm text-critical">{capacityError}</p>}
-      <Panel>
+      <Panel data-tour="er-incoming">
         <PanelHead
           label={`Inbound · ${incoming.length}`}
           right={

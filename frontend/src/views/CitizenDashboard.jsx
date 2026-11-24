@@ -485,7 +485,7 @@ export default function CitizenDashboard() {
   return shell(
     <div className="space-y-3">
       {error && <p role="status" className="text-sm text-critical">{error}</p>}
-      <Panel>
+      <Panel data-tour="caller-status">
         <PanelHead
           label={`Incident ${shortId(incident?.incident_id)}`}
           right={<StatusTag status={incident?.status} />}

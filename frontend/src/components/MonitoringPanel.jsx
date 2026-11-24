@@ -100,7 +100,7 @@ export default function MonitoringPanel({ incident, onChanged, live = null, simS
   };
 
   return (
-    <Panel>
+    <Panel data-tour="monitoring">
       <PanelHead
         label="Route monitoring"
         right={<Provenance kind="modelled" title="Delays and ETAs come from the modelled city, not a live traffic feed." />}
@@ -119,7 +119,7 @@ export default function MonitoringPanel({ incident, onChanged, live = null, simS
         )}
 
         {open && (
-          <div role="alert" className="space-y-3 rounded-sm border border-critical bg-critical-wash p-3">
+          <div role="alert" data-tour="agent-alert" className="space-y-3 rounded-sm border border-critical bg-critical-wash p-3">
             <div className="flex items-start gap-2">
               <AlertTriangle size={16} className="mt-0.5 shrink-0 text-critical" aria-hidden="true" />
               <div className="min-w-0">

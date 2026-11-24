@@ -292,7 +292,7 @@ export default function DriverDashboard() {
               {destination.name}
             </p>
           </div>
-          <div className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-4 border-t border-rule-ink pt-3.5 sm:gap-x-8">
+          <div data-tour="crew-eta" className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-4 border-t border-rule-ink pt-3.5 sm:gap-x-8">
             <Stat
               ink
               label="Time to destination"
@@ -359,7 +359,7 @@ export default function DriverDashboard() {
 
       {/* Divert: only meaningful once the patient is aboard. */}
       {!sceneResponse && stage === 'transport' && (active.pickup_ranking?.hospitals?.length > 0 || active.action_plan?.all_hospitals?.length > 0) && (
-        <Panel>
+        <Panel data-tour="pickup-ranking">
           <PanelHead label={active.pickup_ranking ? 'Hospitals from the scene now' : 'Change destination'} />
           <div className="p-2.5">
             <p className="px-1.5 pb-2 text-[11px] leading-relaxed text-text-muted">
