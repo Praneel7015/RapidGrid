@@ -1,7 +1,8 @@
 /**
  * Landing page.
  *
- * The hero is the product's thesis: the nearest hospital is often the wrong one.
+ * The hero is the use case: an agent that watches every emergency vehicle's
+ * route and tells dispatch what to do when it goes wrong.
  * Design identity: bone paper, command ink header, amber CTAs, Archivo Narrow.
  */
 
@@ -11,12 +12,16 @@ import { ArrowRight, Check } from 'lucide-react';
 
 const CAPABILITIES = [
   {
+    title: 'An agent watches every unit on its route',
+    body: 'Every second it compares each ambulance, police car or fire engine with its planned route. It flags a wrong turn, a closure or accident ahead, a slowdown from rush hour or rain, and a destination hospital that goes on divert; names the cause; predicts the delay and the new arrival time; offers routes round it; and says whether to keep the unit or send a closer one. Each alert shows its steps and numbers, and dispatch decides.',
+  },
+  {
     title: 'It routes on capability, not just proximity',
     body: 'A cardiac call goes to a facility with a 24×7 cath lab even when a general hospital is closer — the same specialty-centre bypass real EMS protocols use. Capability profiles are curated for 30 Bengaluru hospitals; oncology, maternity and day-surgery units are excluded from emergency routing entirely.',
   },
   {
-    title: 'Routing can fall back to a cached road graph',
-    body: 'Live traffic routing runs against the Google Routes API. When that is unavailable — quota, outage, provider connectivity — an A* router falls back to a cached 112,725-node OpenStreetMap graph of Bengaluru and keeps producing real paths, labelled as offline rather than passed off as live.',
+    title: 'Its own road graph, no provider needed',
+    body: 'Routing and the agent run on a 112,725-node OpenStreetMap graph of Bengaluru with an A* router that knows about the closures and conditions dispatch sets. Delays come from a modelled city (road class, time of day, weather, closures), labelled as modelled; a Google Routes key, if configured, is optional.',
   },
   {
     title: 'It separates what it knows from what it models',
@@ -122,14 +127,15 @@ export default function LandingPage() {
         <section className="mx-auto max-w-[1440px] px-5 py-12 sm:px-8 sm:py-16 lg:py-20">
           <div className="grid gap-10 lg:grid-cols-[1fr_minmax(320px,400px)] lg:gap-16 lg:items-start">
             <div>
-              <p className="eyebrow">The thesis</p>
+              <p className="eyebrow">Emergency vehicle movement</p>
               <h1 className="mt-5 font-display text-[clamp(36px,8vw,82px)] font-semibold leading-[0.96] tracking-[-0.028em] text-text">
-                The nearest hospital is often the wrong one.
+                It watches the route, so dispatch does not have to guess.
               </h1>
               <p className="mt-6 max-w-[62ch] text-[17px] leading-relaxed text-text-muted sm:text-[19px]">
-                A cardiac arrest needs a cath lab. Sending the patient to a closer emergency room
-                that then has to transfer them onward costs far more time than driving past it.
-                RapidGrid routes on what a hospital can actually treat.
+                RapidGrid's monitoring agent follows every unit on a call. When one leaves its route,
+                meets a closed road or slows down, it says why, how late, which way round, and whether
+                to keep that unit or send a closer one, in plain words. It also sends each patient to a
+                hospital that can treat them, not just the nearest.
               </p>
               <div className="mt-8 flex flex-col gap-3 sm:flex-row">
                 <Link
@@ -155,8 +161,8 @@ export default function LandingPage() {
                 {[
                   { n: '112,725', l: 'OSM nodes · 178,089 edges\nBengaluru road graph', modelled: false },
                   { n: '30', l: 'Facilities · curated capability\nprofiles, coords via OSM', modelled: false },
-                  { n: '4', l: 'Steps · triage, hospital ranking,\nrouting, dispatcher review', modelled: false },
-                  { n: '~100', l: 'ms · A* fallback path,\nbenchmark not measured live', modelled: true },
+                  { n: '6', l: 'Agent steps per alert · observe, detect,\nexplain, predict, options, advise', modelled: false },
+                  { n: '< 2 s', l: 'Per alert · routes, cause and backup\nworked out (measured offline)', modelled: true },
                 ].map((row) => (
                   <div key={row.n}>
                     <div className={`inline-block font-mono text-[26px] ${row.modelled ? 'val-modelled' : 'val-verified'}`}>
