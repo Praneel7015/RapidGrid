@@ -240,12 +240,23 @@ def live_status(incident: dict, unit: Optional[dict]) -> Optional[dict]:
     if "lat" not in pos or "lng" not in pos:
         return None
     point = {"lat": pos["lat"], "lng": pos["lng"]}
-    off, index = project(route, point)
+    watch = _watches.get(unit["unit_id"])
+    # From the watched progress on this leg: a route that crosses itself
+    # must not snap back to an earlier pass (the time to go would jump up).
+    from agents.simulator import route_key
+
+    # Only the same route's progress counts (after a reroute the old index
+    # means nothing on the new polyline, and could even be past its end).
+    same = watch and watch.leg_key == f"{incident['incident_id']}:{leg}:{route_key(route)}"
+    start = min(watch.progress, len(route) - 2) if same else 0
+    off, index = project(route, point, start)
+    if off == float("inf"):  # nothing scanned: search the whole route
+        off, index = project(route, point)
+    index = min(index, len(route) - 2)
     _d, t = point_segment_m(point, route[index], route[index + 1])
     total = polyline_length(route) or 1.0
     done = polyline_length(route[: index + 1]) + _dist(route[index], route[index + 1]) * t
     remaining_m = max(0.0, total - done)
-    watch = _watches.get(unit["unit_id"])
     return {
         "leg": leg,
         "off_route_m": round(off, 1),

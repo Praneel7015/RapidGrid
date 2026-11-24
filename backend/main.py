@@ -140,8 +140,12 @@ async def lifespan(app: FastAPI):
     # Only calls a unit is driving hold one. A unit stored against a call
     # still awaiting approval is left over from an approval whose write (and
     # whose compensating release) failed; it is free again.
-    fleet.reconcile({i["incident_id"] for i in incident.ACTIVE_INCIDENTS
-                     if i.get("status") in ("dispatched", "patient_picked_up")})
+    def driven_calls() -> set:
+        return {i["incident_id"] for i in incident.ACTIVE_INCIDENTS
+                if i.get("status") in ("dispatched", "patient_picked_up")}
+
+    fleet.active_calls = driven_calls  # also after a delayed load
+    fleet.reconcile(driven_calls())
     sim_task = asyncio.create_task(simulator.run())
 
     logger.info("All agents initialised and registered ✓")
@@ -352,7 +356,18 @@ def _safe_frontend_file(full_path: str, dist: Path | None = None) -> str | None:
 if _FRONTEND_DIST.is_dir():
     _assets = _FRONTEND_DIST / "assets"
     if _assets.is_dir():
-        app.mount("/assets", StaticFiles(directory=_assets), name="frontend-assets")
+        class _ImmutableAssets(StaticFiles):
+            """Vite names every built asset by its content hash, so a file at
+            a given path never changes: browsers may keep it for a year,
+            which makes the stage laptop's reloads instant."""
+
+            async def get_response(self, path, scope):
+                response = await super().get_response(path, scope)
+                if response.status_code == 200:
+                    response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+                return response
+
+        app.mount("/assets", _ImmutableAssets(directory=_assets), name="frontend-assets")
 
     @app.get("/", include_in_schema=False)
     async def frontend_index():

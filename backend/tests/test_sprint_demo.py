@@ -384,3 +384,51 @@ def test_a_backup_is_routed_from_where_it_is_now(city, monkeypatch):
     assert r.status_code == 200, r.text
     first = incident_router.ACTIVE_INCIDENTS[-1]["citizen_view"]["phase1_route_coordinates"][0]
     assert monitor._dist(first, moved) < 300  # the new route starts where the unit is
+
+
+def test_a_delayed_fleet_load_frees_units_left_on_cleared_calls(monkeypatch):
+    import storage as _storage
+
+    fleet.load()
+    fleet.assign("INC-gone", "Ambulance", near={"lat": 13.0, "lng": 77.6})
+    held = fleet.unit_for_incident("INC-gone")["unit_id"]
+    # The next start-up cannot read the fleet; meanwhile INC-gone is cleared.
+    real = _storage.load_collection
+    monkeypatch.setattr(_storage, "load_collection",
+                        lambda name, *a, **k: (_ for _ in ()).throw(OSError("down")) if name == fleet._COLLECTION
+                        else real(name, *a, **k))
+    monkeypatch.setattr(fleet, "_loaded", False)
+    monkeypatch.setattr(fleet.time, "sleep", lambda s: None)
+    fleet.load()
+    assert fleet._loaded is False
+    monkeypatch.setattr(_storage, "load_collection", real)
+    monkeypatch.setattr(fleet, "active_calls", lambda: set())
+    monkeypatch.setattr(fleet, "_load_failed_at", fleet._load_failed_at - fleet.RELOAD_EVERY_S)
+    assert fleet.get(held)["status"] == "available"  # freed on the delayed load
+    monkeypatch.setattr(fleet, "_load_failed_at", None)
+
+
+def test_a_date_next_to_a_phone_number_does_not_shield_it():
+    from routers import incident as incident_router
+    masked = incident_router._mask_numbers("On 12.05.2026 9876543210 call me")
+    assert "9876543210" not in masked and "[number hidden]" in masked
+    assert incident_router._mask_numbers("Since 12.05.2026 10.30") == "Since 12.05.2026 10.30"
+
+
+def test_dates_with_colon_times_or_seconds_are_left_alone():
+    from routers import incident as incident_router
+    for text in ("Since 12.05.2026 10:30", "At 12.05.2026 10.30.45", "On 12-05-26 9"):
+        assert incident_router._mask_numbers(text) == text, text
+
+
+def test_live_status_after_a_reroute_uses_the_new_route(city):
+    incident = call_to((12.985, 77.594), ASTER_HUB)
+    drive(incident, 6)
+    monitor.tick([incident])  # the watch now has progress on the long route
+    here = fleet.get("AMB-01")["position"]
+    short = [{"lat": here["lat"], "lng": here["lng"]}, {"lat": 12.985, "lng": 77.594}]
+    incident["citizen_view"]["phase1_route_coordinates"] = short  # rerouted, before the next tick
+    live = monitor.live_status(incident, fleet.get("AMB-01"))
+    import json
+    json.dumps(live, allow_nan=False)  # no infinity in the response
+    assert live["off_route_m"] < 5 and live["progress"] < 0.05

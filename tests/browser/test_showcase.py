@@ -955,3 +955,21 @@ def test_guided_demo_runs_the_official_scenario(context, server):
     finally:
         page.close()
         context.request.post(server + "/api/monitoring/reset", headers=auth, data={})
+
+
+def test_built_assets_are_cached_long_and_pages_are_not(context, server):
+    page = context.new_page()
+    try:
+        page.route("https://tile.openstreetmap.org/**", lambda route: route.abort())
+        assets = []
+        page.on("response", lambda r: assets.append(r) if "/assets/" in r.url else None)
+        page.goto(server + "/login")
+        page.wait_for_load_state("networkidle")
+        built = [r for r in assets if r.status == 200]
+        assert built, "no built asset was loaded"
+        for r in built:
+            assert "immutable" in (r.headers.get("cache-control") or ""), r.url
+        html = context.request.get(server + "/login")
+        assert "immutable" not in (html.headers.get("cache-control") or "")
+    finally:
+        page.close()

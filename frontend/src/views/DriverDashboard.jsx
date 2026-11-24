@@ -71,7 +71,12 @@ export default function DriverDashboard() {
   }, [driverInfo]);
 
   const active = dispatches.find((d) => d.incident_id === activeId) ?? null;
-  const track = useUnitTrack(active?.incident_id, ['dispatched', 'patient_picked_up'].includes(active?.status));
+  const callTrack = useUnitTrack(active?.incident_id, ['dispatched', 'patient_picked_up'].includes(active?.status));
+  // The track is the call's fleet unit. A backup ambulance crew is not that
+  // unit: never show them another vehicle's position or time as their own.
+  const track = !driverInfo?.unitId || callTrack.unit?.unit_id === driverInfo.unitId
+    ? callTrack
+    : { ...callTrack, unit: null, trail: [], live: null };
   const view = active?.citizen_view ?? {};
   const primaryMedical = ['Ambulance', 'Medical'].includes(active?.vehicle_required ?? 'Ambulance');
   const unitType = driverInfo?.vehicleType === 'Ambulance' && !primaryMedical && active?.include_ambulance_backup ? 'ambulance' : 'primary';
