@@ -988,3 +988,30 @@ def test_built_assets_are_cached_long_and_pages_are_not(context, server):
         assert "immutable" not in (html.headers.get("cache-control") or "")
     finally:
         page.close()
+
+
+def test_play_all_runs_the_scenario_hands_free_in_projector_mode(context, server):
+    unlock(context, server)
+    auth = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
+    context.request.post(server + "/api/monitoring/reset", headers=auth, data={})
+    page = context.new_page()
+    page.route("https://tile.openstreetmap.org/**", lambda route: route.abort())
+    try:
+        page.goto(server + "/demo?projector=1&pause=1")
+        expect(page.get_by_test_id("projector-caption")).to_be_visible()
+        expect(page.get_by_text("What is happening")).to_have_count(0)  # the guidance panels are folded away
+        page.wait_for_function(
+            "() => document.querySelector(\"iframe[title='Caller screen']\")?.contentDocument?.documentElement?.style.zoom === '1.25'",
+            timeout=15000)
+        page.get_by_role("button", name="Play all").click()
+        expect(page.get_by_role("button", name="Run again")).to_be_visible(timeout=300000)
+        expect(page.get_by_role("alert")).to_have_count(0)
+        expect(page.get_by_test_id("projector-caption")).to_contain_text("ER has the patient")
+        # Leaving projector mode restores normal text size.
+        page.get_by_role("button", name="Exit projector").click()
+        page.wait_for_function(
+            "() => document.querySelector(\"iframe[title='Caller screen']\")?.contentDocument?.documentElement?.style.zoom === ''",
+            timeout=5000)
+    finally:
+        page.close()
+        context.request.post(server + "/api/monitoring/reset", headers=auth, data={})

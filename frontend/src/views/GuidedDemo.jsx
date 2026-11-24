@@ -9,7 +9,7 @@
  * click fails on stage; nothing here is hidden from the real screens.
  */
 
-import React, { useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '../components/ui';
 
 const SCENE = { lat: 13.0358, lng: 77.597 }; // near Hebbal
@@ -258,7 +258,7 @@ const TOUR_STYLE = `
 
 /** Scroll to and outline the part of the (same-origin) screen to look at.
  * Waits for it, since the screen may still be loading or updating. */
-async function spotlight(frame, selector, openSelector, isCurrent, staleDoc) {
+async function spotlight(frame, selector, openSelector, isCurrent, staleDoc, zoom = '') {
   const end = Date.now() + 15000;
   while (Date.now() < end && isCurrent()) {
     const doc = frame?.contentDocument;
@@ -268,6 +268,8 @@ async function spotlight(frame, selector, openSelector, isCurrent, staleDoc) {
     const ready = doc && doc !== staleDoc && doc.readyState === 'complete' && frame.offsetParent !== null;
     const el = ready ? doc.querySelector(selector) : null;
     if (el) {
+      // Projector zoom first, so the scroll is measured on the final layout.
+      if (doc.documentElement.style.zoom !== zoom) doc.documentElement.style.zoom = zoom;
       if (!doc.getElementById('rg-tour-style')) {
         const style = doc.createElement('style');
         style.id = 'rg-tour-style';
@@ -289,7 +291,16 @@ async function spotlight(frame, selector, openSelector, isCurrent, staleDoc) {
   return false;
 }
 
+const params = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams();
+// Seconds to hold each finished step in "Play all" (?pause=N for rehearsals).
+const PAUSE_S = Math.max(1, Number(params.get('pause')) || 8);
+const PROJECTOR_ZOOM = '1.25';
+
 export default function GuidedDemo() {
+  const [projector, setProjector] = useState(params.get('projector') === '1');
+  const projectorRef = useRef(projector);
+  projectorRef.current = projector;
+  const [autoplay, setAutoplay] = useState(false);
   const [step, setStep] = useState(0);
   const [busy, setBusy] = useState(false);
   const [caption, setCaption] = useState(null);
@@ -310,7 +321,8 @@ export default function GuidedDemo() {
     setPointed(false);
     const mine = ++shown.current;
     if (look) {
-      spotlight(frames.current[name], look, open, () => mine === shown.current, staleDoc)
+      spotlight(frames.current[name], look, open, () => mine === shown.current, staleDoc,
+        projectorRef.current ? PROJECTOR_ZOOM : '')
         .then((found) => { if (found && mine === shown.current) setPointed(true); });
     }
   };
@@ -355,6 +367,29 @@ export default function GuidedDemo() {
     focus('citizen');
   };
 
+  // Play all: run each step, hold it for PAUSE_S (longer on the alert, the
+  // moment the audience needs to read), then the next; stop at the end or
+  // on an error (the error stays on screen, "Next step" retries it).
+  useEffect(() => {
+    if (!autoplay || busy || error) return undefined;
+    if (step >= STEPS.length) { setAutoplay(false); return undefined; }
+    const hold = step === 0 ? 0 : (step === 4 ? 1.75 : 1) * PAUSE_S * 1000;
+    const timer = setTimeout(() => { next(); }, hold);
+    return () => clearTimeout(timer);
+  }, [autoplay, busy, error, step]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (error) setAutoplay(false); }, [error]);
+
+  // Projector mode: bigger text inside every screen (same-origin frames).
+  const applyZoom = useCallback((frame) => {
+    try {
+      const root = frame?.contentDocument?.documentElement;
+      if (root) root.style.zoom = projector ? PROJECTOR_ZOOM : '';
+    } catch { /* not loaded yet */ }
+  }, [projector]);
+  useEffect(() => {
+    Object.values(frames.current).forEach(applyZoom);
+  }, [applyZoom]);
+
   const progress = Math.round((step / STEPS.length) * 100);
   // The screen the guidance is about (the step's), even if the viewer has
   // switched tabs since.
@@ -366,7 +401,7 @@ export default function GuidedDemo() {
       {/* Only this slim bar stays pinned (a phone keeps most of its height
           for the screen); the guidance below scrolls with the page. */}
       <div className="sticky top-0 z-10 border-b border-rule bg-paper-sunk px-3 py-2 sm:px-5">
-        <div className="mx-auto max-w-[1100px]">
+        <div className={`mx-auto ${projector ? 'max-w-none' : 'max-w-[1100px]'}`}>
           <div className="flex items-center justify-between gap-2">
             <div>
               <h1 className="text-[15px] font-bold">Guided demo</h1>
@@ -374,17 +409,43 @@ export default function GuidedDemo() {
                 {done ? 'All 7 steps done' : `Step ${step + 1} of ${STEPS.length}: ${STEPS[step].title}`}
               </p>
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button variant="quiet" aria-pressed={projector} onClick={() => setProjector((v) => !v)}>
+                {projector ? 'Exit projector' : 'Projector'}
+              </Button>
+              {!done && (
+                <Button variant="quiet" aria-pressed={autoplay} onClick={() => { setError(null); setAutoplay((v) => !v); }}>
+                  {autoplay ? 'Pause' : 'Play all'}
+                </Button>
+              )}
               {done
                 ? <Button onClick={restart}>Run again</Button>
-                : <Button onClick={next} disabled={busy}>{busy ? 'Working…' : 'Next step'}</Button>}
+                : <Button onClick={next} disabled={busy || autoplay}>{busy ? 'Working…' : 'Next step'}</Button>}
             </div>
           </div>
           <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-rule" aria-hidden="true">
             <div className="h-full bg-signal transition-all" style={{ width: `${progress}%` }} />
           </div>
+          {projector && (
+            // Projector: one large caption line in the bar; the screen fills the rest.
+            <div data-testid="projector-caption" className="mt-2 grid gap-1 sm:grid-cols-[3fr_2fr] sm:gap-4">
+              <p role="status" aria-live="polite" className="text-[20px] font-semibold leading-snug">
+                {caption
+                  // The full text is on the screen below; the bar keeps the
+                  // first three sentences, readable from the back of a room.
+                  // (No lookbehind: older Safari cannot parse it.)
+                  ? caption.split(/\.\s+(?=[A-Z])/).slice(0, 3).join('. ').replace(/([^.])$/, '$1.')
+                  : 'The official scenario: an ambulance is sent, a road on its way closes, and the agent works out what to do.'}
+              </p>
+              <p className="text-[16px] leading-snug text-text-muted">
+                {lastDone && !busy ? <><span className="font-semibold text-signal-hover">Look at:</span> {lastDone.where}</> : null}
+              </p>
+            </div>
+          )}
+          {error && projector && <p role="alert" className="mt-1 text-[15px] text-critical">{error}</p>}
         </div>
       </div>
+      {!projector && (
       <section aria-label="Guided demo controls" className="border-b border-rule bg-paper-sunk px-3 pb-3 sm:px-5">
         <div className="mx-auto max-w-[1100px]">
 
@@ -428,8 +489,9 @@ export default function GuidedDemo() {
           <p className="mt-2 hidden t-meta text-text-faint sm:block">Tip: reset the demo first (Dispatch screen, control-room log, "Reset demo") for a clean stage.</p>
         </div>
       </section>
+      )}
 
-      <nav id="tour-screen" aria-label="Screens" className="mx-auto flex max-w-[1100px] scroll-mt-16 gap-1 overflow-x-auto px-3 pt-3 sm:px-5">
+      <nav id="tour-screen" aria-label="Screens" className={`mx-auto flex scroll-mt-16 gap-1 overflow-x-auto px-3 pt-3 sm:px-5 ${projector ? 'max-w-none' : 'max-w-[1100px]'}`}>
         {SCREENS.map(([name, label]) => (
           <button
             key={name}
@@ -443,7 +505,7 @@ export default function GuidedDemo() {
           </button>
         ))}
       </nav>
-      <div className="mx-auto max-w-[1100px] px-3 pb-6 sm:px-5">
+      <div className={`mx-auto px-3 pb-6 sm:px-5 ${projector ? 'max-w-none' : 'max-w-[1100px]'}`}>
         {SCREENS.map(([name, label]) => (
           <figure key={name} className={`overflow-hidden rounded-b-sm rounded-tr-sm border border-ink ${screen === name ? '' : 'hidden'}`}>
             <figcaption className="sr-only">{label}</figcaption>
@@ -452,7 +514,8 @@ export default function GuidedDemo() {
               ref={(el) => { frames.current[name] = el; }}
               title={`${label} screen`}
               src={`/${name}`}
-              className="h-[70vh] min-h-[420px] w-full bg-paper sm:h-[78vh]"
+              onLoad={(e) => applyZoom(e.currentTarget)}
+              className={`w-full bg-paper ${projector ? 'h-[calc(100vh-190px)] min-h-[480px]' : 'h-[70vh] min-h-[420px] sm:h-[78vh]'}`}
             />
           </figure>
         ))}
