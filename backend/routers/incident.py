@@ -305,12 +305,29 @@ _COORDINATES = re.compile(r"\d{1,3}\.\d+[ ,]+\d{1,3}\.\d+")
 # A date ("12.05.2026", "12-05-26"), possibly with a time after it, is not
 # a phone number either. Only a whole match is exempt: a date followed by a
 # phone number ("12.05.2026 9876543210") is still masked.
-_DATE = re.compile(r"\d{1,2}[./-]\d{1,2}[./-]\d{2,4}(?:[ \t]+\d{1,2}(?:[.:]\d{2}){0,2})?")
+_TIME = r"(?:[ \t]+(\d{1,2})(?:[.:](\d{2}))?(?:[.:](\d{2}))?)?"
+_DATE = re.compile(r"(\d{1,2})[./-](\d{1,2})[./-](?:\d{4}|\d{2})" + _TIME)
+_ISO_DATE = re.compile(r"(?:19|20)\d{2}-(\d{1,2})-(\d{1,2})" + _TIME)
+
+
+def _is_date(match: str) -> bool:
+    """A real date (day 1-31, month 1-12, either order) and time, not a
+    phone number shaped like one ("98-76-5432 10")."""
+    m = _DATE.fullmatch(match) or _ISO_DATE.fullmatch(match)
+    if not m:
+        return False
+    a, b = int(m.group(1)), int(m.group(2))
+    if not ((1 <= a <= 31 and 1 <= b <= 12) or (1 <= a <= 12 and 1 <= b <= 31)):
+        return False
+    hour, minute, second = m.group(3), m.group(4), m.group(5)
+    if hour is not None and int(hour) > 23:
+        return False
+    return all(v is None or int(v) <= 59 for v in (minute, second))
 
 
 def _keep(match: str) -> bool:
     match = match.strip()
-    return bool(_COORDINATES.fullmatch(match) or _DATE.fullmatch(match))
+    return bool(_COORDINATES.fullmatch(match) or _is_date(match))
 
 
 def _mask_numbers(text):
