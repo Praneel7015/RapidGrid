@@ -27,6 +27,7 @@ export default function CityControls({ onChange }) {
   const changes = useRef(0);
 
   const load = async () => {
+    if (running.current) return; // a change in flight: its own result wins
     const seen = changes.current;
     try {
       const res = await fetch('/api/city/state');
@@ -86,6 +87,8 @@ export default function CityControls({ onChange }) {
     } catch {
       setNote('Cannot reach the city model.');
     } finally {
+      // A read that started before this change finished must not land after it.
+      changes.current += 1;
       running.current = false;
       setBusy(false);
     }
