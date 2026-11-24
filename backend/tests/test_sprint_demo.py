@@ -583,3 +583,31 @@ def test_a_divert_alert_that_was_not_stored_is_raised_again(city):
     finally:
         hospital_agent._on_divert.clear()
         hospital_agent._on_divert.update(previous)
+
+
+def test_a_blocked_alert_that_was_not_stored_is_raised_again(city):
+    incident = call_to((12.985, 77.594), ASTER_HUB)
+    drive(incident)
+    unit = fleet.unit_for_incident("INC-mon")
+    route = incident["citizen_view"]["phase1_route_coordinates"]
+    _off, index = monitor.project(route, unit["position"])
+    city_state.close_road(monitoring.edges_to_close(route, index, unit["position"]), "closure")
+    lost = monitor.tick([incident])[0][1]
+    monitor.forget_unstored("AMB-01", lost)  # its save failed
+    again = monitor.tick([incident])
+    assert len(again) == 1 and again[0][1]["trigger"] == "blocked_ahead"
+
+
+def test_a_lost_closure_alert_survives_another_alert_in_between(city):
+    incident = call_to((12.985, 77.594), ASTER_HUB)
+    drive(incident)
+    unit = fleet.unit_for_incident("INC-mon")
+    route = incident["citizen_view"]["phase1_route_coordinates"]
+    _off, index = monitor.project(route, unit["position"])
+    city_state.close_road(monitoring.edges_to_close(route, index, unit["position"]), "closure")
+    lost = monitor.tick([incident])[0][1]
+    monitor._watches["AMB-01"].alert_id = "OTHER"  # another alert took over meanwhile
+    monitor.forget_unstored("AMB-01", lost)
+    monitor.clear_alert("AMB-01")  # dispatch dismisses that other alert
+    again = monitor.tick([incident])
+    assert len(again) == 1 and again[0][1]["trigger"] == "blocked_ahead"
