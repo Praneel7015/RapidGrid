@@ -292,7 +292,8 @@ export default function DispatcherDashboard() {
   const needsAction = incidents.filter(
     (i) => i.status === 'awaiting_dispatcher_approval',
   ).length;
-  const peakSeverity = incidents.reduce((m, i) => Math.max(m, i.severity ?? 0), 0);
+  // Only calls still open count: a finished call's severity is not "peak" now.
+  const peakSeverity = queueVisible.reduce((m, i) => Math.max(m, i.severity ?? 0), 0);
   const hot = peakSeverity >= 0.8 && needsAction > 0;
 
   return (
