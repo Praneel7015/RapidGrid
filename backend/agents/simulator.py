@@ -266,7 +266,9 @@ async def supersede_stale_alerts() -> None:
 
 def caller_safe_summary(alert: dict) -> str:
     """One line for everyone on the call: what happened and the new ETA."""
-    what = "left its planned route" if alert.get("trigger") == "deviation" else "has a disruption on its route"
+    what = {"deviation": "left its planned route", "slowing_ahead": "is slowed by traffic on its route",
+            "destination_divert": "is changing hospital (the planned one went on divert)"}.get(
+        alert.get("trigger"), "has a disruption on its route")
     cause = (alert.get("cause") or {}).get("text") or "cause being checked"
     eta = alert.get("new_eta_s")
     eta_text = f" New estimated arrival in {eta / 60:.0f} min." if eta else " Dispatch is finding a way through."
@@ -298,6 +300,11 @@ async def store_alerts(alerts: list[tuple[str, dict]]) -> None:
             if alert.get("route_key") and route and route_key(route) != alert["route_key"]:
                 continue
             monitoring = inc.setdefault("monitoring", {"alerts": []})
+            if alert.get("trigger") == "destination_divert":
+                # The older advice routed to the hospital that is now closed.
+                for other in monitoring.get("alerts", []):
+                    if other.get("status") == "open":
+                        other["status"] = "superseded"
             monitoring["alerts"] = [alert] + monitoring.get("alerts", [])[:9]
             try:
                 await incident_router.commit(inc)
@@ -315,7 +322,7 @@ async def store_alerts(alerts: list[tuple[str, dict]]) -> None:
     kept = {id(a) for _i, a in stored}
     for _incident_id, alert in alerts:
         if id(alert) not in kept and alert.get("unit_id"):
-            monitor.clear_alert(alert["unit_id"])
+            monitor.forget_unstored(alert["unit_id"], alert)
     if stored:
         # The channel includes the caller: post the facts (cause, new ETA),
         # not the dispatcher's advice (backup, hold), which stays on the
