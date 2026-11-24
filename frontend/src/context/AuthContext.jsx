@@ -7,9 +7,9 @@ export function AuthProvider({ children }) {
 
   const [hospitalInfo, setHospitalInfo] = useState(() => {
     try {
-      return JSON.parse(sessionStorage.getItem('geoagentic_hosp')) || { id: 'all', name: 'Bangalore Central ER Desk' };
+      return JSON.parse(sessionStorage.getItem('geoagentic_hosp')) || { id: 'all', name: 'All receiving facilities' };
     } catch {
-      return { id: 'all', name: 'Bangalore Central ER Desk' };
+      return { id: 'all', name: 'All receiving facilities' };
     }
   });
 

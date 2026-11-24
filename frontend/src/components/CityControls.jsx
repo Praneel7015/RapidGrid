@@ -39,6 +39,10 @@ export default function CityControls({ onChange }) {
 
   useEffect(() => {
     load();
+    // Closures staged from the monitoring panel (or by another dispatcher)
+    // change the city too: keep the counters current.
+    const timer = setInterval(load, 5000);
+    return () => clearInterval(timer);
   }, []);
 
   // Road-name autocomplete.
