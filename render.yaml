@@ -20,7 +20,9 @@ services:
     envVars:
       - key: RAPIDGRID_MODE
         value: operator
-      - key: RAPIDGRID_OPERATOR_TOKEN
+      # The contacts JSON (unit and hospital numbers, dispatch, 112, staff PINs).
+      # Render asks for its value on first deploy; never commit it.
+      - key: RAPIDGRID_CONTACTS
         sync: false
       - key: RAPIDGRID_DATA_DIR
         value: /var/data

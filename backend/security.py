@@ -359,21 +359,9 @@ def _session_active(cookie: str, secret: str) -> bool:
 
 
 def authenticated(connection: HTTPConnection) -> bool:
-    secret = operator_token()
-    if not secret:
-        return False
-    auth = connection.headers.get("authorization", "")
-    if auth.startswith("Bearer "):
-        # The raw token is the same secret the unlock form takes, for scripts
-        # such as the reset command; it is throttled the same way.
-        key = client_key(connection)
-        if retry_after(key):
-            return False
-        if hmac.compare_digest(auth[7:].encode(), secret.encode()):
-            return True
-        record_failure(key)
-        return False
-    return _session_active(connection.cookies.get(COOKIE_NAME, ""), secret)
+    """Showcase access token removed: every visitor counts as signed in to the
+    showcase. Staff actions are still limited by their own PINs (staff.py)."""
+    return True
 
 
 class ShowcaseAccessMiddleware:
@@ -435,7 +423,7 @@ router = APIRouter(prefix="/api/session", tags=["Showcase access"])
 
 
 class SessionLogin(BaseModel):
-    token: str = Field(min_length=1, max_length=512)
+    token: str = Field(default="", max_length=512)
 
 
 @router.get("")
@@ -447,22 +435,7 @@ async def session_status(request: Request, response: Response):
 
 @router.post("")
 async def login_session(payload: SessionLogin, request: Request, response: Response):
-    secret = operator_token()
-    if not secret:
-        raise HTTPException(status_code=503, detail="Operator access is not configured")
-    key = client_key(request)
-    wait = retry_after(key)
-    if wait:
-        raise HTTPException(
-            status_code=429,
-            detail="Too many wrong tokens. Try again later.",
-            headers={"Retry-After": str(wait)},
-        )
-    if not hmac.compare_digest(payload.token.encode(), secret.encode()):
-        record_failure(key)
-        raise HTTPException(status_code=401, detail="Invalid showcase access token")
-    secure = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
-    response.set_cookie(COOKIE_NAME, _session_value(), max_age=SESSION_SECONDS, httponly=True, secure=secure, samesite="strict", path="/")
+    """Kept so older clients do not break. No token is checked any more."""
     response.headers["Cache-Control"] = "no-store"
     return {"mode": mode(), "authenticated": True, "operator_authenticated": True}
 
@@ -560,12 +533,13 @@ async def forwarding_check(request: Request, response: Response):
 
 @router.post("/purge")
 async def purge_personal_data(request: Request, response: Response):
-    """Operator only, after the event: delete every call, message, position
-    trail and citizen account (personal data under the DPDP Act). The
-    operator token is the only way in; staff PINs are not enough."""
+    """After the event: delete every call, message, position trail and citizen
+    account (personal data under the DPDP Act). With staff sign-in on, only a
+    dispatcher PIN sign-in may do it; in the open demo anyone may."""
     response.headers["Cache-Control"] = "no-store"
-    if not authenticated(request):
-        raise HTTPException(status_code=401, detail="Operator sign-in required")
+    import staff
+
+    staff.require(request, "dispatcher")
     # A JSON body cannot be sent cross-site without a CORS preflight (CSRF).
     if request.headers.get("content-type", "").split(";")[0].strip() != "application/json":
         raise HTTPException(status_code=415, detail="Send a JSON request")

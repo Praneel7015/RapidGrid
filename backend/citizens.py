@@ -225,10 +225,6 @@ async def register(payload: Registration, request: Request, response: Response):
         phone = normalise_phone(payload.phone)
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from None
-    client = security.client_key(request)
-    if not _admit_registration(client):
-        raise HTTPException(status_code=429, detail="Too many registrations from here. Try again later.",
-                            headers={"Retry-After": str(REGISTER_WINDOW_S)})
     cid = citizen_id(phone)
     salt = secrets.token_bytes(16)
     record = {"name": payload.name, "phone": phone, "salt": salt.hex(),

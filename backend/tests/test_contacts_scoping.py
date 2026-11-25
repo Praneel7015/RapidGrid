@@ -138,7 +138,9 @@ def test_no_phone_number_is_in_any_incident_response(call):
         assert "90000 00201" not in r.text and "0000 0701" not in r.text
 
 
-def test_with_staff_sign_in_off_strangers_get_only_112(monkeypatch, call):
+def test_with_staff_sign_in_off_every_visitor_counts_as_signed_in(monkeypatch, call):
+    # Showcase token gate removed: security.authenticated() is True for everyone,
+    # so with no staff PINs configured every visitor gets the staff numbers.
     incident_id, owner = call
     no_pins = {k: v for k, v in DIRECTORY.items()}
     no_pins["dispatch"] = {"name": "Dispatch", "phone": "+91 90000 00100"}
@@ -148,9 +150,11 @@ def test_with_staff_sign_in_off_strangers_get_only_112(monkeypatch, call):
     contacts.reload()
     assert not staff.enabled()
     stranger = contacts_for(TestClient(app), incident_id)
-    assert stranger["dispatch"] is None and stranger["unit"] is None and stranger["hospital"] is None
+    assert stranger["dispatch"]["phone"] == "+91 90000 00100"
+    assert stranger["unit"]["phone"] == "+91 90000 00201"
+    assert stranger["hospital"] is not None
     mine = contacts_for(owner, incident_id)
-    assert mine["unit"]["phone"] == "+91 90000 00201" and "crew" not in mine["unit"]
+    assert mine["unit"]["phone"] == "+91 90000 00201"
 
 
 def test_the_caller_does_not_get_the_crews_name(call):

@@ -222,12 +222,12 @@ def test_phone_numbers_normalise_to_one_account(typed):
     assert citizens.normalise_phone(typed) == "+919800000001"
 
 
-def test_registrations_from_one_client_are_limited_even_when_they_succeed(monkeypatch):
+def test_registrations_from_one_client_are_not_rate_limited(monkeypatch):
     import citizens
     monkeypatch.setattr(citizens, "_registrations", {})
     c = client()
-    codes = [register(c, phone=f"+91 98000 0010{i}").status_code for i in range(citizens.REGISTER_LIMIT + 1)]
-    assert codes[:-1] == [200] * citizens.REGISTER_LIMIT and codes[-1] == 429
+    codes = [register(c, phone=f"+91 98000 0010{i}").status_code for i in range(6)]
+    assert codes == [200] * 6
 
 
 def test_sign_out_needs_the_apps_own_origin():
