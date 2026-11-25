@@ -81,6 +81,7 @@ def _save(strict: bool = False) -> None:
     snapshot = {}
     for uid, u in _units.items():
         snapshot[uid] = {k: u.get(k) for k in ("status", "incident_id", "gps_incident")}
+        snapshot[uid]["on_duty"] = u.get("on_duty", True)
         if u.get("gps_incident") and u["position"].get("source") == "gps":
             # A real vehicle's last place, so a restart does not show it at
             # its station (saved at most every SAVE_REAL_POSITION_S).
@@ -134,6 +135,8 @@ def load(attempts: int = 3) -> None:
                 # A real vehicle stays real across a restart (the simulator
                 # must not start driving it before its phone's next fix).
                 "gps_incident": saved.get("gps_incident") if real else None,
+                # Off duty: shown on the map, never dispatched.
+                "on_duty": saved.get("on_duty", True) is not False,
                 "position": previous.get("position") or (
                     saved["position"] if real and isinstance(saved.get("position"), dict)
                     and {"lat", "lng", "at"} <= set(saved["position"]) else None
@@ -211,7 +214,7 @@ def assign(incident_id: str, unit_type: str, near: dict, prefer_station: Optiona
         if current is not None:
             return dict(current)
         free = [u for u in _units.values() if u["type"] == unit_type and u["status"] == "available"
-                and u["unit_id"] not in (exclude or ())]
+                and u.get("on_duty", True) and u["unit_id"] not in (exclude or ())]
         if not free:
             return None
         preferred = [u for u in free if prefer_station and u["station"] == prefer_station]
@@ -356,6 +359,24 @@ def trail(unit_id: str) -> list[dict]:
         return list(_trails.get(unit_id, ()))
 
 
+def set_duty(unit_id: str, on_duty: bool) -> dict:
+    """Put a unit on or off duty. Raises KeyError for an unknown unit and
+    ValueError for a unit on a call (it finishes the call first)."""
+    _ensure()
+    with _lock:
+        u = _units[unit_id]
+        if not on_duty and u["status"] != "available":
+            raise ValueError("on a call")
+        before = u.get("on_duty", True)
+        u["on_duty"] = bool(on_duty)
+        try:
+            _save(strict=True)
+        except Exception:
+            u["on_duty"] = before
+            raise
+        return dict(u, position=dict(u["position"]))
+
+
 def real_vehicle(u: Optional[dict]) -> bool:
     """True when this unit's phone has sent a fix on its current call: it is
     a real vehicle until the call ends, whether or not its phone is sending
@@ -377,7 +398,7 @@ def reset() -> None:
             # stored ones with "all free". Leave them for the next load.
             return
         for u in _units.values():
-            u.update(status="available", incident_id=None, gps_incident=None,
+            u.update(status="available", incident_id=None, gps_incident=None, on_duty=True,
                      position={**u["station_location"], "at": time.time(), "source": "station", "accuracy_m": None})
         for t in _trails.values():
             t.clear()

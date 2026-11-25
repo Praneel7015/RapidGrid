@@ -16,6 +16,8 @@ delay (capped at 60 s) and per client, but never against a global ceiling.
 
 from __future__ import annotations
 
+import contextlib
+import contextvars
 import hashlib
 import hmac
 import logging
@@ -116,6 +118,21 @@ _file_secrets: dict = {}
 
 def enabled() -> bool:
     return contacts.staff_pins_configured()
+
+
+# The server's own simulated city (other calls under way during the demo)
+# acts through the same handlers as people do. It has no cookie or token:
+# only code running in this process can set this, and only while it runs.
+_system_actor: contextvars.ContextVar = contextvars.ContextVar("rapidgrid_system_actor", default=None)
+
+
+@contextlib.contextmanager
+def system_actor(name: str):
+    token = _system_actor.set(name)
+    try:
+        yield
+    finally:
+        _system_actor.reset(token)
 
 
 def _digest(pin: str) -> bytes:
@@ -263,6 +280,8 @@ def require(connection: Optional[HTTPConnection], role: str, subject: Optional[s
     Deny by default once staff sign-in is on. Off (no PINs configured), it
     allows everything, as the open local demo always has.
     """
+    if connection is None and _system_actor.get() is not None:
+        return ("system", _system_actor.get())
     if not enabled():
         return ("open", "*")
     who = current(connection) if connection is not None else None

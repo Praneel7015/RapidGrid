@@ -76,7 +76,8 @@ def test_assignment_survives_a_restart():
 
 def test_no_free_unit_of_that_type_returns_none():
     assert fleet.assign("INC-1", "Disaster Rescue", HEBBAL)["unit_id"] == "RESCUE-01"
-    assert fleet.assign("INC-2", "Disaster Rescue", HEBBAL) is None
+    assert fleet.assign("INC-2", "Disaster Rescue", HEBBAL)["unit_id"] == "RESCUE-02"
+    assert fleet.assign("INC-3", "Disaster Rescue", HEBBAL) is None
 
 
 def test_only_the_units_own_crew_can_post_its_position(with_pins):

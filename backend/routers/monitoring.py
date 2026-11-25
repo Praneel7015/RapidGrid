@@ -18,7 +18,7 @@ import asyncio
 import logging
 import math
 import time
-from typing import Literal
+from typing import Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -415,6 +415,9 @@ async def reset_event_state() -> dict:
         fleet.reset()
         simulator.reset()
         monitor.reset()
+        from agents import city_life
+
+        city_life.reset()
         await manager.clear_all()
         if not city_state.ready:
             city_state.attach(local_router)
@@ -435,20 +438,57 @@ async def reset_event_state() -> dict:
     return {"incidents_cleared": cleared, "units": len(fleet.units())}
 
 
-@router.post("/api/monitoring/reset")
-async def reset_for_demo(request: Request = None):
-    """Dispatch: start the demo from a clean slate (run before presenting).
-    In the open demo (no staff PINs) only the operator may reset, so a
-    visitor cannot wipe the stage."""
+def _stage_control(request, what: str) -> tuple[str, str]:
+    """Dispatch (or the operator) only. In the open demo (no staff PINs) only
+    the operator may, so a visitor cannot wipe or fill the stage."""
     import security
     import staff
 
     if staff.enabled():
-        who = require_staff(request, "dispatcher")
-    elif request is not None and security.authenticated(request):
-        who = ("operator", "*")
-    else:
-        raise HTTPException(status_code=401, detail="Resetting needs the dispatcher (or operator) sign-in")
+        return require_staff(request, "dispatcher")
+    if request is not None and security.authenticated(request):
+        return ("operator", "*")
+    raise HTTPException(status_code=401, detail=f"{what} needs the dispatcher (or operator) sign-in")
+
+
+class CityLifeChange(BaseModel):
+    # Start this many calls now, already under way (0 to 6).
+    seed: int = Field(default=0, ge=0, le=6)
+    # The background caller: a new call every interval_s while on.
+    background: Optional[bool] = None
+    interval_s: Optional[float] = Field(default=None, ge=30, le=1800)
+
+
+@router.get("/api/monitoring/city-life")
+async def city_life_status(request: Request = None):
+    from agents import city_life
+
+    return city_life.status()
+
+
+@router.post("/api/monitoring/city-life")
+async def city_life_change(change: CityLifeChange, request: Request = None):
+    """Make the city busy: other calls already under way, and optionally a
+    background caller. All of it is labelled as simulated on every screen."""
+    from agents import city_life
+
+    who = _stage_control(request, "Starting the simulated city")
+    started = city_life.seed(change.seed) if change.seed else 0
+    result = city_life.configure(background=change.background, interval_s=change.interval_s)
+    if started or change.background is not None:
+        monitor._log("-", "-", "demo",
+                     f"Simulated city: {started} call(s) started"
+                     + ("" if change.background is None else
+                        f"; background caller {'on' if change.background else 'off'}") + ".")
+    import logging
+    logging.getLogger("geoagentic.monitoring").info("City life changed by %s", who[0])
+    return {**result, "started": started}
+
+
+@router.post("/api/monitoring/reset")
+async def reset_for_demo(request: Request = None):
+    """Dispatch: start the demo from a clean slate (run before presenting)."""
+    who = _stage_control(request, "Resetting")
     result = await reset_event_state()
     monitor._log("-", "-", "demo", "Demo reset: calls, messages, closures and diverts cleared; units at stations.")
     import logging

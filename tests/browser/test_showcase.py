@@ -1029,3 +1029,40 @@ def test_play_all_runs_the_scenario_hands_free_in_projector_mode(context, server
     finally:
         page.close()
         context.request.post(server + "/api/monitoring/reset", headers=auth, data={})
+
+
+def test_each_laptop_takes_a_seat_and_says_whose_screen_it_is(context, server):
+    unlock(context, server)
+    page = context.new_page()
+    page.route("https://tile.openstreetmap.org/**", lambda route: route.abort())
+    try:
+        page.goto(server + "/seats")
+        expect(page.get_by_test_id("seats").get_by_role("button")).to_have_count(5)
+        page.get_by_role("button", name="Dispatcher").click()
+        page.wait_for_url("**/dispatcher")
+        expect(page.get_by_test_id("seat-banner")).to_contain_text("You are: DISPATCHER")
+        page.reload()  # the seat is remembered on this laptop
+        expect(page.get_by_test_id("seat-banner")).to_contain_text("DISPATCHER")
+        page.get_by_role("button", name="Change seat").click()
+        page.wait_for_url("**/seats")
+    finally:
+        page.evaluate("() => localStorage.removeItem('rapidgrid.seat')")
+        page.close()
+
+
+def test_the_control_room_shows_every_hospital_station_and_vehicle(context, server):
+    unlock(context, server)
+    context.request.post(server + "/api/monitoring/reset", headers={"Authorization": f"Bearer {ACCESS_TOKEN}"}, data={})
+    page = context.new_page()
+    page.route("https://tile.openstreetmap.org/**", lambda route: route.abort())
+    try:
+        page.goto(server + "/control")
+        expect(page.get_by_role("heading", name="City control room")).to_be_visible()
+        expect(page.locator(".rg-hospital")).to_have_count(30, timeout=20000)
+        expect(page.locator(".rg-station")).to_have_count(11)
+        expect(page.locator(".rg-fleet")).to_have_count(17, timeout=15000)
+        expect(page.get_by_test_id("map-legend")).to_contain_text("Hospital on divert")
+        expect(page.get_by_test_id("city-counts")).to_contain_text("30")
+        expect(page.get_by_test_id("city-life")).to_be_visible()
+    finally:
+        page.close()

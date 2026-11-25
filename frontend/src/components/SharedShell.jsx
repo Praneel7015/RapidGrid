@@ -8,6 +8,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
+import { SeatBanner } from '../views/Seats';
 import { LogOut, Radio, Truck, PlusSquare, Heart, Activity } from 'lucide-react';
 
 const PORTALS = {
@@ -84,6 +85,7 @@ export default function SharedShell({ children }) {
 
   return (
     <div className="flex min-h-screen flex-col bg-field">
+      <SeatBanner />
       <header className="sticky top-0 z-50 border-b border-rule-ink bg-ink">
         <div className="mx-auto flex max-w-[1600px] items-center justify-between gap-4 px-4 py-2.5 sm:px-6">
           <div className="flex min-w-0 items-center gap-3">

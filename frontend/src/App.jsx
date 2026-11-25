@@ -9,6 +9,8 @@ import DispatcherDashboard from './views/DispatcherDashboard';
 import DriverDashboard from './views/DriverDashboard';
 import HospitalDashboard from './views/HospitalDashboard';
 import GuidedDemo from './views/GuidedDemo';
+import ControlRoom from './views/ControlRoom';
+import Seats, { SeatBanner } from './views/Seats';
 
 /**
  * Demo role gate.
@@ -115,6 +117,8 @@ export default function App() {
             <Route path="/driver" element={portal('driver', DriverDashboard)} />
             <Route path="/hospital" element={portal('hospital', HospitalDashboard)} />
             <Route path="/demo" element={<GuidedDemo />} />
+            <Route path="/seats" element={<Seats />} />
+            <Route path="/control" element={<DemoRole role="dispatcher"><SeatBanner /><ControlRoom /></DemoRole>} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </BrowserRouter>

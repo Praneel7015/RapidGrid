@@ -62,13 +62,54 @@ def store_fix(unit_id: str, lat: float, lng: float, *, accuracy_m=None, heading=
 
 def _public(unit: dict) -> dict:
     """What tracking screens may show: no crew names or phone numbers."""
-    return {k: unit[k] for k in ("unit_id", "type", "station", "status", "incident_id", "position")}
+    return {**{k: unit[k] for k in ("unit_id", "type", "station", "status", "incident_id", "position")},
+            "on_duty": unit.get("on_duty", True)}
+
+
+class DutyChange(BaseModel):
+    on_duty: bool
 
 
 @router.get("/api/units")
 async def list_units(request: Request = None):
     require_staff(request, "dispatcher")
     return {"units": [_public(u) for u in fleet.units()]}
+
+
+@router.get("/api/stations")
+async def list_stations():
+    """Every emergency station (ambulance, fire, police, rescue) for the map.
+    Public facts: names and places, nothing about crews."""
+    from agents.route_optimization import EMERGENCY_HUBS
+
+    return {"stations": [{"id": hub["id"], "name": hub["name"], "type": unit_type,
+                          "lat": hub["lat"], "lng": hub["lng"]}
+                         for unit_type, hubs in EMERGENCY_HUBS.items() for hub in hubs]}
+
+
+@router.post("/api/units/{unit_id}/duty")
+async def set_duty(unit_id: str, change: DutyChange, request: Request = None):
+    """On or off duty: the unit's own crew, or dispatch. An off-duty unit
+    stays on the map and is never dispatched."""
+    import security
+    import staff
+
+    if not change.on_duty and not staff.enabled():
+        # Open demo: a visitor may put a unit on duty, never take one off.
+        if request is None or not security.authenticated(request):
+            raise HTTPException(status_code=401, detail="Taking a unit off duty needs the operator sign-in")
+    else:
+        try:
+            require_staff(request, "unit", unit_id)
+        except HTTPException:
+            require_staff(request, "dispatcher")
+    try:
+        unit = fleet.set_duty(unit_id, change.on_duty)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Unknown unit") from None
+    except ValueError:
+        raise HTTPException(status_code=409, detail="This unit is on a call; it can go off duty once the call ends") from None
+    return _public(unit)
 
 
 @router.get("/api/units/{unit_id}")

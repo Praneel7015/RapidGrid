@@ -121,7 +121,12 @@ function PinForm({ label, onSubmit, onCancel }) {
 export default function Login() {
   const { login } = useAuth();
   const navigate = useNavigate();
-  const [picking, setPicking] = useState(null);
+  // A seat that needs a unit or hospital opens the list straight away
+  // (/login?pick=driver or ?pick=hospital, from the seats page).
+  const [picking, setPicking] = useState(() => {
+    const pick = new URLSearchParams(window.location.search).get('pick');
+    return pick === 'driver' || pick === 'hospital' ? pick : null;
+  });
   const [directory, setDirectory] = useState({ enabled: false, units: [], hospitals: [] });
   // Staff roles open without a PIN only once the server has said sign-in is
   // off; while loading, or if the check failed, they stay closed.

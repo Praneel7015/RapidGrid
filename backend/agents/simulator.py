@@ -137,6 +137,16 @@ def fleet_leg(incident: dict) -> tuple[Optional[str], list[dict], Optional[float
     return leg
 
 
+def start_part_way(unit_id: str, incident: dict, fraction: float) -> None:
+    """Place a simulated unit part way along its current leg (a call that
+    was already under way when the demo started)."""
+    key, route, _eta = fleet_leg(incident)
+    if key is None or len(route) < 2:
+        return
+    leg_key = f"{incident['incident_id']}:{key}:{route_key(route)}"
+    _progress[unit_id] = (leg_key, length(route) * max(0.0, min(0.95, fraction)), None)
+
+
 def step(incidents: list[dict], dt_s: float = TICK_S) -> int:
     """Advance every simulated unit by one tick. Returns how many moved."""
     moved = 0
@@ -362,13 +372,24 @@ async def run() -> None:
                 step(active)
                 from agents import monitor
 
-                alerts = await asyncio.to_thread(monitor.tick, active)
+                # The simulated city's own calls are not watched: nobody on
+                # stage is handling them, so an alert there would sit open.
+                watched = [i for i in active if not i.get("background")]
+                alerts = await asyncio.to_thread(monitor.tick, watched)
                 if alerts:
                     await store_alerts(alerts)
         except asyncio.CancelledError:
             raise
         except Exception:
             logger.exception("Simulator tick failed")
+        try:
+            from agents import city_life
+
+            await city_life.advance()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Simulated city tick failed")
         try:
             # Every call, finished ones included, and even after a failed
             # tick: an open alert on a completed call must close. Writes only
