@@ -415,7 +415,9 @@ class ShowcaseAccessMiddleware:
                 await JSONResponse({"detail": "Cross-origin action refused"}, status_code=403)(scope, receive, send)
             return
         # The access bootstrap stays available so the UI can offer sign-in.
-        if path == "/api/session" or method == "OPTIONS":
+        # A vehicle's tracker app has no browser session: it authenticates
+        # with its own secret key (routers/tracker.py).
+        if path in ("/api/session", "/api/track") or method == "OPTIONS":
             return await self.app(scope, receive, send)
         protected = mode() == "operator" or (method not in {"GET", "HEAD"} and path in _BULK_ACTIONS)
         if protected and not authenticated(connection):

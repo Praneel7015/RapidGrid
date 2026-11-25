@@ -71,6 +71,14 @@ DISMISS_QUIET_S = 60.0
 SLOWING_MIN_S = 180.0         # a slowdown worth an alert: at least 3 min ...
 SLOWING_MIN_FRACTION = 0.2    # ... and 20% over the planned time left
 DISMISS_FURTHER_M = 500.0
+# Real GPS is noisy, and a route can pass close to itself (a U-turn, a
+# flyover above its own service road). A fix is matched only to the stretch
+# of route the vehicle can have reached since its last fix: a little behind
+# (jitter) and ahead by at most a fast drive for the time that has passed.
+BACK_WINDOW_M = 150.0
+REACH_MIN_M = 250.0
+REACH_SPEED_MPS = 35.0        # about 125 km/h: faster than any city drive
+ASSUMED_ACCURACY_M = 50.0     # a phone fix that did not say how accurate it was
 
 
 # --- geometry -------------------------------------------------------------------
@@ -101,6 +109,55 @@ def project(route: list[dict], point: dict, start_index: int = 0) -> tuple[float
     """(metres off the route, index of the nearest segment at or after start_index-2)."""
     best = (float("inf"), start_index)
     for i in range(max(0, start_index - 2), len(route) - 1):
+        d, _t = point_segment_m(point, route[i], route[i + 1])
+        if d < best[0]:
+            best = (d, i)
+    return best
+
+
+def _cumulative(route: list[dict]) -> list[float]:
+    out = [0.0]
+    for a, b in zip(route, route[1:]):
+        out.append(out[-1] + _dist(a, b))
+    return out
+
+
+def reach(watch: "Watch", at: Optional[float]) -> Optional[float]:
+    """How far ahead of its furthest matched point a real vehicle can be now;
+    None (search the whole route) before it has been matched at all."""
+    if watch.matched_at is None or not watch.started_near_station:
+        return None
+    return max(REACH_MIN_M, REACH_SPEED_MPS * max(0.0, (at or time.time()) - watch.matched_at))
+
+
+def first_on_route(route: list[dict], point: dict, within: float) -> tuple[float, int]:
+    """(metres off, index) of the first segment within `within` of the
+    point, or of the nearest segment when none is."""
+    best = (float("inf"), 0)
+    for i in range(len(route) - 1):
+        d, _t = point_segment_m(point, route[i], route[i + 1])
+        if d <= within:
+            return d, i
+        if d < best[0]:
+            best = (d, i)
+    return best
+
+
+def project_near(route: list[dict], point: dict, progress: int, reach_m: Optional[float]) -> tuple[float, int]:
+    """Like project(), but only over the stretch the unit can be on: from
+    BACK_WINDOW_M behind its progress to reach_m ahead. reach_m None means
+    the whole rest of the route (the simulator's exact positions)."""
+    if reach_m is None:
+        return project(route, point, progress)
+    cum = _cumulative(route)
+    progress = max(0, min(progress, len(route) - 2))
+    lo, hi = cum[progress] - BACK_WINDOW_M, cum[progress] + reach_m
+    best = (float("inf"), progress)
+    for i in range(len(route) - 1):
+        if cum[i + 1] < lo:
+            continue
+        if cum[i] > hi:
+            break
         d, _t = point_segment_m(point, route[i], route[i + 1])
         if d < best[0]:
             best = (d, i)
@@ -198,6 +255,12 @@ class Watch:
     # than this, never slower than an ETA from another source.
     baseline_s: Optional[float] = None
     baseline_left_m: float = 0.0
+    # Real GPS: the furthest point matched on this route, and when. The match
+    # window hangs from the furthest point (so a run of fixes it cannot use
+    # never walks progress backwards) and grows with the time since then
+    # (so a vehicle that drove on unseen is found again).
+    high: int = 0
+    matched_at: Optional[float] = None
 
 
 _watches: dict[str, Watch] = {}
@@ -257,7 +320,13 @@ def live_status(incident: dict, unit: Optional[dict]) -> Optional[dict]:
     # means nothing on the new polyline, and could even be past its end).
     same = watch and watch.leg_key == f"{incident['incident_id']}:{leg}:{route_key(route)}"
     start = min(watch.progress, len(route) - 2) if same else 0
-    off, index = project(route, point, start)
+    real = pos.get("source") == "gps"
+    if real and same:
+        off, index = project_near(route, point, min(watch.high, len(route) - 2), reach(watch, pos.get("at")))
+    elif real:
+        off, index = project(route, point)
+    else:
+        off, index = project(route, point, start)
     if off == float("inf"):  # nothing scanned: search the whole route
         off, index = project(route, point)
     index = min(index, len(route) - 2)
@@ -273,6 +342,9 @@ def live_status(incident: dict, unit: Optional[dict]) -> Optional[dict]:
         "remaining_s": round(eta_s * remaining_m / total) if eta_s else None,
         "fix_source": pos.get("source"),
         "fix_age_s": round(max(0.0, time.time() - pos["at"]), 1) if pos.get("at") else None,
+        # A real vehicle whose phone has gone quiet: its last known place,
+        # not an invented one, and the screens say so.
+        "signal_lost": real and bool(pos.get("at")) and time.time() - pos["at"] > fleet.GPS_FRESH_S,
         "watching": watch is not None,
         "open_alert": bool(watch and watch.alert_id),
         "provenance": "modelled",
@@ -775,6 +847,7 @@ def tick(incidents: list[dict]) -> list[tuple[str, dict]]:
             new_leg = watch.leg_key.rsplit(":", 1)[0] != leg_key.rsplit(":", 1)[0]
             handled = watch.city_version
             watch.leg_key, watch.progress, watch.off_count, watch.alert_id = leg_key, 0, 0, None
+            watch.high, watch.matched_at = 0, None
             watch.alert_city_version = ()
             watch.quiet_until = 0.0  # a dismissal was for the old route
             # A reroute of the same leg (dispatch accepted a route around the
@@ -792,14 +865,40 @@ def tick(incidents: list[dict]) -> list[tuple[str, dict]]:
                                               or _dist(pos, route[0]) <= 300)
         pos = unit["position"]
         point = {"lat": pos["lat"], "lng": pos["lng"]}
-        off, index = project(route, point, watch.progress)
-        _last_off[unit["unit_id"]] = off
-        accuracy = pos.get("accuracy_m") or 0.0
-        usable = accuracy <= MAX_ACCURACY_M and watch.started_near_station
+        real = pos.get("source") == "gps"
         fresh = pos.get("at") is None or pos.get("at") != watch.last_fix_at
+        if real:
+            accuracy = pos.get("accuracy_m")
+            accuracy = ASSUMED_ACCURACY_M if accuracy is None else accuracy
+            window = reach(watch, pos.get("at"))
+            if window is None:
+                # Not matched yet: the earliest stretch the fix is on (by the
+                # same test as "on route" below), not the nearest anywhere: a
+                # route passing near itself would otherwise start it on the
+                # later pass for good.
+                off, index = first_on_route(route, point, OFF_ROUTE_M + accuracy)
+            else:
+                off, index = project_near(route, point, watch.high, window)
+        else:
+            off, index = project(route, point, watch.progress)
+            accuracy = pos.get("accuracy_m") or 0.0
+        _last_off[unit["unit_id"]] = off
+        if not watch.started_near_station and real and off <= OFF_ROUTE_M + accuracy:
+            # A phone that began away from its route (sent from elsewhere,
+            # parked off the road): watched from when it reaches the route.
+            watch.started_near_station = True
+        usable = accuracy <= MAX_ACCURACY_M and watch.started_near_station
         watch.last_fix_at = pos.get("at")
         if off <= OFF_ROUTE_M + accuracy:
-            watch.progress = max(watch.progress, index)
+            if not real:
+                watch.progress = max(watch.progress, index)
+            elif accuracy <= MAX_ACCURACY_M and watch.started_near_station:
+                # Real GPS moves progress either way within its window (a
+                # jittery fix a little ahead is taken back), and only on a
+                # fix accurate enough to place it.
+                watch.progress = index
+                watch.high = max(watch.high, index)
+                watch.matched_at = pos.get("at")
             watch.off_count = 0
             watch.quiet_until = 0.0  # back on route: a new deviation counts again
         elif usable and fresh:

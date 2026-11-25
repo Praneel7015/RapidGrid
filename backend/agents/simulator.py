@@ -143,7 +143,7 @@ def step(incidents: list[dict], dt_s: float = TICK_S) -> int:
     by_id = {i["incident_id"]: i for i in incidents}
     for unit in fleet.units():
         incident = by_id.get(unit.get("incident_id") or "")
-        if incident is None or fleet.phone_tracking(unit["unit_id"]):
+        if incident is None or fleet.real_vehicle(unit) or fleet.phone_tracking(unit["unit_id"]):
             continue
         key, route, eta_s = fleet_leg(incident)
         if key is None or len(route) < 2:
