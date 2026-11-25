@@ -45,6 +45,20 @@ _CAPABILITIES_PATH = _DATA_DIR / "hospital_capabilities.json"
 # not a valid destination for a cardiac arrest, however close it happens to be.
 _RECEIVING_REQUIRED = {"cardiac", "trauma", "stroke", "general"}
 
+
+def _seed_from_capabilities() -> list[dict[str, Any]]:
+    """Curated hospitals as {id, name, lat, lng}, read from the capability table."""
+    try:
+        with open(_CAPABILITIES_PATH, encoding="utf-8") as f:
+            table = json.load(f).get("hospitals", {})
+    except (OSError, ValueError):
+        logger.exception("Could not load %s for the hospital seed", _CAPABILITIES_PATH.name)
+        return []
+    return [
+        {"id": hid, "name": p["name"], "lat": p["lat"], "lng": p["lng"]}
+        for hid, p in table.items()
+    ]
+
 # OpenStreetMap tags a great many single-speciality outpatient facilities as
 # amenity=hospital: dental surgeries, eye clinics, diagnostic labs, fertility
 # and dialysis centres. None of them can receive an emergency ambulance.
@@ -267,39 +281,10 @@ class HospitalIntelligenceAgent:
                 best = (distance, curated_id)
         return best[1] if best else None
 
-    # Real Bangalore hospitals as a reliable seed list — used when Overpass is slow/unavailable
-    BANGALORE_HOSPITALS_SEED = [
-        {"id": "blr-001", "name": "Manipal Hospital (Old Airport Road)",     "lat": 12.9591, "lng": 77.6469},
-        {"id": "blr-002", "name": "Fortis Hospital (Bannerghatta Road)",      "lat": 12.8780, "lng": 77.5983},
-        {"id": "blr-003", "name": "Apollo Hospital (Bannerghatta Road)",      "lat": 12.8896, "lng": 77.5979},
-        {"id": "blr-004", "name": "Narayana Health City (Bommasandra)",       "lat": 12.8335, "lng": 77.6735},
-        {"id": "blr-005", "name": "St. John's Medical College Hospital",      "lat": 12.9360, "lng": 77.6227},
-        {"id": "blr-006", "name": "Sakra World Hospital (Devarabeesanahalli)","lat": 12.9582, "lng": 77.6982},
-        {"id": "blr-007", "name": "Aster CMI Hospital (Hebbal)",              "lat": 13.0473, "lng": 77.5908},
-        {"id": "blr-008", "name": "BGS Gleneagles Global Hospital (Kengeri)", "lat": 12.9051, "lng": 77.4876},
-        {"id": "blr-009", "name": "MS Ramaiah Memorial Hospital",             "lat": 13.0100, "lng": 77.5571},
-        {"id": "blr-010", "name": "NIMHANS (Hosur Road)",                     "lat": 12.9406, "lng": 77.5954},
-        {"id": "blr-011", "name": "Vikram Hospital (Millers Road)",           "lat": 12.9834, "lng": 77.5957},
-        {"id": "blr-012", "name": "Columbia Asia Hospital (Hebbal)",          "lat": 13.0430, "lng": 77.5963},
-        {"id": "blr-013", "name": "Sparsh Hospital (Palace Road)",            "lat": 12.9988, "lng": 77.5792},
-        {"id": "blr-014", "name": "Cloudnine Hospital (Jayanagar)",           "lat": 12.9244, "lng": 77.5837},
-        {"id": "blr-015", "name": "Manipal Hospital (Whitefield)",            "lat": 12.9698, "lng": 77.7499},
-        {"id": "blr-016", "name": "Kauvery Hospital (Electronic City)",       "lat": 12.8457, "lng": 77.6703},
-        {"id": "blr-017", "name": "Motherhood Hospital (Indiranagar)",        "lat": 12.9784, "lng": 77.6408},
-        {"id": "blr-018", "name": "Rainbow Hospital (BTM Layout)",            "lat": 12.9119, "lng": 77.6065},
-        {"id": "blr-019", "name": "Jayadeva Institute of Cardiovascular Sciences","lat": 12.9290, "lng": 77.5878},
-        {"id": "blr-020", "name": "Bangalore Baptist Hospital (Bellary Road)","lat": 13.0325, "lng": 77.5836},
-        {"id": "blr-021", "name": "Kidwai Memorial Institute of Oncology",   "lat": 12.9335, "lng": 77.5862},
-        {"id": "blr-022", "name": "Victoria Hospital (KR Market)",            "lat": 12.9653, "lng": 77.5751},
-        {"id": "blr-023", "name": "Bowring and Lady Curzon Hospital",         "lat": 12.9745, "lng": 77.6113},
-        {"id": "blr-024", "name": "Sanjay Gandhi Accident Hospital",          "lat": 12.9740, "lng": 77.5929},
-        {"id": "blr-025", "name": "HCG Cancer Hospital (KR Road)",            "lat": 12.9318, "lng": 77.5894},
-        {"id": "blr-026", "name": "Sri Shankara Cancer Hospital",             "lat": 12.9261, "lng": 77.5821},
-        {"id": "blr-027", "name": "Hosmat Hospital (Richmond Road)",         "lat": 12.9594, "lng": 77.6054},
-        {"id": "blr-028", "name": "Mallya Hospital (Vittal Mallya Road)",     "lat": 12.9714, "lng": 77.5975},
-        {"id": "blr-029", "name": "Manipal Hospital (Sarjapur Road)",         "lat": 12.8989, "lng": 77.6797},
-        {"id": "blr-030", "name": "Apollo Spectra Hospital (Koramangala)",    "lat": 12.9312, "lng": 77.6124},
-    ]
+    # Curated Bangalore hospitals, used as the catalogue when Overpass is slow
+    # or down. Positions come from hospital_capabilities.json (resolved from
+    # OpenStreetMap); nothing is typed in here.
+    BANGALORE_HOSPITALS_SEED = _seed_from_capabilities()
 
     async def _fetch_live_hospitals(self, lat: float, lng: float, radius_m: int = 25000) -> list[dict[str, Any]]:
         """Queries Overpass API for real hospitals in Bangalore. Falls back to seed list if unavailable."""
