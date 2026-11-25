@@ -14,7 +14,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import shortId from '../utils/shortId';
 import { AlertTriangle, Check, CornerUpRight, X } from 'lucide-react';
-import { useFleet, useHospitals, useStations } from '../hooks/useCityLayers';
+import { useFleet, useHospitals, useStations, useOsmHospitals } from '../hooks/useCityLayers';
 import MapOverlay from '../components/MapOverlay';
 import useUnitTrack, { liveEtaMinutes } from '../hooks/useUnitTrack';
 import MonitoringPanel from '../components/MonitoringPanel';
@@ -249,6 +249,7 @@ export default function DispatcherDashboard() {
   const openAlert = selected?.monitoring?.alerts?.find((a) => a.status === 'open') ?? null;
   const fleet = useFleet(track.unit?.unit_id ?? null);
   const hospitals = useHospitals();
+  const osmHospitals = useOsmHospitals();
   const stations = useStations();
   const routeCoords = view.route_coordinates ?? plan?.recommended_route?.coordinates ?? [];
 
@@ -453,11 +454,12 @@ export default function DispatcherDashboard() {
                     focusKey={openAlert?.alert_id ?? null}
                     fleet={fleet}
                     hospitals={hospitals}
+                    osmHospitals={osmHospitals}
                     stations={stations}
                     highlightUnit={openAlert?.backup?.unit_id ?? null}
                     className="!rounded-none !border-0"
                   />
-                ) : (
+                ) : selected ? (
                   <div className="absolute inset-0 grid place-items-center bg-paper-sunk">
                     <div className="text-center">
                       <div className="live-dot mx-auto mb-3 h-2 w-2 rounded-full bg-signal" />
@@ -466,6 +468,16 @@ export default function DispatcherDashboard() {
                       </p>
                     </div>
                   </div>
+                ) : (
+                  // No call open: the city map, so every hospital layer is visible.
+                  <MapOverlay
+                    height="100%"
+                    hospitals={hospitals}
+                    osmHospitals={osmHospitals}
+                    stations={stations}
+                    fleet={fleet}
+                    className="!rounded-none !border-0"
+                  />
                 )}
               </div>
               {(view.eta_minutes != null || view.distance_meters != null) && (
@@ -602,11 +614,22 @@ export default function DispatcherDashboard() {
             </Panel>
           </div>
         ) : (
-          <Panel className="grid place-items-center">
-            <Empty
-              title="Select a call to review"
-              hint="Pick an incident from the queue to see its route, the ranked destinations, and why the system chose one over the others."
+          // No call open: the city map (every hospital and station), with the guidance under it.
+          <Panel className="overflow-hidden">
+            <MapOverlay
+              height="min(62vh, 600px)"
+              hospitals={hospitals}
+              osmHospitals={osmHospitals}
+              stations={stations}
+              fleet={fleet}
+              className="!rounded-none !border-0"
             />
+            <div className="px-4 py-3">
+              <p className="font-display text-sm font-semibold text-text">Select a call to review</p>
+              <p className="mt-1 text-sm text-text-faint">
+                Pick an incident from the queue to see its route, the ranked destinations, and why the system chose one over the others.
+              </p>
+            </div>
           </Panel>
         )}
 

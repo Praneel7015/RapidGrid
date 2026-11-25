@@ -10,7 +10,7 @@ import { Activity, Building2, Siren, Truck } from 'lucide-react';
 import MapOverlay from '../components/MapOverlay';
 import ControlRoomLog from '../components/ControlRoomLog';
 import { Panel, PanelHead, StatusTag } from '../components/ui';
-import { useFleet, useHospitals, useStations } from '../hooks/useCityLayers';
+import { useFleet, useHospitals, useStations, useOsmHospitals } from '../hooks/useCityLayers';
 import shortId from '../utils/shortId';
 
 const ACTIVE = new Set(['processing', 'awaiting_dispatcher_approval', 'dispatched', 'patient_picked_up']);
@@ -120,6 +120,7 @@ export default function ControlRoom() {
   const incidents = useIncidents();
   const fleet = useFleet();
   const hospitals = useHospitals();
+  const osmHospitals = useOsmHospitals();
   const stations = useStations();
   const [clock, setClock] = useState(() => new Date());
   useEffect(() => {
@@ -161,6 +162,7 @@ export default function ControlRoom() {
             height="calc(100vh - 120px)"
             fleet={fleet}
             hospitals={hospitals}
+            osmHospitals={osmHospitals}
             stations={stations}
             calls={calls}
           />

@@ -10,7 +10,7 @@ import shortId from '../utils/shortId';
 import { useAuth } from '../context/AuthContext';
 import { MapPin, Phone, Check, AlertTriangle, ChevronLeft } from 'lucide-react';
 import MapOverlay from '../components/MapOverlay';
-import { useHospitals } from '../hooks/useCityLayers';
+import { useHospitals, useOsmHospitals } from '../hooks/useCityLayers';
 import useUnitTrack, { liveEtaMinutes } from '../hooks/useUnitTrack';
 import LiveEmergencyChat from '../components/LiveEmergencyChat';
 import MicButton from '../components/MicButton';
@@ -42,6 +42,7 @@ export default function CitizenDashboard() {
   const { citizenInfo } = useAuth();
   // Every hospital around the caller, so they can see where help comes from.
   const hospitals = useHospitals();
+  const osmHospitals = useOsmHospitals();
 
   const [stage, setStage] = useState('home'); // home | report | sending | tracking | failed
   // The caller's last call, once it is handed over: a closing summary on the
@@ -114,8 +115,9 @@ export default function CitizenDashboard() {
         // The server knows whether this browser is signed in (the account
         // cookie), even in a new tab; ask it rather than tab storage.
         let mine = [];
-        const res0 = await fetch('/api/citizens/me/incidents');
-        if (res0.ok) mine = (await res0.json()).incidents ?? [];
+        // A 401 here just means nobody is signed in: not an error for the caller.
+        const res0 = await fetch('/api/citizens/me/incidents').catch(() => null);
+        if (res0?.ok) mine = (await res0.json()).incidents ?? [];
         if (!mine.length) {
           let lastId = null;
           try { lastId = sessionStorage.getItem('rapidgrid_my_incident'); } catch { /* storage off */ }
@@ -290,6 +292,15 @@ export default function CitizenDashboard() {
             <span className="t-meta text-text-muted">{locationLabel}</span>
           </div>
         </div>
+
+        <Panel className="mt-6 overflow-hidden">
+          <MapOverlay
+            hospitals={hospitals}
+            osmHospitals={osmHospitals}
+            height="min(40vh, 340px)"
+            className="!rounded-none !border-0"
+          />
+        </Panel>
 
         <a
           href="tel:112"
@@ -553,10 +564,23 @@ export default function CitizenDashboard() {
         )}
       </Panel>
 
+      {!view && (
+        // No emergency yet: the city map, so the hospitals are visible.
+        <Panel className="overflow-hidden">
+          <MapOverlay
+            hospitals={hospitals}
+            osmHospitals={osmHospitals}
+            height="min(46vh, 400px)"
+            className="!rounded-none !border-0"
+          />
+        </Panel>
+      )}
+
       {view && (
         <Panel className="overflow-hidden">
           <MapOverlay
             hospitals={hospitals}
+            osmHospitals={osmHospitals}
             height="min(46vh, 400px)"
             routeCoordinates={view.route_coordinates}
             phase1Coordinates={view.phase1_route_coordinates}

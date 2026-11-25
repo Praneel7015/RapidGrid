@@ -49,3 +49,9 @@ export function useHospitals() {
 export function useStations() {
   return usePolled('/api/stations', 0, (d) => d.stations);
 }
+
+/** Every OpenStreetMap hospital in Bangalore, tagged by area (loaded once,
+ * read from a saved file on the server, so it works without the internet). */
+export function useOsmHospitals() {
+  return usePolled('/api/city/osm-hospitals', 0, (d) => d.hospitals);
+}

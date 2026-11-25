@@ -9,7 +9,9 @@ planned and had nothing to do with the closure.
 
 from __future__ import annotations
 
+import json
 import logging
+from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
 from staff import require as require_staff
@@ -152,3 +154,22 @@ async def explain_segment(edge_id: int):
     if not city_state.ready:
         city_state.attach(local_router)
     return city_state.explain(edge_id)
+
+
+_OSM_HOSPITALS_PATH = Path(__file__).resolve().parent.parent / "data" / "bangalore_hospitals.json"
+_osm_hospitals_cache: dict | None = None
+
+
+@router.get("/osm-hospitals")
+async def osm_hospitals():
+    """Every OpenStreetMap hospital in Bangalore, tagged by area (Whitefield,
+    Mathikere, the venue, or the rest of the city). Read from a saved file, so
+    the map works without the internet. Public, read-only."""
+    global _osm_hospitals_cache
+    if _osm_hospitals_cache is None:
+        try:
+            _osm_hospitals_cache = json.loads(_OSM_HOSPITALS_PATH.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            logger.warning("Bangalore hospital file missing or unreadable: %s", _OSM_HOSPITALS_PATH)
+            return {"count": 0, "hospitals": [], "areas": []}
+    return _osm_hospitals_cache

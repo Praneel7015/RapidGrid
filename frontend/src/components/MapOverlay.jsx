@@ -161,6 +161,7 @@ export default function MapOverlay({
   // capabilities, beds_total, on_divert}) and every station ({name, type,
   // lat, lng}). Given either, the map gets a legend and layer switches.
   hospitals = NONE,
+  osmHospitals = NONE,
   stations = NONE,
   // Every active emergency ({incident_id, location, status, emergency_type,
   // background}) as a marker at its scene: the control room's whole city.
@@ -463,15 +464,22 @@ export default function MapOverlay({
   const stationLayer = useRef(null);
   const cityControls = useRef(null);
   const callLayer = useRef(null);
-  const showCity = hospitals.length > 0 || stations.length > 0;
+  const osmNamedLayer = useRef(null);
+  const osmOtherLayer = useRef(null);
+  const showCity = hospitals.length > 0 || stations.length > 0 || osmHospitals.length > 0;
   useEffect(() => {
     if (!map.current || !showCity || cityControls.current) return;
     hospitalLayer.current = L.layerGroup().addTo(map.current);
     stationLayer.current = L.layerGroup().addTo(map.current);
     callLayer.current = L.layerGroup().addTo(map.current);
+    // All Bangalore hospitals: the named areas shown by default, the rest off.
+    osmNamedLayer.current = L.layerGroup().addTo(map.current);
+    osmOtherLayer.current = L.layerGroup();
     if (!fleetLayer.current) fleetLayer.current = L.layerGroup().addTo(map.current);
     const switches = L.control.layers(null, {
       Hospitals: hospitalLayer.current,
+      'Hospitals: Whitefield, Mathikere, venue': osmNamedLayer.current,
+      'Other Bangalore hospitals (OSM)': osmOtherLayer.current,
       Stations: stationLayer.current,
       Vehicles: fleetLayer.current,
       Emergencies: callLayer.current,
@@ -501,6 +509,24 @@ export default function MapOverlay({
         .addTo(hospitalLayer.current);
     }
   }, [hospitals, showCity]);
+  useEffect(() => {
+    if (!osmNamedLayer.current) return;
+    osmNamedLayer.current.clearLayers();
+    osmOtherLayer.current.clearLayers();
+    for (const h of osmHospitals) {
+      if (!Number.isFinite(h.lat) || !Number.isFinite(h.lng)) continue;
+      const named = h.area !== 'bangalore';
+      const area = named ? h.area.charAt(0).toUpperCase() + h.area.slice(1) : 'Bangalore';
+      L.circleMarker([h.lat, h.lng], {
+        radius: named ? 6 : 3.5,
+        color: named ? COLOR.corridor : '#6b7280',
+        weight: 2,
+        fillOpacity: 0.85,
+      })
+        .bindPopup(popup([h.name, 'b'], [`${area} (OpenStreetMap, not a live feed)`]))
+        .addTo(named ? osmNamedLayer.current : osmOtherLayer.current);
+    }
+  }, [osmHospitals, showCity]);
   useEffect(() => {
     if (!stationLayer.current) return;
     stationLayer.current.clearLayers();
