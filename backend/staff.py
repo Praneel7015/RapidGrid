@@ -257,11 +257,9 @@ def _parse(cookie: str) -> Optional[tuple[str, str, str, float]]:
 def current(connection: HTTPConnection) -> Optional[tuple[str, str]]:
     """(role, subject) of this browser's staff session, or None.
 
-    An operator-token session counts as ("operator", "*"): it may act as any
-    staff member.
+    Only a staff PIN sign-in counts. The showcase access token no longer
+    exists, so visitors never get a role from it.
     """
-    if security.authenticated(connection):
-        return ("operator", "*")
     parsed = _parse(connection.cookies.get(COOKIE_NAME, ""))
     if parsed is None:
         return None

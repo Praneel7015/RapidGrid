@@ -33,17 +33,11 @@ def test_patient_and_dispatch_queues_are_never_cached(pins):
         assert r.headers.get("cache-control") == "no-store", path
 
 
-def test_an_operator_cookie_needs_our_origin_for_state_changes(pins, monkeypatch):
-    monkeypatch.setenv("RAPIDGRID_OPERATOR_TOKEN", "operator-token-for-tests-only-0123456789")
-    c = TestClient(app, base_url="http://testserver", headers=ORIGIN)
-    assert c.post("/api/session", json={"token": "operator-token-for-tests-only-0123456789"}).status_code == 200
+def test_a_dispatcher_cookie_needs_our_origin_for_state_changes(pins):
+    c = signed_in("dispatcher", "dispatch", "11111111")
     assert c.post("/api/city/clear").status_code == 200
     no_origin = TestClient(app, base_url="http://testserver", cookies=c.cookies)
     assert no_origin.post("/api/city/clear").status_code == 403
-    # A script with the bearer token is not a browser riding a cookie.
-    script = TestClient(app, base_url="http://testserver",
-                        headers={"Authorization": "Bearer operator-token-for-tests-only-0123456789"})
-    assert script.post("/api/city/clear").status_code == 200
 
 
 def test_a_recommended_hospital_gets_no_numbers_before_dispatch_approves_it(pins):

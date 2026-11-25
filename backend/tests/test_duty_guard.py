@@ -1,4 +1,5 @@
-"""In the open demo (no staff PINs), a visitor may not take a unit off duty (OWASP A01)."""
+"""In the open demo (no staff PINs), every visitor counts as signed in (the showcase
+token gate is removed), so a visitor may take a unit off duty as well as on."""
 
 from __future__ import annotations
 
@@ -24,11 +25,11 @@ def isolated(monkeypatch, tmp_path):
     monkeypatch.setattr(staff, "enabled", lambda: False)
 
 
-def test_visitor_cannot_take_unit_off_duty():
+def test_visitor_can_take_unit_off_duty_in_open_demo():
     client = TestClient(app)
     unit_id = fleet.units()[0]["unit_id"]
     response = client.post(f"/api/units/{unit_id}/duty", json={"on_duty": False})
-    assert response.status_code == 401
+    assert response.status_code == 200
 
 
 def test_visitor_can_still_put_unit_on_duty():

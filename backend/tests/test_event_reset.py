@@ -59,10 +59,12 @@ def test_reset_clears_the_demo_but_keeps_accounts(monkeypatch):
     assert not hospital_agent.diverted
 
 
-def test_in_the_open_demo_a_visitor_cannot_reset(monkeypatch):
+def test_in_the_open_demo_a_visitor_can_reset(monkeypatch):
+    # No staff PINs configured: the showcase token is gone, so the open demo
+    # lets any visitor reset it. Staff sign-in is covered by the next test.
     c, _ = _seed(monkeypatch)
-    assert c.post("/api/monitoring/reset", json={}).status_code == 401
-    assert len(incident_router.ACTIVE_INCIDENTS) == 1
+    assert c.post("/api/monitoring/reset", json={}).status_code == 200
+    assert incident_router.ACTIVE_INCIDENTS == []
 
 
 def test_reset_needs_dispatch_when_staff_sign_in_is_on(monkeypatch):
@@ -80,11 +82,26 @@ def test_reset_needs_dispatch_when_staff_sign_in_is_on(monkeypatch):
         contacts.reload()
 
 
-def test_purge_is_operator_only_and_deletes_accounts(monkeypatch):
+def test_purge_refuses_a_non_json_body(monkeypatch):
     c, _ = _seed(monkeypatch)
-    assert c.post("/api/session/purge", json={}).status_code == 401
-    monkeypatch.setattr(security, "authenticated", lambda request: True)
     assert c.post("/api/session/purge", content="x", headers={"Content-Type": "text/plain"}).status_code == 415
+
+
+def test_purge_needs_dispatch_when_staff_sign_in_is_on(monkeypatch):
+    monkeypatch.setenv("RAPIDGRID_MODE", "demo")
+    monkeypatch.setenv("RAPIDGRID_SECRET", "test-only-secret-at-least-32-characters")
+    monkeypatch.setenv("RAPIDGRID_CONTACTS", json.dumps({"dispatch": {"name": "D", "staff_pin": "111111"}}))
+    contacts.reload()
+    try:
+        anon = TestClient(app, base_url="http://testserver", headers=ORIGIN)
+        assert anon.post("/api/session/purge", json={}).status_code == 401
+    finally:
+        monkeypatch.delenv("RAPIDGRID_CONTACTS")
+        contacts.reload()
+
+
+def test_purge_in_the_open_demo_deletes_accounts(monkeypatch):
+    c, _ = _seed(monkeypatch)
     storage.save_collection("incidents", [{"citizen_phone": "+91 98000 00088"}], database=storage.data_path())
     r = c.post("/api/session/purge", json={})
     assert r.status_code == 200 and r.json()["accounts_deleted"] == 1

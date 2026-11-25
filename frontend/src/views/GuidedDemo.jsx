@@ -372,7 +372,7 @@ export default function GuidedDemo() {
     } catch (err) {
       setError(/is free right now/.test(err.message)
         ? 'No ambulance is free: earlier demo calls still hold them. Finish those calls, or reset the demo '
-          + '(Dispatch tab, control-room log, "Reset demo"; on the hosted site, unlock it as the operator first), '
+          + '(Dispatch tab, control-room log, "Reset demo"), '
           + 'then press "Next step" again.'
         : err.message);
     } finally {

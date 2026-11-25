@@ -98,7 +98,7 @@ def test_the_server_acts_for_the_simulated_city_only_in_process(with_pins):
         assert anonymous.post("/api/units/AMB-01/duty", json={"on_duty": False}).status_code == 401
 
 
-def test_only_dispatch_or_the_operator_can_start_the_busy_city(monkeypatch):
+def test_in_the_open_demo_a_visitor_can_start_the_busy_city(monkeypatch):
     calls = []
 
     async def fake(scenario, head_start=0.0):
@@ -106,8 +106,6 @@ def test_only_dispatch_or_the_operator_can_start_the_busy_city(monkeypatch):
 
     monkeypatch.setattr(city_life, "create_call", fake)
     visitor = TestClient(app, base_url="http://testserver", headers=ORIGIN)
-    assert visitor.post("/api/monitoring/city-life", json={"seed": 3}).status_code == 401
-    monkeypatch.setattr(security, "authenticated", lambda request: True)
     started = visitor.post("/api/monitoring/city-life", json={"seed": 3, "background": True, "interval_s": 60})
     assert started.status_code == 200
     body = started.json()
