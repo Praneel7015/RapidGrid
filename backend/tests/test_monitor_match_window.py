@@ -1,0 +1,50 @@
+"""A real fix is matched from the position along the route, not the segment's
+first vertex (CodeRabbit, PR 22: the window origin)."""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from agents import monitor
+
+M_PER_DEG_LNG = 111_320.0 * 0.9744  # cos(13 deg)
+
+
+def _east(metres: float) -> dict:
+    return {"lat": 13.0, "lng": 77.0 + metres / M_PER_DEG_LNG}
+
+
+# Vertices at 0, 1000 and 2000 metres along a straight route.
+ROUTE = [_east(0), _east(1000), _east(2000)]
+
+
+def test_the_matched_distance_is_the_position_along_the_segment():
+    assert abs(monitor.matched_m(ROUTE, _east(1100), 1) - 1100) < 2
+    assert abs(monitor.matched_m(ROUTE, _east(1000), 0) - 1000) < 2
+
+
+def test_the_window_starts_at_the_matched_position_so_the_next_segment_is_reachable():
+    # Matched at 1000 m (the vertex, and segment 0's end). Fixes after it are
+    # on segment 1; the window must not be anchored at segment 0's start.
+    origin = monitor.matched_m(ROUTE, _east(1000), 0)
+    off, index = monitor.project_near(ROUTE, _east(1100), 0, monitor.REACH_MIN_M, origin_m=origin)
+    assert index == 1 and off < 5
+
+
+def test_without_the_matched_position_the_same_fix_is_out_of_reach():
+    # The old origin (the first vertex of the matched segment) excludes segment 1:
+    # the fix is only ~100 m from the route's end on segment 0.
+    off, index = monitor.project_near(ROUTE, _east(1100), 0, monitor.REACH_MIN_M)
+    assert index == 0 and abs(off - 100) < 5
+
+
+def test_the_reach_limit_still_holds_from_the_matched_position():
+    # Four vertices; matched at 1000 m, reach 250 m: segment 2 (starts at
+    # 2000 m) is out of reach, so a fix on it is scored against segment 1 only.
+    route = [_east(0), _east(1000), _east(2000), _east(3000)]
+    origin = monitor.matched_m(route, _east(1000), 0)
+    off, index = monitor.project_near(route, _east(2600), 0, monitor.REACH_MIN_M, origin_m=origin)
+    assert index == 1 and abs(off - 600) < 5

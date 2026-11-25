@@ -143,15 +143,27 @@ def first_on_route(route: list[dict], point: dict, within: float) -> tuple[float
     return best
 
 
-def project_near(route: list[dict], point: dict, progress: int, reach_m: Optional[float]) -> tuple[float, int]:
+def matched_m(route: list[dict], point: dict, index: int) -> float:
+    """Distance along the route of the point on segment `index` nearest to
+    `point` (the segment's start plus the position within it)."""
+    index = max(0, min(index, len(route) - 2))
+    _d, t = point_segment_m(point, route[index], route[index + 1])
+    return _cumulative(route)[index] + _dist(route[index], route[index + 1]) * t
+
+
+def project_near(route: list[dict], point: dict, progress: int, reach_m: Optional[float],
+                 origin_m: Optional[float] = None) -> tuple[float, int]:
     """Like project(), but only over the stretch the unit can be on: from
-    BACK_WINDOW_M behind its progress to reach_m ahead. reach_m None means
-    the whole rest of the route (the simulator's exact positions)."""
+    BACK_WINDOW_M behind its origin to reach_m ahead. The origin is the
+    furthest matched distance along the route (origin_m), or else the start
+    of segment `progress`. reach_m None means the whole rest of the route
+    (the simulator's exact positions)."""
     if reach_m is None:
         return project(route, point, progress)
     cum = _cumulative(route)
     progress = max(0, min(progress, len(route) - 2))
-    lo, hi = cum[progress] - BACK_WINDOW_M, cum[progress] + reach_m
+    origin = cum[progress] if origin_m is None else origin_m
+    lo, hi = origin - BACK_WINDOW_M, origin + reach_m
     best = (float("inf"), progress)
     for i in range(len(route) - 1):
         if cum[i + 1] < lo:
@@ -260,6 +272,7 @@ class Watch:
     # never walks progress backwards) and grows with the time since then
     # (so a vehicle that drove on unseen is found again).
     high: int = 0
+    high_m: float = 0.0   # the same point as a distance along the route
     matched_at: Optional[float] = None
 
 
@@ -322,7 +335,8 @@ def live_status(incident: dict, unit: Optional[dict]) -> Optional[dict]:
     start = min(watch.progress, len(route) - 2) if same else 0
     real = pos.get("source") == "gps"
     if real and same:
-        off, index = project_near(route, point, min(watch.high, len(route) - 2), reach(watch, pos.get("at")))
+        off, index = project_near(route, point, min(watch.high, len(route) - 2), reach(watch, pos.get("at")),
+                                  origin_m=watch.high_m)
     elif real:
         off, index = project(route, point)
     else:
@@ -341,10 +355,10 @@ def live_status(incident: dict, unit: Optional[dict]) -> Optional[dict]:
         "remaining_m": round(remaining_m),
         "remaining_s": round(eta_s * remaining_m / total) if eta_s else None,
         "fix_source": pos.get("source"),
-        "fix_age_s": round(max(0.0, time.time() - pos["at"]), 1) if pos.get("at") else None,
+        "fix_age_s": round(fleet.fix_age_s(pos), 1) if (pos.get("captured_at") or pos.get("at")) else None,
         # A real vehicle whose phone has gone quiet: its last known place,
         # not an invented one, and the screens say so.
-        "signal_lost": real and bool(pos.get("at")) and time.time() - pos["at"] > fleet.GPS_FRESH_S,
+        "signal_lost": real and bool(pos.get("captured_at") or pos.get("at")) and fleet.fix_age_s(pos) > fleet.GPS_FRESH_S,
         "watching": watch is not None,
         "open_alert": bool(watch and watch.alert_id),
         "provenance": "modelled",
@@ -847,7 +861,7 @@ def tick(incidents: list[dict]) -> list[tuple[str, dict]]:
             new_leg = watch.leg_key.rsplit(":", 1)[0] != leg_key.rsplit(":", 1)[0]
             handled = watch.city_version
             watch.leg_key, watch.progress, watch.off_count, watch.alert_id = leg_key, 0, 0, None
-            watch.high, watch.matched_at = 0, None
+            watch.high, watch.high_m, watch.matched_at = 0, 0.0, None
             watch.alert_city_version = ()
             watch.quiet_until = 0.0  # a dismissal was for the old route
             # A reroute of the same leg (dispatch accepted a route around the
@@ -878,7 +892,7 @@ def tick(incidents: list[dict]) -> list[tuple[str, dict]]:
                 # later pass for good.
                 off, index = first_on_route(route, point, OFF_ROUTE_M + accuracy)
             else:
-                off, index = project_near(route, point, watch.high, window)
+                off, index = project_near(route, point, watch.high, window, origin_m=watch.high_m)
         else:
             off, index = project(route, point, watch.progress)
             accuracy = pos.get("accuracy_m") or 0.0
@@ -898,6 +912,7 @@ def tick(incidents: list[dict]) -> list[tuple[str, dict]]:
                 # fix accurate enough to place it.
                 watch.progress = index
                 watch.high = max(watch.high, index)
+                watch.high_m = max(watch.high_m, matched_m(route, point, index))
                 watch.matched_at = pos.get("at")
             watch.off_count = 0
             watch.quiet_until = 0.0  # back on route: a new deviation counts again
