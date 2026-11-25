@@ -1,17 +1,22 @@
 """
 Resolve curated hospital coordinates against OpenStreetMap.
 
+Pipeline (run from backend/)
+----------------------------
+    python scripts/fetch_bangalore_hospitals.py   # network: OSM extract -> data/bangalore_hospitals.json
+    python scripts/resolve_hospital_coords.py     # offline: match curated entries -> data/hospital_capabilities.json
+
+The resolver reads only the local extract, so it is deterministic and works on
+venue Wi-Fi with Overpass down. No coordinate is typed in by hand: every curated
+point is either an OSM node/way picked by the matcher, or an OSM feature pinned
+by its osm_id in PINNED below.
+
 Why this exists
 ---------------
 The hospital coordinates were originally hand-written from memory, and an audit
 found 24 of 30 were more than 700 m out - St John's by 18 km, Sanjay Gandhi by
-4.2 km, Ramaiah by 2.4 km. That is not a rounding problem: a patient with chest
-pain standing at MSRIT was told Ramaiah Memorial was 10 minutes away when it is
-595 m down the road, because the system was routing to a point in Malleswaram.
-
-Hand-correcting 24 coordinates from memory would reintroduce the same class of
-error. This resolves them from OSM instead, and writes the result into
-data/hospital_capabilities.json so the coordinates live with the profile.
+4.2 km, Ramaiah by 2.4 km. A patient with chest pain standing at MSRIT was told
+Ramaiah Memorial was 10 minutes away when it is 595 m down the road.
 
 Matching is deliberately conservative
 -------------------------------------
@@ -21,6 +26,11 @@ diagnostics centre of the same name. Candidates are scored on rare-token
 overlap - "jayadeva" and "kidwai" identify a facility, "hospital" and
 "bangalore" do not - and anything below the confidence floor is reported for a
 human to check rather than silently written.
+
+Entries whose curated name shares fewer than half its distinctive tokens with
+the real name (e.g. "Narayana Health City" vs "Narayana Hrudayalaya") cannot be
+resolved by the matcher safely; those are pinned by osm_id after checking the
+OSM record by hand, and the pin is recorded in the output.
 
     python scripts/resolve_hospital_coords.py            # report only
     python scripts/resolve_hospital_coords.py --write    # update the JSON
@@ -32,25 +42,12 @@ import json
 import math
 import re
 import sys
-import time
 from collections import Counter
 from pathlib import Path
 
-import httpx
-
 ROOT = Path(__file__).resolve().parent.parent
 CAPS = ROOT / "data" / "hospital_capabilities.json"
-# Overpass is free and community-funded; it rate-limits hard. Cache the bulk
-# fetch so re-running the matcher costs nothing.
-CACHE = ROOT / "data" / ".osm_healthcare_cache.json"
-
-MIRRORS = [
-    "https://overpass-api.de/api/interpreter",
-    "https://overpass.kumi.systems/api/interpreter",
-    "https://overpass.osm.ch/api/interpreter",
-]
-
-BBOX = (12.80, 77.45, 13.10, 77.78)
+OSM_EXTRACT = ROOT / "data" / "bangalore_hospitals.json"
 
 # Words that appear in half the hospital names in the city and identify nothing.
 GENERIC = {
@@ -70,30 +67,27 @@ MAX_DRIFT_M = 6000
 # facility on the other side of the city is a different facility.
 HARD_DRIFT_M = 8000
 
+# Curated facilities the matcher cannot resolve, pinned to the OSM feature a
+# person checked. The coordinate is read from the extract, never typed here.
+PINNED = {
+    # Narayana Health City campus at Bommasandra: OSM "Narayana Hrudayalaya".
+    "blr-004": ("way/188320000", "OSM: Narayana Hrudayalaya, Bommasandra campus"),
+    # St John's: OSM "St. Johns hospital Emergency ward". The matcher latched
+    # onto "St John's Health Centre" 18 km away.
+    "blr-005": ("node/8428403226", "OSM: St. Johns hospital Emergency ward"),
+    # NIMHANS: OSM names only campus sub-units; the Emergency Block is the
+    # clinically relevant entrance for ambulance arrivals.
+    "blr-010": ("node/5265649228", "OSM: Emergency Block, NIMHANS"),
+    # Kauvery: "Electronic City" is a suffix, so only 1/3 of the name matches.
+    "blr-016": ("node/13955109101", "OSM: Kauvery hospital, Electronic City"),
+}
 
-# Facilities the automatic matcher will not resolve, checked by hand against
-# the OSM extract. Each records what was found and why it was accepted, so the
-# next person can re-verify rather than trust it.
-MANUAL = {
-    # Seed already sits 40-90 m from the NIMHANS campus buildings; OSM only
-    # names the sub-units ("NIMHANS Physiotherapy Center"), not the hospital.
-    "blr-010": (12.9406, 77.5954, "seed verified against NIMHANS campus nodes"),
-    # OSM: "Sanjay Gandhi Accident and Trauma Hospital". The seeded point was
-    # 4.25 km north, in the wrong part of the city entirely.
-    "blr-024": (12.9358, 77.5939, "OSM: Sanjay Gandhi Accident and Trauma Hospital"),
-    # OSM: "Narayana Hrudayalaya" - the Health City campus at Bommasandra.
-    "blr-004": (12.8078, 77.6951, "OSM: Narayana Hrudayalaya, Bommasandra campus"),
-    # OSM: "St. Johns hospital Emergency ward", 750 m from the seed. The
-    # matcher had latched onto "St John's Health Centre" 18 km away.
-    "blr-005": (12.9306, 77.6186, "OSM: St. Johns hospital Emergency ward"),
-    # OSM: "Apollo Hospital" on Bannerghatta Road. The matcher rejected it for
-    # not repeating the road name, having earlier matched Fortis instead.
-    "blr-003": (12.8963, 77.5983, "OSM: Apollo Hospital, Bannerghatta Road"),
-    # OSM: "Kauvery hospital", 1.3 km from the seed.
-    "blr-016": (12.8551, 77.6632, "OSM: Kauvery hospital, Electronic City"),
-    # Columbia Asia Hebbal was rebranded Manipal Hospital Hebbal and OSM has no
-    # confident entry. Seed retained and flagged - the least-verified of the 30.
-    "blr-012": (13.0430, 77.5963, "UNVERIFIED - rebranded, no confident OSM entry"),
+# No confident OSM feature exists. These keep the coordinate already in the
+# table, flagged as unverified; the script does not change them.
+UNMATCHED_NOTE = {
+    # Columbia Asia was rebranded Manipal Hebbal; OSM has no confident entry
+    # (the nearest "Columbiaa Hospital" is 4 km away in Whitefield).
+    "blr-012": "UNVERIFIED - rebranded, no confident OSM entry; coordinate kept from the table",
 }
 
 
@@ -110,53 +104,21 @@ def tokens(name: str) -> set[str]:
     return {t for t in clean.split() if t not in GENERIC and len(t) > 2}
 
 
-def fetch_osm(refresh: bool = False) -> list[tuple[str, float, float]]:
-    if CACHE.exists() and not refresh:
-        cached = json.loads(CACHE.read_text(encoding="utf-8"))
-        print(f"  using cached OSM extract ({len(cached)} features)"
-              " - pass --refresh to re-fetch\n")
-        return [(n, la, lo) for n, la, lo in cached]
-
-    south, west, north, east = BBOX
-    query = f"""[out:json][timeout:180];
-    (
-      node({south},{west},{north},{east})["amenity"~"^(hospital|clinic|doctors)$"]["name"];
-      way({south},{west},{north},{east})["amenity"~"^(hospital|clinic|doctors)$"]["name"];
-      node({south},{west},{north},{east})["healthcare"]["name"];
-      way({south},{west},{north},{east})["healthcare"]["name"];
-    );
-    out center;"""
-
-    for mirror in MIRRORS:
-        host = mirror.split("/")[2]
-        try:
-            print(f"  querying {host} ...")
-            resp = httpx.get(mirror, params={"data": query},
-                             headers={"User-Agent": "RapidGrid/1.0 (routing-research)"},
-                             timeout=220)
-            resp.raise_for_status()
-            out = []
-            for el in resp.json().get("elements", []):
-                name = (el.get("tags", {}).get("name") or "").strip()
-                lat = el.get("lat") or el.get("center", {}).get("lat")
-                lng = el.get("lon") or el.get("center", {}).get("lon")
-                if name and lat is not None and lng is not None:
-                    out.append((name, float(lat), float(lng)))
-            if out:
-                CACHE.write_text(json.dumps(out), encoding="utf-8")
-                print(f"  -> {len(out)} named healthcare features (cached)\n")
-                return out
-        except Exception as exc:
-            print(f"  !! {host}: {type(exc).__name__}")
-            time.sleep(4)
-    return []
+def load_osm() -> list[tuple[str, float, float, str]]:
+    """(name, lat, lng, osm_id) for every named hospital in the local extract."""
+    payload = json.loads(OSM_EXTRACT.read_text(encoding="utf-8"))
+    return [
+        (h["name"].strip(), float(h["lat"]), float(h["lng"]), h["osm_id"])
+        for h in payload["hospitals"]
+        if h.get("name") and h.get("lat") is not None and h.get("lng") is not None
+    ]
 
 
 def build_rarity(osm) -> dict[str, float]:
     """Rare tokens identify a facility; common ones do not."""
     counts = Counter()
-    for name, _, _ in osm:
-        counts.update(tokens(name))
+    for entry in osm:
+        counts.update(tokens(entry[0]))
     total = max(1, len(osm))
     return {t: math.log(total / (1 + c)) for t, c in counts.items()}
 
@@ -182,7 +144,7 @@ def resolve(curated_name, hint_lat, hint_lng, osm, rarity):
     brand = max(brand_pool, key=lambda t: rarity.get(t, 4.0))
 
     best = None
-    for name, lat, lng in osm:
+    for name, lat, lng, osm_id in osm:
         have = tokens(name)
         shared = want & have
         if not shared or brand not in have:
@@ -206,7 +168,7 @@ def resolve(curated_name, hint_lat, hint_lng, osm, rarity):
         # Prefer strong name agreement; break ties by proximity to the hint.
         score = weighted + (0.35 if exact else 0.0) - (dist / 100000)
         if best is None or score > best[0]:
-            best = (score, weighted, share, dist, name, lat, lng)
+            best = (score, weighted, share, dist, name, lat, lng, osm_id)
 
     return best
 
@@ -216,43 +178,51 @@ def main() -> int:
 
     payload = json.loads(CAPS.read_text(encoding="utf-8"))
     profiles = payload["hospitals"]
-
-    sys.path.insert(0, str(ROOT))
-    from agents.hospital_intelligence import HospitalIntelligenceAgent
-    hints = {h["id"]: h for h in HospitalIntelligenceAgent.BANGALORE_HOSPITALS_SEED}
-
-    osm = fetch_osm(refresh="--refresh" in sys.argv)
-    if not osm:
-        print("Could not reach any Overpass mirror. Nothing written.")
-        return 1
+    osm = load_osm()
     rarity = build_rarity(osm)
+    by_osm_id = {entry[3]: entry for entry in osm}
 
+    print(f"OSM extract: {len(osm)} named hospitals ({OSM_EXTRACT.name})\n")
     print(f"{'CURATED HOSPITAL':<44}{'DRIFT':>8}  {'CONF':>5}  MATCHED IN OSM")
     print("-" * 112)
 
     resolved, flagged = {}, []
     for hid, profile in profiles.items():
-        hint = hints.get(hid)
-        if not hint:
-            flagged.append((hid, profile["name"], "no seed coordinate to anchor on"))
+        old_lat, old_lng = profile["lat"], profile["lng"]
+
+        if hid in PINNED:
+            osm_id, note = PINNED[hid]
+            entry = by_osm_id.get(osm_id)
+            if entry is None:
+                flagged.append((hid, profile["name"], f"pinned {osm_id} not in extract"))
+                continue
+            _, lat, lng, _ = entry
+            dist = haversine(old_lat, old_lng, lat, lng)
+            print(f"{profile['name'][:42]:<44}{dist:>6.0f} m  {'pin':>5}  {entry[0][:38]}")
+            resolved[hid] = (lat, lng, entry[0], osm_id, dist, "openstreetmap-pinned", note)
             continue
 
-        best = resolve(profile["name"], hint["lat"], hint["lng"], osm, rarity)
+        if hid in UNMATCHED_NOTE:
+            print(f"{profile['name'][:42]:<44}{'--':>8}  {'--':>5}  kept (unverified)")
+            flagged.append((hid, profile["name"], "no OSM match; coordinate kept from table"))
+            continue
+
+        best = resolve(profile["name"], old_lat, old_lng, osm, rarity)
         if best is None:
             print(f"{profile['name'][:42]:<44}{'--':>8}  {'--':>5}  no confident match")
             flagged.append((hid, profile["name"], "no OSM match cleared the floor"))
             continue
 
-        _, weighted, share, dist, osm_name, lat, lng = best
+        _, weighted, share, dist, osm_name, lat, lng, osm_id = best
         mark = " <-- CHECK" if weighted < 0.40 else ""
         print(f"{profile['name'][:42]:<44}{dist:>6.0f} m  {weighted:>5.2f}  {osm_name[:38]}{mark}")
         if weighted < 0.40:
             flagged.append((hid, profile["name"], f"weak match: {osm_name}"))
             continue
-        resolved[hid] = (round(lat, 6), round(lng, 6), osm_name, dist)
+        resolved[hid] = (lat, lng, osm_name, osm_id, dist, "openstreetmap", None)
 
     print("\n" + "=" * 112)
-    print(f"{len(resolved)} resolved confidently, {len(flagged)} need a human")
+    print(f"{len(resolved)} resolved from OSM, {len(flagged)} without a confident OSM match")
     for hid, name, why in flagged:
         print(f"  {hid}  {name[:44]:<46} {why}")
 
@@ -260,30 +230,33 @@ def main() -> int:
         print("\nReport only. Re-run with --write to update hospital_capabilities.json.")
         return 0
 
-    for hid, (lat, lng, osm_name, dist) in resolved.items():
-        profiles[hid]["lat"] = lat
-        profiles[hid]["lng"] = lng
-        profiles[hid]["coord_source"] = "openstreetmap"
-        profiles[hid]["osm_name"] = osm_name
+    for hid, (lat, lng, osm_name, osm_id, _dist, source, note) in resolved.items():
+        p = profiles[hid]
+        p["lat"] = round(lat, 6)
+        p["lng"] = round(lng, 6)
+        p["coord_source"] = source
+        p["osm_id"] = osm_id
+        p["osm_name"] = osm_name
+        if note:
+            p["coord_note"] = note
+        else:
+            p.pop("coord_note", None)
 
-    for hid, (lat, lng, note) in MANUAL.items():
-        if hid not in profiles:
-            continue
-        profiles[hid]["lat"] = lat
-        profiles[hid]["lng"] = lng
-        profiles[hid]["coord_source"] = (
-            "manual-unverified" if note.startswith("UNVERIFIED") else "manual-reviewed"
-        )
-        profiles[hid]["coord_note"] = note
-    print(f"Applied {len(MANUAL)} hand-reviewed coordinates")
+    for hid, note in UNMATCHED_NOTE.items():
+        if hid in profiles:
+            profiles[hid]["coord_source"] = "manual-unverified"
+            profiles[hid]["coord_note"] = note
+            profiles[hid].pop("osm_id", None)
+            profiles[hid].pop("osm_name", None)
 
     payload["meta"]["coordinates"] = (
-        "Resolved against OpenStreetMap by scripts/resolve_hospital_coords.py. "
-        "Entries without a lat/lng fell below the match confidence floor and "
-        "keep their reviewed manual coordinate."
+        "Resolved from the OpenStreetMap extract (data/bangalore_hospitals.json) by "
+        "scripts/resolve_hospital_coords.py. Each entry records its osm_id. Entries "
+        "without a confident OSM match keep their table coordinate, flagged "
+        "manual-unverified."
     )
-    CAPS.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
-    print(f"\nWrote {len(resolved)} coordinates into {CAPS.name}")
+    CAPS.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    print(f"\nWrote {len(resolved)} OSM coordinates into {CAPS.name}")
     return 0
 
 

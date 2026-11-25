@@ -9,7 +9,7 @@
     "scale": "capability scores are 0.0-1.0, representing suitability for receiving that emergency category",
     "emergency_receiving": "false for facilities that do not accept undifferentiated emergency ambulance arrivals (oncology centres, maternity-only, day-surgery). These are excluded from trauma/cardiac/stroke routing.",
     "last_reviewed": "2026-09-06",
-    "coordinates": "Resolved against OpenStreetMap by scripts/resolve_hospital_coords.py. Entries without a lat/lng fell below the match confidence floor and keep their reviewed manual coordinate."
+    "coordinates": "Resolved from the OpenStreetMap extract (data/bangalore_hospitals.json) by scripts/resolve_hospital_coords.py. Each entry records its osm_id. Entries without a confident OSM match keep their table coordinate, flagged manual-unverified."
   },
   "hospitals": {
     "blr-019": {
@@ -35,9 +35,10 @@
       },
       "note": "Karnataka's apex cardiac referral centre. 24x7 cath lab, primary angioplasty.",
       "lat": 12.918526,
-      "lng": 77.599254,
+      "lng": 77.599265,
       "coord_source": "openstreetmap",
-      "osm_name": "Sri Jayadeva Institute Of Cardiology"
+      "osm_name": "Sri Jayadeva Institute Of Cardiology",
+      "osm_id": "way/40678727"
     },
     "blr-010": {
       "name": "NIMHANS (National Institute of Mental Health and Neurosciences)",
@@ -62,10 +63,12 @@
         "blood_availability": 0.75
       },
       "note": "National apex neuro centre. 24x7 stroke thrombolysis and neurosurgery.",
-      "lat": 12.9406,
-      "lng": 77.5954,
-      "coord_source": "manual-reviewed",
-      "coord_note": "seed verified against NIMHANS campus nodes"
+      "lat": 12.940385,
+      "lng": 77.594539,
+      "coord_source": "openstreetmap-pinned",
+      "coord_note": "OSM: Emergency Block, NIMHANS",
+      "osm_id": "node/5265649228",
+      "osm_name": "Emergency Block , NIMHANS"
     },
     "blr-022": {
       "name": "Victoria Hospital (BMCRI)",
@@ -92,7 +95,8 @@
       "lat": 12.963496,
       "lng": 77.573695,
       "coord_source": "openstreetmap",
-      "osm_name": "Victoria Hospital"
+      "osm_name": "Victoria Hospital",
+      "osm_id": "way/150350476"
     },
     "blr-024": {
       "name": "Sanjay Gandhi Institute of Trauma and Orthopaedics",
@@ -116,10 +120,11 @@
         "blood_availability": 0.72
       },
       "note": "Dedicated government trauma and orthopaedic emergency institute.",
-      "lat": 12.9358,
-      "lng": 77.5939,
-      "coord_source": "manual-reviewed",
-      "coord_note": "OSM: Sanjay Gandhi Accident and Trauma Hospital"
+      "lat": 12.935771,
+      "lng": 77.593943,
+      "coord_source": "openstreetmap",
+      "osm_id": "way/334493056",
+      "osm_name": "Sanjay Gandhi Accident and Trauma Hospital"
     },
     "blr-004": {
       "name": "Narayana Health City (Bommasandra)",
@@ -144,10 +149,12 @@
         "blood_availability": 0.86
       },
       "note": "Very high cardiac surgical volume; multi-hospital campus.",
-      "lat": 12.8078,
-      "lng": 77.6951,
-      "coord_source": "manual-reviewed",
-      "coord_note": "OSM: Narayana Hrudayalaya, Bommasandra campus"
+      "lat": 12.807754,
+      "lng": 77.695059,
+      "coord_source": "openstreetmap-pinned",
+      "coord_note": "OSM: Narayana Hrudayalaya, Bommasandra campus",
+      "osm_id": "way/188320000",
+      "osm_name": "Narayana Hrudayalaya"
     },
     "blr-005": {
       "name": "St. John's Medical College Hospital",
@@ -172,10 +179,12 @@
         "blood_availability": 0.86
       },
       "note": "Large teaching tertiary with a broad 24x7 emergency department.",
-      "lat": 12.9306,
-      "lng": 77.6186,
-      "coord_source": "manual-reviewed",
-      "coord_note": "OSM: St. Johns hospital Emergency ward"
+      "lat": 12.930594,
+      "lng": 77.618616,
+      "coord_source": "openstreetmap-pinned",
+      "coord_note": "OSM: St. Johns hospital Emergency ward",
+      "osm_id": "node/8428403226",
+      "osm_name": "St. Johns hospital Emergency ward"
     },
     "blr-001": {
       "name": "Manipal Hospital (Old Airport Road)",
@@ -203,7 +212,8 @@
       "lat": 12.958578,
       "lng": 77.648141,
       "coord_source": "openstreetmap",
-      "osm_name": "Manipal Hospital"
+      "osm_name": "Manipal Hospital",
+      "osm_id": "way/135262255"
     },
     "blr-002": {
       "name": "Fortis Hospital (Bannerghatta Road)",
@@ -230,7 +240,8 @@
       "lat": 12.894751,
       "lng": 77.598582,
       "coord_source": "openstreetmap",
-      "osm_name": "Fortis Hospitals, Bannerghatta Road"
+      "osm_name": "Fortis Hospitals, Bannerghatta Road",
+      "osm_id": "way/44091443"
     },
     "blr-003": {
       "name": "Apollo Hospital (Bannerghatta Road)",
@@ -254,10 +265,11 @@
         "blood_availability": 0.81
       },
       "note": "24x7 emergency with cardiac and stroke pathways.",
-      "lat": 12.8963,
-      "lng": 77.5983,
-      "coord_source": "manual-reviewed",
-      "coord_note": "OSM: Apollo Hospital, Bannerghatta Road"
+      "lat": 12.896305,
+      "lng": 77.598349,
+      "coord_source": "openstreetmap",
+      "osm_id": "way/44091445",
+      "osm_name": "Apollo Hospital"
     },
     "blr-007": {
       "name": "Aster CMI Hospital (Hebbal)",
@@ -284,7 +296,8 @@
       "lat": 13.054532,
       "lng": 77.591871,
       "coord_source": "openstreetmap",
-      "osm_name": "Aster CMI Hospital"
+      "osm_name": "Aster CMI Hospital",
+      "osm_id": "way/1040899005"
     },
     "blr-006": {
       "name": "Sakra World Hospital (Devarabeesanahalli)",
@@ -311,7 +324,8 @@
       "lat": 12.932315,
       "lng": 77.685248,
       "coord_source": "openstreetmap",
-      "osm_name": "Sakra World Hospital"
+      "osm_name": "Sakra World Hospital",
+      "osm_id": "node/13666515767"
     },
     "blr-009": {
       "name": "MS Ramaiah Memorial Hospital",
@@ -338,7 +352,8 @@
       "lat": 13.028218,
       "lng": 77.569775,
       "coord_source": "openstreetmap",
-      "osm_name": "Ramaiah Memorial Hospital"
+      "osm_name": "Ramaiah Memorial Hospital",
+      "osm_id": "way/148032600"
     },
     "blr-008": {
       "name": "BGS Gleneagles Global Hospital (Kengeri)",
@@ -365,7 +380,8 @@
       "lat": 12.90306,
       "lng": 77.497498,
       "coord_source": "openstreetmap",
-      "osm_name": "BGS Gleneagles Hospitals"
+      "osm_name": "BGS Gleneagles Hospitals",
+      "osm_id": "node/1228960966"
     },
     "blr-011": {
       "name": "Vikram Hospital (Millers Road)",
@@ -392,7 +408,8 @@
       "lat": 12.965658,
       "lng": 77.609722,
       "coord_source": "openstreetmap",
-      "osm_name": "Vikram Aura Hospitals"
+      "osm_name": "Vikram Aura Hospitals",
+      "osm_id": "way/1064840032"
     },
     "blr-020": {
       "name": "Bangalore Baptist Hospital (Bellary Road)",
@@ -419,7 +436,8 @@
       "lat": 13.034725,
       "lng": 77.590171,
       "coord_source": "openstreetmap",
-      "osm_name": "Baptist Hospital"
+      "osm_name": "Baptist Hospital",
+      "osm_id": "way/54963084"
     },
     "blr-023": {
       "name": "Bowring and Lady Curzon Hospital",
@@ -446,7 +464,8 @@
       "lat": 12.983011,
       "lng": 77.604712,
       "coord_source": "openstreetmap",
-      "osm_name": "Bowring and Lady Curzon Hospitals"
+      "osm_name": "Bowring and Lady Curzon Hospitals",
+      "osm_id": "way/45444044"
     },
     "blr-013": {
       "name": "Sparsh Hospital (Palace Road)",
@@ -473,7 +492,8 @@
       "lat": 12.983334,
       "lng": 77.594536,
       "coord_source": "openstreetmap",
-      "osm_name": "Sparsh Hospital For Advanced Surgeries, Bengaluru Urban"
+      "osm_name": "Sparsh Hospital For Advanced Surgeries, Bengaluru Urban",
+      "osm_id": "way/124760551"
     },
     "blr-027": {
       "name": "Hosmat Hospital (Richmond Road)",
@@ -500,7 +520,8 @@
       "lat": 12.964473,
       "lng": 77.614302,
       "coord_source": "openstreetmap",
-      "osm_name": "Hosmat Hospitals"
+      "osm_name": "Hosmat Hospitals",
+      "osm_id": "node/12737013801"
     },
     "blr-012": {
       "name": "Columbia Asia Hospital (Hebbal)",
@@ -526,7 +547,7 @@
       "lat": 13.043,
       "lng": 77.5963,
       "coord_source": "manual-unverified",
-      "coord_note": "UNVERIFIED - rebranded, no confident OSM entry"
+      "coord_note": "UNVERIFIED - rebranded, no confident OSM entry; coordinate kept from the table"
     },
     "blr-028": {
       "name": "Mallya Hospital (Vittal Mallya Road)",
@@ -553,7 +574,8 @@
       "lat": 12.981505,
       "lng": 77.601194,
       "coord_source": "openstreetmap",
-      "osm_name": "Mallya Audikesh Diagnostics Center"
+      "osm_name": "Mallya Audikesh Diagnostics Center",
+      "osm_id": "node/1005544881"
     },
     "blr-015": {
       "name": "Manipal Hospital (Whitefield)",
@@ -580,7 +602,8 @@
       "lat": 12.988071,
       "lng": 77.728641,
       "coord_source": "openstreetmap",
-      "osm_name": "Manipal Hospitals Whitefield"
+      "osm_name": "Manipal Hospitals Whitefield",
+      "osm_id": "way/598030834"
     },
     "blr-029": {
       "name": "Manipal Hospital (Sarjapur Road)",
@@ -607,7 +630,8 @@
       "lat": 12.919968,
       "lng": 77.665255,
       "coord_source": "openstreetmap",
-      "osm_name": "Manipal Hospitals"
+      "osm_name": "Manipal Hospitals",
+      "osm_id": "way/611385979"
     },
     "blr-016": {
       "name": "Kauvery Hospital (Electronic City)",
@@ -630,10 +654,12 @@
         "blood_availability": 0.64
       },
       "note": "Serves the Electronic City corridor; 24x7 emergency.",
-      "lat": 12.8551,
-      "lng": 77.6632,
-      "coord_source": "manual-reviewed",
-      "coord_note": "OSM: Kauvery hospital, Electronic City"
+      "lat": 12.855088,
+      "lng": 77.66316,
+      "coord_source": "openstreetmap-pinned",
+      "coord_note": "OSM: Kauvery hospital, Electronic City",
+      "osm_id": "node/13955109101",
+      "osm_name": "Kauvery hospital"
     },
     "blr-030": {
       "name": "Apollo Spectra Hospital (Koramangala)",
@@ -660,7 +686,8 @@
       "lat": 12.933817,
       "lng": 77.620161,
       "coord_source": "openstreetmap",
-      "osm_name": "Apollo Spectra Hospitals"
+      "osm_name": "Apollo Spectra Hospitals",
+      "osm_id": "node/5915409411"
     },
     "blr-021": {
       "name": "Kidwai Memorial Institute of Oncology",
@@ -687,7 +714,8 @@
       "lat": 12.936526,
       "lng": 77.598139,
       "coord_source": "openstreetmap",
-      "osm_name": "Kidwai Memorial Institute of Oncology"
+      "osm_name": "Kidwai Memorial Institute of Oncology",
+      "osm_id": "way/239738408"
     },
     "blr-025": {
       "name": "HCG Cancer Hospital (KR Road)",
@@ -713,7 +741,8 @@
       "lat": 12.960316,
       "lng": 77.593049,
       "coord_source": "openstreetmap",
-      "osm_name": "HCG Cancer Hospital"
+      "osm_name": "HCG Cancer Hospital",
+      "osm_id": "node/3773028057"
     },
     "blr-026": {
       "name": "Sri Shankara Cancer Hospital",
@@ -738,7 +767,8 @@
       "lat": 12.954262,
       "lng": 77.570947,
       "coord_source": "openstreetmap",
-      "osm_name": "Sri Shankara Cancer Hospital And Research Centre (A Service Unit Of Sscf)"
+      "osm_name": "Sri Shankara Cancer Hospital And Research Centre (A Service Unit Of Sscf)",
+      "osm_id": "node/5716797221"
     },
     "blr-014": {
       "name": "Cloudnine Hospital (Jayanagar)",
@@ -765,7 +795,8 @@
       "lat": 12.883291,
       "lng": 77.550086,
       "coord_source": "openstreetmap",
-      "osm_name": "Cloudnine Hospital"
+      "osm_name": "Cloudnine Hospital",
+      "osm_id": "node/9884952776"
     },
     "blr-017": {
       "name": "Motherhood Hospital (Indiranagar)",
@@ -792,7 +823,8 @@
       "lat": 12.978441,
       "lng": 77.637585,
       "coord_source": "openstreetmap",
-      "osm_name": "Motherhood Hospital(Unit Of Rhea Healthcare Pvt Ltd)"
+      "osm_name": "Motherhood Hospital(Unit Of Rhea Healthcare Pvt Ltd)",
+      "osm_id": "node/3370028968"
     },
     "blr-018": {
       "name": "Rainbow Children's Hospital (BTM Layout)",
@@ -819,7 +851,8 @@
       "lat": 12.903383,
       "lng": 77.600741,
       "coord_source": "openstreetmap",
-      "osm_name": "Rainbow Children's Hospital"
+      "osm_name": "Rainbow Children's Hospital",
+      "osm_id": "way/1108934944"
     }
   }
 }

@@ -320,7 +320,7 @@ class TestHospitalCoordinates:
 
     def test_coordinate_provenance_is_recorded(self, profiles):
         """Every coordinate says where it came from, so drift is auditable."""
-        allowed = {"openstreetmap", "manual-reviewed", "manual-unverified"}
+        allowed = {"openstreetmap", "openstreetmap-pinned", "manual-reviewed", "manual-unverified"}
         for key, entry in profiles.items():
             assert entry.get("coord_source") in allowed, f"{key} has no coord_source"
 
