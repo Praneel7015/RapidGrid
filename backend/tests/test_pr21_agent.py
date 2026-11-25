@@ -87,33 +87,32 @@ def test_a_unit_drives_up_to_a_closure_far_along_a_long_segment(city, monkeypatc
     assert stop is not None and 780 <= stop <= 800
 
 
-def test_simulation_resumes_from_the_last_real_gps_fix(city):
+def test_a_real_vehicle_whose_phone_goes_quiet_is_never_simulated(city):
     incident = call_to((12.985, 77.594), ASTER_HUB)
     drive(incident, 2)
     route = incident["citizen_view"]["phase1_route_coordinates"]
     far = route[len(route) // 2]
     fleet.record_position("AMB-01", far["lat"], far["lng"], source="gps", accuracy_m=5)
-    # The phone stops: the simulator takes over (phone_tracking is now off).
-    fleet._units["AMB-01"]["position"]["at"] = time.time() - 3600
-    simulator.step([incident])
-    here = fleet.get("AMB-01")["position"]
-    assert monitor._dist(here, far) < 300
-
-
-def test_after_a_phone_goes_quiet_the_unit_keeps_heading_for_the_scene(city):
-    incident = call_to((12.985, 77.594), ASTER_HUB)
-    drive(incident, 2)
-    route = incident["citizen_view"]["phase1_route_coordinates"]
-    far = route[len(route) // 2]
-    fleet.record_position("AMB-01", far["lat"], far["lng"], source="gps", accuracy_m=5)
-    fleet._units["AMB-01"]["position"]["at"] = time.time() - 3600  # the phone stopped
-    goal = route[-1]
-    before = monitor._dist(far, goal)
+    # The phone stops (a locked screen, a tunnel): the unit stays where its
+    # phone last put it, and the screens say the signal is lost.
+    fleet._units["AMB-01"]["position"]["at"] = time.time() - 90
     for _ in range(4):
         simulator.step([incident])
     here = fleet.get("AMB-01")["position"]
-    assert monitor._dist(here, goal) < before  # forwards, not back to the station
-    assert monitor._dist(here, route[0]) > monitor._dist(far, route[0]) - 50
+    assert (here["lat"], here["lng"], here["source"]) == (far["lat"], far["lng"], "gps")
+    live = monitor.live_status(incident, fleet.get("AMB-01"))
+    assert live["signal_lost"] is True and live["fix_source"] == "gps"
+
+
+def test_a_real_vehicle_stays_where_it_is_when_its_call_ends(city):
+    incident = call_to((12.985, 77.594), ASTER_HUB)
+    drive(incident, 2)
+    far = incident["citizen_view"]["phase1_route_coordinates"][5]
+    fleet.record_position("AMB-01", far["lat"], far["lng"], source="gps", accuracy_m=5)
+    fleet.release(incident["incident_id"])
+    here = fleet.get("AMB-01")
+    assert here["status"] == "available" and here.get("gps_incident") is None
+    assert (here["position"]["lat"], here["position"]["source"]) == (far["lat"], "gps")
 
 
 def test_a_unit_already_on_a_road_that_just_closed_stops(city, monkeypatch):

@@ -30,6 +30,34 @@ class PositionFix(BaseModel):
     lng: float = Field(ge=-180, le=180, allow_inf_nan=False)
     accuracy_m: Optional[float] = Field(default=None, ge=0, le=_MAX_ACCURACY_M, allow_inf_nan=False)
     heading: Optional[float] = Field(default=None, ge=0, lt=360, allow_inf_nan=False)
+    # When the phone took the fix (epoch milliseconds, as the browser's
+    # GeolocationPosition.timestamp gives it). Orders fixes that arrive out
+    # of order and drops ones delayed in a queue.
+    captured_at_ms: Optional[float] = Field(default=None, gt=0, allow_inf_nan=False)
+    speed_mps: Optional[float] = Field(default=None, ge=0, le=120, allow_inf_nan=False)
+
+
+def store_fix(unit_id: str, lat: float, lng: float, *, accuracy_m=None, heading=None,
+              captured_at=None, speed_mps=None) -> dict:
+    """Validate and store one real GPS fix (phone screen or tracker app).
+    Returns the response body; raises HTTPException for a bad fix."""
+    from routers.incident import in_service_area
+
+    if not in_service_area(lat, lng):
+        raise HTTPException(status_code=422, detail="Position is outside the service area")
+    try:
+        stored = fleet.record_position(unit_id, lat, lng, source="gps", accuracy_m=accuracy_m,
+                                       heading=heading, captured_at=captured_at, speed_mps=speed_mps)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Unknown unit") from None
+    except fleet.StaleFix as reason:
+        # Not the phone's fault (a delayed or reordered upload): accepted,
+        # not used, so it does not retry it.
+        return {"unit_id": unit_id, "ignored": str(reason)}
+    except ValueError:
+        raise HTTPException(status_code=429, detail="Too many position updates",
+                            headers={"Retry-After": "1"}) from None
+    return {"unit_id": unit_id, "position": stored}
 
 
 def _public(unit: dict) -> dict:
@@ -58,19 +86,9 @@ async def get_unit(unit_id: str, request: Request = None):
 @router.post("/api/units/{unit_id}/position")
 async def post_position(unit_id: str, fix: PositionFix, request: Request = None):
     require_staff(request, "unit", unit_id)
-    from routers.incident import in_service_area
-
-    if not in_service_area(fix.lat, fix.lng):
-        raise HTTPException(status_code=422, detail="Position is outside the service area")
-    try:
-        stored = fleet.record_position(unit_id, fix.lat, fix.lng, source="gps",
-                                       accuracy_m=fix.accuracy_m, heading=fix.heading)
-    except KeyError:
-        raise HTTPException(status_code=404, detail="Unknown unit") from None
-    except ValueError:
-        raise HTTPException(status_code=429, detail="Too many position updates",
-                            headers={"Retry-After": "1"}) from None
-    return {"unit_id": unit_id, "position": stored}
+    captured = fix.captured_at_ms / 1000.0 if fix.captured_at_ms is not None else None
+    return store_fix(unit_id, fix.lat, fix.lng, accuracy_m=fix.accuracy_m, heading=fix.heading,
+                     captured_at=captured, speed_mps=fix.speed_mps)
 
 
 @router.get("/api/incidents/{incident_id}/track")

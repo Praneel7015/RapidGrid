@@ -51,6 +51,18 @@ def _pin(value: Optional[str]) -> Optional[str]:
     return value
 
 
+def _tracker_key(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    if not re.fullmatch(r"[A-Za-z0-9_-]{24,128}", value):
+        raise ValueError("tracker keys must be 24 to 128 letters, digits, '-' or '_'")
+    if len(set(value)) < 10:
+        # It is the vehicle's only credential: "aaaa..." or a short pattern
+        # repeated is guessable. Make one with: openssl rand -hex 16
+        raise ValueError("tracker keys must be random (use: openssl rand -hex 16)")
+    return value
+
+
 class Person(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     phone: Optional[str] = None
@@ -69,8 +81,13 @@ class Unit(BaseModel):
     crew: str = Field(default="", max_length=80)
     phone: Optional[str] = None
     staff_pin: Optional[str] = None
+    # The secret a tracker app on this vehicle's phone sends as its device
+    # id (Traccar Client), so it can post fixes in the background with no
+    # browser session. Never shown on any screen.
+    tracker_key: Optional[str] = None
     _check_phone = field_validator("phone")(_phone)
     _check_pin = field_validator("staff_pin")(_pin)
+    _check_tracker = field_validator("tracker_key")(_tracker_key)
 
 
 class Hospital(BaseModel):
@@ -180,6 +197,21 @@ def unit(unit_id: str) -> Optional[Unit]:
 
 def hospital(hospital_id: str) -> Optional[Hospital]:
     return next((h for h in directory().hospitals if h.hospital_id == hospital_id), None)
+
+
+def unit_for_tracker(key: str) -> Optional[str]:
+    """The unit whose tracker key this is (compared in constant time), or None."""
+    import hmac
+
+    found = None
+    for u in directory().units:
+        if u.tracker_key and hmac.compare_digest(u.tracker_key.encode(), key.encode()):
+            found = u.unit_id
+    return found
+
+
+def trackers_configured() -> bool:
+    return any(u.tracker_key for u in directory().units)
 
 
 def public_units() -> list[dict]:

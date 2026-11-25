@@ -39,7 +39,20 @@ export default function DriverDashboard() {
   }, [activeId]);
   const [conn, setConn] = useState('ok');
   const [busy, setBusy] = useState(false);
-  const [shareLocation, setShareLocation] = useState(false);
+  // Remembered on this phone, so a reload (or the browser reopening the
+  // page) does not silently stop the unit's live position.
+  const shareKey = driverInfo?.unitId ? `rapidgrid.share.${driverInfo.unitId}` : null;
+  const [shareLocation, setShareLocationState] = useState(false);
+  useEffect(() => {
+    if (!shareKey) return;
+    try { setShareLocationState(window.localStorage.getItem(shareKey) === '1'); } catch { /* storage blocked */ }
+  }, [shareKey]);
+  const setShareLocation = (on) => {
+    setShareLocationState(on);
+    try {
+      if (shareKey) window.localStorage.setItem(shareKey, on ? '1' : '0');
+    } catch { /* storage blocked: still shares for this visit */ }
+  };
   const sharing = useShareLocation(driverInfo?.unitId, shareLocation);
 
   useEffect(() => {
@@ -158,6 +171,32 @@ export default function DriverDashboard() {
     }
   };
 
+  // On both the call list and the call itself: a crew must be able to turn
+  // it on (or see that it stopped) without leaving the call.
+  const sharePanel = driverInfo?.unitId ? (
+    <Panel className="mb-3" data-testid="share-location">
+      <label className="flex items-center justify-between gap-3 px-4 py-3">
+        <span className="min-w-0">
+          <span className="block text-[13.5px] font-semibold text-text">Share my location</span>
+          <span className="mt-0.5 block text-[12px] text-text-muted">
+            {sharing.status === 'sharing'
+              ? `Live GPS${Number.isFinite(sharing.accuracy) ? ` ±${Math.round(sharing.accuracy)} m` : ''} · keep this screen open`
+              : sharing.status === 'waiting'
+                ? 'Waiting for a GPS fix…'
+                : sharing.error ?? 'Sends this phone\'s GPS as the unit position. Otherwise it is simulated.'}
+          </span>
+        </span>
+        <input
+          type="checkbox"
+          role="switch"
+          checked={shareLocation}
+          onChange={(e) => setShareLocation(e.target.checked)}
+          className="h-5 w-5 shrink-0 accent-[var(--color-signal)]"
+        />
+      </label>
+    </Panel>
+  ) : null;
+
   /* ---- Queue ----------------------------------------------------------- */
   if (!active) {
     return (
@@ -174,29 +213,7 @@ export default function DriverDashboard() {
           <ConnectionState status={conn} />
         </div>
 
-        {driverInfo?.unitId && (
-          <Panel className="mb-3">
-            <label className="flex items-center justify-between gap-3 px-4 py-3">
-              <span className="min-w-0">
-                <span className="block text-[13.5px] font-semibold text-text">Share my location</span>
-                <span className="mt-0.5 block text-[12px] text-text-muted">
-                  {sharing.status === 'sharing'
-                    ? `Live GPS${Number.isFinite(sharing.accuracy) ? ` ±${Math.round(sharing.accuracy)} m` : ''} · keep this screen open`
-                    : sharing.status === 'waiting'
-                      ? 'Waiting for a GPS fix…'
-                      : sharing.error ?? 'Sends this phone\'s GPS as the unit position. Otherwise it is simulated.'}
-                </span>
-              </span>
-              <input
-                type="checkbox"
-                role="switch"
-                checked={shareLocation}
-                onChange={(e) => setShareLocation(e.target.checked)}
-                className="h-5 w-5 shrink-0 accent-[var(--color-signal)]"
-              />
-            </label>
-          </Panel>
-        )}
+        {sharePanel}
 
         {dispatches.length === 0 ? (
           <Panel>
@@ -310,6 +327,8 @@ export default function DriverDashboard() {
           </div>
         </div>
       </Panel>
+
+      {sharePanel}
 
       <Panel className="p-3">
         <CallerDetails key={active.incident_id} incidentId={active.incident_id} />

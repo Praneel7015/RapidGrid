@@ -22,19 +22,19 @@ from tests.test_monitoring_agent import ASTER_HUB, call_to, city, drive  # noqa:
 from tests.test_workflow_regressions import client, seed  # noqa: F401  (fixture)
 
 
-def test_a_phone_tracked_from_dispatch_then_quiet_keeps_going_forward(city):
+def test_a_phone_tracked_from_dispatch_then_quiet_stays_at_its_last_fix(city):
     incident_ = call_to((12.985, 77.594), ASTER_HUB)
     route = incident_["citizen_view"]["phase1_route_coordinates"]
     far = route[len(route) // 2]
-    # Never simulated: the phone reported all along, then stopped.
+    # Never simulated: the phone reported all along, then stopped. It is a
+    # real vehicle, so nothing invents its movement (live tracking review).
     simulator._progress.pop("AMB-01", None)
     fleet.record_position("AMB-01", far["lat"], far["lng"], source="gps", accuracy_m=5)
     fleet._units["AMB-01"]["position"]["at"] = time.time() - 3600
-    goal = route[-1]
     for _ in range(3):
         simulator.step([incident_])
     here = fleet.get("AMB-01")["position"]
-    assert monitor._dist(here, goal) < monitor._dist(far, goal)
+    assert (here["lat"], here["lng"], here["source"]) == (far["lat"], far["lng"], "gps")
 
 
 def test_a_closure_just_past_the_tick_still_stops_the_unit_in_time(city, monkeypatch):
