@@ -12,7 +12,7 @@ import shortId from '../utils/shortId';
 import { Check, ChevronLeft, Building2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import MapOverlay from '../components/MapOverlay';
-import { useHospitals, useStations } from '../hooks/useCityLayers';
+import { useHospitals, useStations, useOsmHospitals } from '../hooks/useCityLayers';
 import CallerDetails from '../components/CallerDetails';
 import useUnitTrack, { liveEtaMinutes } from '../hooks/useUnitTrack';
 import useShareLocation from '../hooks/useShareLocation';
@@ -32,6 +32,7 @@ import {
 export default function DriverDashboard() {
   const { driverInfo } = useAuth();
   const hospitals = useHospitals();
+  const osmHospitals = useOsmHospitals();
   const stations = useStations();
   // On or off duty (an off-duty unit is never dispatched).
   const [onDuty, setOnDuty] = useState(null);
@@ -383,6 +384,7 @@ export default function DriverDashboard() {
       <Panel className="overflow-hidden">
         <MapOverlay
           hospitals={hospitals}
+          osmHospitals={osmHospitals}
           stations={stations}
           height="min(52vh, 440px)"
           routeCoordinates={view.route_coordinates}
