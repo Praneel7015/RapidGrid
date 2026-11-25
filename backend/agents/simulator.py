@@ -158,59 +158,89 @@ def step(incidents: list[dict], dt_s: float = TICK_S) -> int:
         key, route, eta_s = fleet_leg(incident)
         if key is None or len(route) < 2:
             continue
-        leg_key = f"{incident['incident_id']}:{key}:{route_key(route)}"
-        detour = _detours.get(unit["unit_id"])
-        if detour is not None and detour[0] != leg_key:
-            _detours.pop(unit["unit_id"], None)  # the leg changed: back to normal
-            detour = None
-        if detour is not None:
-            _key, path, done = detour
-            done = min(length(path), done + _DEFAULT_SPEED_MPS * dt_s * sim_speed())
-            _detours[unit["unit_id"]] = (_key, path, done)
-            point, heading, _end = point_along(path, done)
-            fleet.record_position(unit["unit_id"], point["lat"], point["lng"], source="simulated", heading=heading)
-            moved += 1
+        moved += _drive(unit, incident, key, route, eta_s, dt_s)
+    # A backup ambulance is claimed on the incident only (the fleet record
+    # still links the call's own unit): drive it on the hospital leg.
+    for incident in incidents:
+        key, route, eta_s = _leg(incident)
+        if key is None or len(route) < 2:
             continue
-        previous_key, travelled, start = _progress.get(unit["unit_id"], (None, 0.0, None))
-        # A phone that stopped sending: simulation takes over from its last
-        # real fix, not from where the simulation had left the unit.
-        handover = unit["position"].get("source") == "gps"
-        if handover and previous_key == leg_key:
-            # Carry on from the last real fix: its distance along the leg,
-            # on the leg as already driven (not back to its first point).
-            here = unit["position"]
-            driven = [start, *route] if start is not None else route
-            travelled = along(driven, here)
-        elif previous_key != leg_key or handover:
-            travelled = 0.0
-            here = unit["position"]
-            start = None
-            if _distance(here, route[0]) > 50:
-                from agents.monitor import project
-
-                if project(route, here)[0] <= 50:
-                    # Already on the leg (a phone tracked it from dispatch,
-                    # then went quiet): carry on from that point of it.
-                    travelled = along(route, here)
-                else:
-                    # Off the leg (a backup taking over from elsewhere):
-                    # drive from where it is, not from a jump to the first
-                    # point. Fixed for the whole leg.
-                    start = {"lat": here["lat"], "lng": here["lng"]}
-        if start is not None:
-            route = [start] + route
-        total = length(route)
-        speed = (total / eta_s) if eta_s and total else _DEFAULT_SPEED_MPS
-        target = min(total, travelled + speed * dt_s * sim_speed())
-        # A unit cannot drive through a closed road: it stops before it and
-        # waits (for a reroute, or the road to reopen).
-        stop = _closure_on(route, travelled, target)
-        travelled = max(travelled, stop) if stop is not None else target
-        _progress[unit["unit_id"]] = (leg_key, travelled, start)
-        point, heading, _end = point_along(route, travelled)
-        fleet.record_position(unit["unit_id"], point["lat"], point["lng"], source="simulated", heading=heading)
-        moved += 1
+        for unit in _backup_units(incident):
+            if fleet.real_vehicle(unit) or fleet.phone_tracking(unit["unit_id"]):
+                continue
+            moved += _drive(unit, incident, key, route, eta_s, dt_s)
     return moved
+
+
+def _backup_units(incident: dict) -> list[dict]:
+    """Backup ambulances whose own slot on this call has picked the patient
+    up, and which are not already the call's fleet unit."""
+    if incident.get("status") != "patient_picked_up":
+        return []
+    states = incident.get("unit_statuses") or {}
+    out = []
+    for slot, unit_id in (incident.get("unit_assignments") or {}).items():
+        if slot == "primary" or not unit_id or states.get(slot) != "patient_picked_up":
+            continue
+        unit = fleet.get(unit_id)
+        if unit is not None and unit.get("incident_id") != incident["incident_id"]:
+            out.append(unit)
+    return out
+
+
+def _drive(unit: dict, incident: dict, key: str, route: list[dict], eta_s: Optional[float], dt_s: float) -> int:
+    """Move one unit along its leg by one tick. Returns 1 if it moved, else 0."""
+    leg_key = f"{incident['incident_id']}:{key}:{route_key(route)}"
+    detour = _detours.get(unit["unit_id"])
+    if detour is not None and detour[0] != leg_key:
+        _detours.pop(unit["unit_id"], None)  # the leg changed: back to normal
+        detour = None
+    if detour is not None:
+        _key, path, done = detour
+        done = min(length(path), done + _DEFAULT_SPEED_MPS * dt_s * sim_speed())
+        _detours[unit["unit_id"]] = (_key, path, done)
+        point, heading, _end = point_along(path, done)
+        fleet.record_position(unit["unit_id"], point["lat"], point["lng"], source="simulated", heading=heading)
+        return 1
+    previous_key, travelled, start = _progress.get(unit["unit_id"], (None, 0.0, None))
+    # A phone that stopped sending: simulation takes over from its last
+    # real fix, not from where the simulation had left the unit.
+    handover = unit["position"].get("source") == "gps"
+    if handover and previous_key == leg_key:
+        # Carry on from the last real fix: its distance along the leg,
+        # on the leg as already driven (not back to its first point).
+        here = unit["position"]
+        driven = [start, *route] if start is not None else route
+        travelled = along(driven, here)
+    elif previous_key != leg_key or handover:
+        travelled = 0.0
+        here = unit["position"]
+        start = None
+        if _distance(here, route[0]) > 50:
+            from agents.monitor import project
+
+            if project(route, here)[0] <= 50:
+                # Already on the leg (a phone tracked it from dispatch,
+                # then went quiet): carry on from that point of it.
+                travelled = along(route, here)
+            else:
+                # Off the leg (a backup taking over from elsewhere):
+                # drive from where it is, not from a jump to the first
+                # point. Fixed for the whole leg.
+                start = {"lat": here["lat"], "lng": here["lng"]}
+    if start is not None:
+        route = [start] + route
+    total = length(route)
+    speed = (total / eta_s) if eta_s and total else _DEFAULT_SPEED_MPS
+    target = min(total, travelled + speed * dt_s * sim_speed())
+    # A unit cannot drive through a closed road: it stops before it and
+    # waits (for a reroute, or the road to reopen).
+    stop = _closure_on(route, travelled, target)
+    travelled = max(travelled, stop) if stop is not None else target
+    _progress[unit["unit_id"]] = (leg_key, travelled, start)
+    point, heading, _end = point_along(route, travelled)
+    fleet.record_position(unit["unit_id"], point["lat"], point["lng"], source="simulated", heading=heading)
+    return 1
 
 
 def _closure_on(route: list[dict], start_m: float, end_m: float) -> Optional[float]:

@@ -82,11 +82,14 @@ def _save(strict: bool = False) -> None:
     for uid, u in _units.items():
         snapshot[uid] = {k: u.get(k) for k in ("status", "incident_id", "gps_incident")}
         snapshot[uid]["on_duty"] = u.get("on_duty", True)
-        if u.get("gps_incident") and u["position"].get("source") == "gps":
-            # A real vehicle's last place, so a restart does not show it at
-            # its station (saved at most every SAVE_REAL_POSITION_S).
+        if u["position"].get("source") == "gps":
+            # A real vehicle's last place, kept after its call ends too (the
+            # call marker is cleared then, the place is not), so a restart
+            # does not show it back at its station. Saved at most every
+            # SAVE_REAL_POSITION_S while on a call.
             snapshot[uid]["position"] = {k: u["position"].get(k) for k in
-                                         ("lat", "lng", "at", "source", "accuracy_m", "heading", "captured_at")}
+                                         ("lat", "lng", "at", "source", "accuracy_m", "heading",
+                                          "captured_at")}
     try:
         storage.save_collection(_COLLECTION, snapshot)
     except Exception:
@@ -125,6 +128,12 @@ def load(attempts: int = 3) -> None:
             previous = _units.get(entry.unit_id) or {}
             saved = stored.get(entry.unit_id) or {}
             real = bool(saved.get("gps_incident")) and saved.get("gps_incident") == saved.get("incident_id")
+            # The last real place (kept after the call ended) is restored as a
+            # position only: the unit's status and call marker are unchanged.
+            saved_pos = saved.get("position")
+            if not (isinstance(saved_pos, dict) and {"lat", "lng", "at"} <= set(saved_pos)
+                    and saved_pos.get("source") == "gps"):
+                saved_pos = None
             units[entry.unit_id] = {
                 "unit_id": entry.unit_id,
                 "type": entry.type,
@@ -137,10 +146,8 @@ def load(attempts: int = 3) -> None:
                 "gps_incident": saved.get("gps_incident") if real else None,
                 # Off duty: shown on the map, never dispatched.
                 "on_duty": saved.get("on_duty", True) is not False,
-                "position": previous.get("position") or (
-                    saved["position"] if real and isinstance(saved.get("position"), dict)
-                    and {"lat", "lng", "at"} <= set(saved["position"]) else None
-                ) or {**station, "at": time.time(), "source": "station", "accuracy_m": None},
+                "position": previous.get("position") or saved_pos
+                or {**station, "at": time.time(), "source": "station", "accuracy_m": None},
             }
             _trails.setdefault(entry.unit_id, deque(maxlen=TRAIL_POINTS))
         _units.clear()
@@ -322,7 +329,9 @@ def record_position(unit_id: str, lat: float, lng: float, *, source: str,
     if source == "gps" and captured_at is not None:
         if captured_at < now - MAX_FIX_AGE_S:
             raise StaleFix("captured too long ago")
-        # A phone clock running ahead cannot put a fix in the future.
+        # A phone clock running ahead cannot put a fix in the future. The clamp
+        # is bounded by arrival, so a future-stamped fix never sits above the
+        # order of fixes that arrive after it and are captured before it.
         captured_at = min(captured_at, now) if captured_at <= now + MAX_CLOCK_AHEAD_S else now
     with _lock:
         u = _units[unit_id]
@@ -384,10 +393,20 @@ def real_vehicle(u: Optional[dict]) -> bool:
     return bool(u) and u.get("incident_id") is not None and u.get("gps_incident") == u.get("incident_id")
 
 
+def fix_age_s(position: dict) -> float:
+    """Seconds since the phone took this fix (its captured time, not when it
+    arrived: a fix delivered late is already old). Receipt time only when the
+    fix carries no capture time."""
+    when = position.get("captured_at")
+    if when is None:
+        when = position.get("at", 0)
+    return max(0.0, time.time() - when)
+
+
 def phone_tracking(unit_id: str) -> bool:
     """True while the unit's phone is sending fixes."""
     u = get(unit_id)
-    return bool(u) and u["position"].get("source") == "gps" and time.time() - u["position"].get("at", 0) < GPS_FRESH_S
+    return bool(u) and u["position"].get("source") == "gps" and fix_age_s(u["position"]) < GPS_FRESH_S
 
 
 def reset() -> None:

@@ -211,7 +211,7 @@ export default function DriverDashboard() {
               ? `Live GPS${Number.isFinite(sharing.accuracy) ? ` ±${Math.round(sharing.accuracy)} m` : ''} · keep this screen open`
               : sharing.status === 'waiting'
                 ? 'Waiting for a GPS fix…'
-                : sharing.error ?? 'Sends this phone\'s GPS as the unit position. Otherwise it is simulated.'}
+                : sharing.error ?? 'Sends this phone\'s GPS as the unit position. Turning it off leaves the unit at its last GPS position; simulation does not resume.'}
           </span>
         </span>
         <input

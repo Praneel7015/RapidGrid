@@ -148,6 +148,8 @@ def test_a_busy_log_makes_the_purge_report_failure(monkeypatch):
             yield Busy(conn)
 
     monkeypatch.setattr(storage, "_connection", busy_connection)
+    # The checkpoint runs on its own short-timeout connection: fake "busy" there.
+    monkeypatch.setattr(storage, "_checkpoint_truncate_busy", lambda path: True)
     import pytest
     with pytest.raises(storage.CompactIncomplete):
         storage.compact(database=storage.data_path(), attempts=2)

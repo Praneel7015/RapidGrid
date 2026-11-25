@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Request
@@ -18,6 +19,8 @@ from pydantic import BaseModel, Field
 import fleet
 from agents import monitor, simulator
 from staff import require as require_staff
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Fleet"])
 
@@ -37,6 +40,12 @@ class PositionFix(BaseModel):
     speed_mps: Optional[float] = Field(default=None, ge=0, le=120, allow_inf_nan=False)
 
 
+_STALE_NOTES = {
+    "captured too long ago": "captured too long ago",
+    "older than the last fix": "older than the last fix",
+}
+
+
 def store_fix(unit_id: str, lat: float, lng: float, *, accuracy_m=None, heading=None,
               captured_at=None, speed_mps=None) -> dict:
     """Validate and store one real GPS fix (phone screen or tracker app).
@@ -52,8 +61,10 @@ def store_fix(unit_id: str, lat: float, lng: float, *, accuracy_m=None, heading=
         raise HTTPException(status_code=404, detail="Unknown unit") from None
     except fleet.StaleFix as reason:
         # Not the phone's fault (a delayed or reordered upload): accepted,
-        # not used, so it does not retry it.
-        return {"unit_id": unit_id, "ignored": str(reason)}
+        # not used, so it does not retry it. Only fixed notes reach the client;
+        # the exception text is logged here instead.
+        logger.info("Fix for unit %s not used: %s", unit_id, reason)
+        return {"unit_id": unit_id, "ignored": _STALE_NOTES.get(str(reason), "not used")}
     except ValueError:
         raise HTTPException(status_code=429, detail="Too many position updates",
                             headers={"Retry-After": "1"}) from None

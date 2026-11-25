@@ -225,14 +225,24 @@ def compact(*, database: Path | None = None, attempts: int = 10) -> None:
     with _connection(database) as connection:
         connection.commit()  # VACUUM cannot run inside a transaction
         connection.execute("VACUUM")
-    # Each checkpoint attempt takes the shared lock on its own, and the wait
-    # between attempts happens without it, so request handlers that read
-    # storage are never held up behind the retries.
+    # The checkpoint attempts run on their own connection, not the shared one,
+    # and the wait between attempts holds no lock. Request handlers that use
+    # the shared connection are never held up behind the retries.
+    path = Path(database or data_path())
     for attempt in range(attempts):
-        with _connection(database) as connection:
-            busy, _log, _done = connection.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
-        if not busy:
+        if not _checkpoint_truncate_busy(path):
             return
         if attempt + 1 < attempts:
             _time.sleep(0.2)
     raise CompactIncomplete("write-ahead log still in use")
+
+
+def _checkpoint_truncate_busy(path: Path) -> bool:
+    """One TRUNCATE checkpoint on a maintenance connection with a short busy
+    timeout. True when the log could not be truncated (a reader holds it)."""
+    connection = sqlite3.connect(path, timeout=0.2)
+    try:
+        busy, _log, _done = connection.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+        return bool(busy)
+    finally:
+        connection.close()

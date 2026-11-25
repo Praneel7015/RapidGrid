@@ -96,6 +96,8 @@ def test_a_real_vehicle_whose_phone_goes_quiet_is_never_simulated(city):
     # The phone stops (a locked screen, a tunnel): the unit stays where its
     # phone last put it, and the screens say the signal is lost.
     fleet._units["AMB-01"]["position"]["at"] = time.time() - 90
+    # Freshness is judged from the phone's capture time, so age that too.
+    fleet._units["AMB-01"]["position"]["captured_at"] = time.time() - 90
     for _ in range(4):
         simulator.step([incident])
     here = fleet.get("AMB-01")["position"]
