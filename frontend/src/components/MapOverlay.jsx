@@ -110,6 +110,7 @@ export default function MapOverlay({
   // has interacted (zoom/pan), we stop auto-fitting so their view is preserved.
   const hasFit = useRef(false);
   const userInteracted = useRef(false);
+  const lastBounds = useRef(null);
 
   // Create the map exactly once. The previous version never called remove(),
   // which throws "Map container is already initialized" on React's dev
@@ -142,7 +143,19 @@ export default function MapOverlay({
 
     // A map created inside a container that is hidden or still being sized
     // renders grey tiles until it is told to re-measure.
-    const invalidate = () => map.current && map.current.invalidateSize();
+    // When the box changes size (projector mode, a rotated phone), fit the
+    // route again unless the user has moved the map themselves.
+    const invalidate = () => {
+      if (!map.current) return;
+      map.current.invalidateSize();
+      if (lastBounds.current && !userInteracted.current) {
+        try {
+          // Not animated: Leaflet drops a new zoom while one is animating,
+          // so the last of a burst of resizes would be lost.
+          map.current.fitBounds(lastBounds.current, { padding: [44, 44], maxZoom: 15, animate: false });
+        } catch { /* a box with no size yet */ }
+      }
+    };
     const raf = requestAnimationFrame(invalidate);
     const observer = new ResizeObserver(invalidate);
     observer.observe(holder.current);
@@ -183,6 +196,7 @@ export default function MapOverlay({
   useEffect(() => {
     if (prevRouteKey.current !== routeKey) {
       hasFit.current = false;
+      lastBounds.current = null;
       userInteracted.current = false;
       prevRouteKey.current = routeKey;
     }
@@ -321,7 +335,8 @@ export default function MapOverlay({
         // divert). Once the user has zoomed/panned, leave their view alone.
         const shouldFit = !hasFit.current || !userInteracted.current;
         if (shouldFit) {
-          map.current.fitBounds(L.latLngBounds(bounds), { padding: [44, 44], maxZoom: 15 });
+          lastBounds.current = L.latLngBounds(bounds);
+          map.current.fitBounds(lastBounds.current, { padding: [44, 44], maxZoom: 15 });
           hasFit.current = true;
         }
       } catch {

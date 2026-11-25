@@ -269,7 +269,7 @@ async function spotlight(frame, selector, openSelector, isCurrent, staleDoc, zoo
     const el = ready ? doc.querySelector(selector) : null;
     if (el) {
       // Projector zoom first, so the scroll is measured on the final layout.
-      if (doc.documentElement.style.zoom !== zoom) doc.documentElement.style.zoom = zoom;
+      zoomScreen(doc, zoom);
       if (!doc.getElementById('rg-tour-style')) {
         const style = doc.createElement('style');
         style.id = 'rg-tour-style';
@@ -295,6 +295,28 @@ const params = typeof window !== 'undefined' ? new URLSearchParams(window.locati
 // Seconds to hold each finished step in "Play all" (?pause=N for rehearsals).
 const PAUSE_S = Math.max(1, Number(params.get('pause')) || 8);
 const PROJECTOR_ZOOM = '1.25';
+// The map is not enlarged with the text: at 1.25 it filled the screen and
+// pushed the route out of view, and Leaflet misplaces tiles under CSS zoom.
+// So in projector mode it is zoomed back to its own scale and kept to a
+// height that leaves the route and the panels beside it in view.
+const PROJECTOR_STYLE = `
+.leaflet-container { zoom: ${1 / Number(PROJECTOR_ZOOM)}; max-height: 56vh; }`;
+
+/** Set (or clear, with '') the projector zoom on one screen's document. */
+function zoomScreen(doc, zoom) {
+  const root = doc?.documentElement;
+  if (!root) return;
+  if (root.style.zoom !== zoom) root.style.zoom = zoom;
+  let style = doc.getElementById('rg-projector-style');
+  if (zoom && !style) {
+    style = doc.createElement('style');
+    style.id = 'rg-projector-style';
+    style.textContent = PROJECTOR_STYLE;
+    doc.head.appendChild(style);
+  } else if (!zoom && style) {
+    style.remove();
+  }
+}
 
 export default function GuidedDemo() {
   const [projector, setProjector] = useState(params.get('projector') === '1');
@@ -382,8 +404,7 @@ export default function GuidedDemo() {
   // Projector mode: bigger text inside every screen (same-origin frames).
   const applyZoom = useCallback((frame) => {
     try {
-      const root = frame?.contentDocument?.documentElement;
-      if (root) root.style.zoom = projector ? PROJECTOR_ZOOM : '';
+      zoomScreen(frame?.contentDocument, projector ? PROJECTOR_ZOOM : '');
     } catch { /* not loaded yet */ }
   }, [projector]);
   useEffect(() => {

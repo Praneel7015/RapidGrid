@@ -1003,15 +1003,29 @@ def test_play_all_runs_the_scenario_hands_free_in_projector_mode(context, server
         page.wait_for_function(
             "() => document.querySelector(\"iframe[title='Caller screen']\")?.contentDocument?.documentElement?.style.zoom === '1.25'",
             timeout=15000)
+        # The map is not enlarged with the text: it keeps its own scale.
+        page.wait_for_function(
+            "() => !!document.querySelector(\"iframe[title='Caller screen']\")?.contentDocument"
+            "?.getElementById('rg-projector-style')", timeout=5000)
         page.get_by_role("button", name="Play all").click()
         expect(page.get_by_role("button", name="Run again")).to_be_visible(timeout=300000)
         expect(page.get_by_role("alert")).to_have_count(0)
+        # The dispatch map is zoomed back to its own scale (1.25 x 0.8) and
+        # capped in height, so the route and the panels beside it stay in view.
+        page.wait_for_function(
+            "() => { const doc = document.querySelector(\"iframe[title='Dispatch screen']\")?.contentDocument;"
+            " const map = doc?.querySelector('.leaflet-container');"
+            " if (!map) return false; const style = doc.defaultView.getComputedStyle(map);"
+            " return style.zoom === '0.8' && style.maxHeight !== 'none'; }", timeout=10000)
         expect(page.get_by_test_id("projector-caption")).to_contain_text("ER has the patient")
         # Leaving projector mode restores normal text size.
         page.get_by_role("button", name="Exit projector").click()
         page.wait_for_function(
             "() => document.querySelector(\"iframe[title='Caller screen']\")?.contentDocument?.documentElement?.style.zoom === ''",
             timeout=5000)
+        page.wait_for_function(
+            "() => !document.querySelector(\"iframe[title='Caller screen']\")?.contentDocument"
+            "?.getElementById('rg-projector-style')", timeout=5000)
     finally:
         page.close()
         context.request.post(server + "/api/monitoring/reset", headers=auth, data={})
