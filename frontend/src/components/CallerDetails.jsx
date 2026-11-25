@@ -7,6 +7,7 @@
 import React, { useState } from 'react';
 import { Eye, Phone } from 'lucide-react';
 import { Button } from './ui';
+import CallNumber from './CallNumber';
 
 export default function CallerDetails({ incidentId }) {
   const [caller, setCaller] = useState(null);
@@ -46,9 +47,8 @@ export default function CallerDetails({ incidentId }) {
     <div className="flex flex-wrap items-center gap-2 text-[13px]">
       <span className="font-semibold text-text">{caller.name || 'Unknown caller'}</span>
       {dialable ? (
-        <a href={`tel:${caller.phone.replace(/[^0-9+]/g, '')}`} className="inline-flex items-center gap-1 font-mono text-signal-hover underline">
-          <Phone size={12} /> {caller.phone}
-        </a>
+        <CallNumber phone={caller.phone} label={caller.phone} iconSize={12}
+          className="inline-flex items-center gap-1 font-mono text-signal-hover underline" />
       ) : (
         <span className="font-mono text-text-faint">{caller.phone || 'no number'}</span>
       )}

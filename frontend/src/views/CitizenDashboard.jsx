@@ -15,6 +15,7 @@ import useUnitTrack, { liveEtaMinutes } from '../hooks/useUnitTrack';
 import LiveEmergencyChat from '../components/LiveEmergencyChat';
 import MicButton from '../components/MicButton';
 import CallButton from '../components/CallButton';
+import CallNumber from '../components/CallNumber';
 import useIncidentContacts from '../hooks/useIncidentContacts';
 import useSpeechToText from '../hooks/useSpeechToText';
 import { Panel, PanelHead, Button, Stat, StatusTag } from '../components/ui';
@@ -302,12 +303,14 @@ export default function CitizenDashboard() {
           />
         </Panel>
 
-        <a
-          href="tel:112"
-          className="tap mt-6 flex items-center justify-center gap-2 rounded-sm border border-ink bg-paper py-4 t-tag text-text hover:bg-ink hover:text-on-ink"
-        >
-          <Phone size={15} /> Or call 112
-        </a>
+        <div className="mt-6 flex justify-center">
+          <CallNumber
+            phone="112"
+            label="Or call 112"
+            iconSize={15}
+            className="tap flex w-full items-center justify-center gap-2 rounded-sm border border-ink bg-paper py-4 t-tag text-text hover:bg-ink hover:text-on-ink"
+          />
+        </div>
       </div>,
     );
   }
@@ -430,12 +433,13 @@ export default function CitizenDashboard() {
           {!coords ? 'Finding your location…' : stage === 'failed' ? 'Try again' : 'Send emergency report'}
         </Button>
 
-        <a
-          href="tel:112"
-          className="tap mt-3 flex w-full items-center justify-center gap-2 rounded-sm border border-rule py-3 t-tag text-text-muted hover:text-text"
-        >
-          <Phone size={14} /> Call 112 instead
-        </a>
+        <div className="mt-3 flex justify-center">
+          <CallNumber
+            phone="112"
+            label="Call 112 instead"
+            className="tap flex w-full items-center justify-center gap-2 rounded-sm border border-rule py-3 t-tag text-text-muted hover:text-text"
+          />
+        </div>
       </div>,
     );
   }
