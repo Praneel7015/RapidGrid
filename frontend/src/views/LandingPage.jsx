@@ -151,6 +151,11 @@ export default function LandingPage() {
                   Open the dispatch console
                 </Link>
               </div>
+              <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 t-tag">
+                <Link to="/seats" className="underline underline-offset-4 hover:text-signal-hover">Choose your seat (team demo)</Link>
+                <Link to="/control" className="underline underline-offset-4 hover:text-signal-hover">City control room</Link>
+                <Link to="/demo" className="underline underline-offset-4 hover:text-signal-hover">Guided demo</Link>
+              </div>
             </div>
 
             <div className="rounded-md border border-rule bg-paper">

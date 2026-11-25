@@ -14,10 +14,12 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import shortId from '../utils/shortId';
 import { AlertTriangle, Check, CornerUpRight, X } from 'lucide-react';
+import { useFleet, useHospitals, useStations } from '../hooks/useCityLayers';
 import MapOverlay from '../components/MapOverlay';
 import useUnitTrack, { liveEtaMinutes } from '../hooks/useUnitTrack';
 import MonitoringPanel from '../components/MonitoringPanel';
 import ControlRoomLog from '../components/ControlRoomLog';
+import { CityLife } from './ControlRoom';
 import CallerDetails from '../components/CallerDetails';
 import AIRationale from '../components/AIRationale';
 import CityControls from '../components/CityControls';
@@ -35,38 +37,6 @@ import {
   severityBand,
   fmt,
 } from '../components/ui';
-
-/** The whole fleet, every 5 s (dispatch only), without the unit on the
- * selected call (the map draws that one with its trail). */
-function useFleet(exceptUnit) {
-  const [units, setUnits] = useState([]);
-  useEffect(() => {
-    let cancelled = false;
-    let inFlight = false;
-    const load = async () => {
-      if (inFlight) return;
-      inFlight = true;
-      try {
-        const res = await fetch('/api/units', { signal: AbortSignal.timeout(5000) });
-        if (res.ok) {
-          const data = await res.json();
-          if (!cancelled) setUnits(data.units ?? []);
-        }
-      } catch {
-        // keep the last positions
-      } finally {
-        inFlight = false;
-      }
-    };
-    load();
-    const timer = setInterval(load, 5000);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, []);
-  return useMemo(() => units.filter((u) => u.unit_id !== exceptUnit), [units, exceptUnit]);
-}
 
 export default function DispatcherDashboard() {
   const [incidents, setIncidents] = useState([]);
@@ -278,6 +248,8 @@ export default function DispatcherDashboard() {
   const track = useUnitTrack(selected?.incident_id, ['dispatched', 'patient_picked_up'].includes(selected?.status));
   const openAlert = selected?.monitoring?.alerts?.find((a) => a.status === 'open') ?? null;
   const fleet = useFleet(track.unit?.unit_id ?? null);
+  const hospitals = useHospitals();
+  const stations = useStations();
   const routeCoords = view.route_coordinates ?? plan?.recommended_route?.coordinates ?? [];
 
   const queue = incidents.filter(
@@ -381,6 +353,12 @@ export default function DispatcherDashboard() {
                           }`}
                         >
                           <span title={inc.incident_id}>{shortId(inc.incident_id)}</span>
+                          {inc.background && (
+                            <span className="ml-2 rounded-xs border border-rule px-1 font-sans text-[10px] font-normal text-text-muted"
+                              title="A simulated call elsewhere in the city: its crew acts by itself">
+                              simulated
+                            </span>
+                          )}
                         </span>
                         <StatusTag status={inc.status} />
                       </div>
@@ -474,6 +452,8 @@ export default function DispatcherDashboard() {
                     corridor={openAlert?.corridor ?? []}
                     focusKey={openAlert?.alert_id ?? null}
                     fleet={fleet}
+                    hospitals={hospitals}
+                    stations={stations}
                     highlightUnit={openAlert?.backup?.unit_id ?? null}
                     className="!rounded-none !border-0"
                   />
@@ -635,6 +615,7 @@ export default function DispatcherDashboard() {
           {selected && <MonitoringPanel key={selected.incident_id} incident={selected} live={track.live} simSpeed={track.simSpeed} onChanged={loadOverlay} />}
           <CityControls onChange={loadOverlay} />
           <ControlRoomLog />
+          <div className="mt-3"><CityLife /></div>
 
           {sceneOnly ? (
             // Police, fire and rescue respond to the scene: no hospital to rank.

@@ -566,7 +566,8 @@ def _admit_report(request, signed_in: bool = False):
     import security
 
     pending = sum(1 for i in ACTIVE_INCIDENTS
-                  if i.get("status") in {"processing", "awaiting_dispatcher_approval"} and not i.get("citizen_id"))
+                  if i.get("status") in {"processing", "awaiting_dispatcher_approval"} and not i.get("citizen_id")
+                  and not i.get("background"))
     if not signed_in and pending >= PENDING_CAP:
         raise HTTPException(status_code=429, detail="The service is very busy. Call 112 now.")
     if request is None:
@@ -827,8 +828,14 @@ def _reserve_unit(inc: dict) -> tuple[str, bool]:
     from routers.driver import units_on_calls
 
     held = fleet.unit_for_incident(inc["incident_id"])
+    exclude = set(units_on_calls(inc["incident_id"]))
+    if inc.get("background"):
+        # The simulated city never takes a unit the scripted call may need.
+        from agents.city_life import STAGE_UNITS
+
+        exclude |= STAGE_UNITS
     unit = fleet.assign(inc["incident_id"], vehicle, near=dict(inc["location"]),
-                        prefer_station=hub.get("name"), exclude=units_on_calls(inc["incident_id"]))
+                        prefer_station=hub.get("name"), exclude=exclude)
     if unit is None:
         logger.warning("No free %s for %s", log_safe(vehicle), log_safe(inc["incident_id"]))
         raise HTTPException(status_code=409, detail=(

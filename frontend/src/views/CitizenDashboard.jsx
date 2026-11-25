@@ -10,6 +10,7 @@ import shortId from '../utils/shortId';
 import { useAuth } from '../context/AuthContext';
 import { MapPin, Phone, Check, AlertTriangle, ChevronLeft } from 'lucide-react';
 import MapOverlay from '../components/MapOverlay';
+import { useHospitals } from '../hooks/useCityLayers';
 import useUnitTrack, { liveEtaMinutes } from '../hooks/useUnitTrack';
 import LiveEmergencyChat from '../components/LiveEmergencyChat';
 import MicButton from '../components/MicButton';
@@ -39,6 +40,8 @@ const FALLBACK_LOCATION = { lat: 12.9756, lng: 77.6068 };
 
 export default function CitizenDashboard() {
   const { citizenInfo } = useAuth();
+  // Every hospital around the caller, so they can see where help comes from.
+  const hospitals = useHospitals();
 
   const [stage, setStage] = useState('home'); // home | report | sending | tracking | failed
   // The caller's last call, once it is handed over: a closing summary on the
@@ -553,6 +556,7 @@ export default function CitizenDashboard() {
       {view && (
         <Panel className="overflow-hidden">
           <MapOverlay
+            hospitals={hospitals}
             height="min(46vh, 400px)"
             routeCoordinates={view.route_coordinates}
             phase1Coordinates={view.phase1_route_coordinates}

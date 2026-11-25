@@ -12,6 +12,7 @@ import shortId from '../utils/shortId';
 import { Check, ChevronLeft, Building2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import MapOverlay from '../components/MapOverlay';
+import { useHospitals, useStations } from '../hooks/useCityLayers';
 import CallerDetails from '../components/CallerDetails';
 import useUnitTrack, { liveEtaMinutes } from '../hooks/useUnitTrack';
 import useShareLocation from '../hooks/useShareLocation';
@@ -30,6 +31,33 @@ import {
 
 export default function DriverDashboard() {
   const { driverInfo } = useAuth();
+  const hospitals = useHospitals();
+  const stations = useStations();
+  // On or off duty (an off-duty unit is never dispatched).
+  const [onDuty, setOnDuty] = useState(null);
+  const [dutyError, setDutyError] = useState(null);
+  useEffect(() => {
+    if (!driverInfo?.unitId) return undefined;
+    let cancelled = false;
+    fetch(`/api/units/${encodeURIComponent(driverInfo.unitId)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((u) => { if (!cancelled && u) setOnDuty(u.on_duty !== false); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [driverInfo?.unitId]);
+  const changeDuty = async (on) => {
+    setDutyError(null);
+    try {
+      const res = await fetch(`/api/units/${encodeURIComponent(driverInfo.unitId)}/duty`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ on_duty: on }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(typeof data.detail === 'string' ? data.detail : `HTTP ${res.status}`);
+      setOnDuty(data.on_duty !== false);
+    } catch (err) {
+      setDutyError(err.message);
+    }
+  };
   const [dispatches, setDispatches] = useState([]);
   const [activeId, setActiveId] = useState(() => sessionStorage.getItem('rapidgrid_driver_incident'));
   const [actionError, setActionError] = useState(null);
@@ -194,6 +222,24 @@ export default function DriverDashboard() {
           className="h-5 w-5 shrink-0 accent-[var(--color-signal)]"
         />
       </label>
+      {onDuty !== null && (
+        <label className="flex items-center justify-between gap-3 border-t border-rule px-4 py-3" data-testid="duty-switch">
+          <span className="min-w-0">
+            <span className="block text-[13.5px] font-semibold text-text">{onDuty ? 'On duty' : 'Off duty'}</span>
+            <span className="mt-0.5 block text-[12px] text-text-muted">
+              {dutyError ?? (onDuty ? 'Dispatch can send this unit to calls.' : 'Shown on the map, never sent to a call.')}
+            </span>
+          </span>
+          <input
+            type="checkbox"
+            role="switch"
+            aria-label="On duty"
+            checked={onDuty}
+            onChange={(e) => changeDuty(e.target.checked)}
+            className="h-5 w-5 shrink-0 accent-[var(--color-signal)]"
+          />
+        </label>
+      )}
     </Panel>
   ) : null;
 
@@ -336,6 +382,8 @@ export default function DriverDashboard() {
 
       <Panel className="overflow-hidden">
         <MapOverlay
+          hospitals={hospitals}
+          stations={stations}
           height="min(52vh, 440px)"
           routeCoordinates={view.route_coordinates}
           phase1Coordinates={view.phase1_route_coordinates}

@@ -39,6 +39,64 @@ const COLOR = {
   corridor: '#178a4a',
 };
 
+// Vehicle colours by state (the legend uses the same).
+const UNIT_STATE = {
+  free: { color: '#178a4a', label: 'Free' },
+  busy: { color: '#e8a020', label: 'On a call' },
+  off: { color: '#9a97a0', label: 'Off duty' },
+};
+const TYPE_LETTER = { Ambulance: 'A', 'Fire Engine': 'F', 'Police Cruiser': 'P', 'Disaster Rescue': 'R' };
+
+function unitState(u) {
+  if (u.on_duty === false) return 'off';
+  return u.status === 'available' ? 'free' : 'busy';
+}
+
+function hospitalIcon(onDivert) {
+  const bg = onDivert ? '#9a97a0' : '#ffffff';
+  const fg = onDivert ? '#ffffff' : '#c23a2b';
+  return L.divIcon({
+    className: '',
+    html: `<div class="rg-hospital" style="width:18px;height:18px;border-radius:4px;background:${bg};color:${fg};border:1.5px solid ${onDivert ? '#6b6872' : '#c23a2b'};font:700 14px/15px system-ui;text-align:center">+</div>`,
+    iconSize: [18, 18],
+    iconAnchor: [9, 9],
+  });
+}
+
+function stationIcon(type) {
+  return L.divIcon({
+    className: '',
+    html: `<div class="rg-station" style="width:16px;height:16px;transform:rotate(45deg);background:#2e2c32;border:1.5px solid #fff;box-shadow:0 0 0 1px #2e2c32"><span style="display:block;transform:rotate(-45deg);color:#fff;font:700 9px/14px system-ui;text-align:center">${TYPE_LETTER[type] ?? 'S'}</span></div>`,
+    iconSize: [16, 16],
+    iconAnchor: [8, 8],
+  });
+}
+
+function legendControl() {
+  const control = L.control({ position: 'bottomleft' });
+  control.onAdd = () => {
+    const box = L.DomUtil.create('div', 'rg-legend');
+    box.setAttribute('data-testid', 'map-legend');
+    box.style.cssText = 'background:rgba(255,255,255,.92);padding:6px 8px;border-radius:6px;font:12px/1.5 system-ui;color:#2e2c32;box-shadow:0 1px 4px rgba(0,0,0,.2)';
+    const row = (swatch, text) => {
+      const line = L.DomUtil.create('div', '', box);
+      line.style.cssText = 'display:flex;align-items:center;gap:6px';
+      const mark = L.DomUtil.create('span', '', line);
+      mark.style.cssText = swatch;
+      const label = L.DomUtil.create('span', '', line);
+      label.textContent = text;
+    };
+    row('width:10px;height:10px;border-radius:2px;border:1.5px solid #c23a2b;background:#fff', 'Hospital');
+    row('width:10px;height:10px;border-radius:2px;background:#9a97a0', 'Hospital on divert');
+    row('width:9px;height:9px;transform:rotate(45deg);background:#2e2c32', 'Station');
+    Object.values(UNIT_STATE).forEach(({ color, label }) => row(`width:10px;height:10px;border-radius:50%;background:${color}`, `Vehicle: ${label.toLowerCase()}`));
+    row('width:10px;height:10px;border-radius:50%;border:2px solid #1d5fd1', 'Live GPS');
+    L.DomEvent.disableClickPropagation(box);
+    return box;
+  };
+  return control;
+}
+
 function marker(kind, label) {
   return L.divIcon({
     className: '',
@@ -99,6 +157,14 @@ export default function MapOverlay({
   // the one the agent proposes as backup, drawn as small markers.
   fleet = NONE,
   highlightUnit = null,
+  // The city around the call: every hospital ({hospital_id, name, location,
+  // capabilities, beds_total, on_divert}) and every station ({name, type,
+  // lat, lng}). Given either, the map gets a legend and layer switches.
+  hospitals = NONE,
+  stations = NONE,
+  // Every active emergency ({incident_id, location, status, emergency_type,
+  // background}) as a marker at its scene: the control room's whole city.
+  calls = NONE,
   height = '400px',
   theme = 'light',
   className = '',
@@ -352,27 +418,125 @@ export default function MapOverlay({
     if (!map.current) return;
     if (!fleetLayer.current) fleetLayer.current = L.layerGroup().addTo(map.current);
     fleetLayer.current.clearLayers();
+    // Units parked at the same station would sit on one point: fan them out
+    // a little around it so each one can be seen and clicked.
+    const parked = {};
     for (const u of fleet) {
       const pos = u.position;
       if (!pos || !Number.isFinite(pos.lat) || !Number.isFinite(pos.lng)) continue;
       const proposed = u.unit_id === highlightUnit;
-      const size = proposed ? 18 : 12;
-      const fill = u.status === 'available' ? COLOR.proposal : COLOR.alternative;
-      L.marker([pos.lat, pos.lng], {
+      const state = unitState(u);
+      let at = [pos.lat, pos.lng];
+      if (pos.source === 'station') {
+        const key = `${pos.lat.toFixed(5)},${pos.lng.toFixed(5)}`;
+        // Around the station's own marker, never on top of it.
+        const n = (parked[key] = (parked[key] ?? -1) + 1);
+        const angle = n * (Math.PI / 3) + Math.PI / 6;
+        at = [pos.lat + 0.0014 * Math.cos(angle), pos.lng + 0.0014 * Math.sin(angle)];
+      }
+      const size = proposed ? 20 : 16;
+      const fill = UNIT_STATE[state].color;
+      const ring = proposed ? `3px solid ${COLOR.proposal}`
+        : pos.source === 'gps' ? '2.5px solid #1d5fd1' : '1.5px solid #ffffff';
+      const where = pos.source === 'gps' ? 'live GPS' : pos.source === 'simulated' ? 'simulated' : 'at station';
+      L.marker(at, {
         icon: L.divIcon({
           className: '',
-          html: `<div class="rg-fleet${proposed ? ' rg-fleet-backup' : ''}" style="width:${size}px;height:${size}px;border-radius:50%;background:${fill};border:${proposed ? 3 : 1.5}px solid ${proposed ? COLOR.proposal : COLOR.hub};opacity:${proposed ? 1 : 0.75}"></div>`,
+          html: `<div class="rg-fleet rg-fleet-${state}${proposed ? ' rg-fleet-backup' : ''}" style="width:${size}px;height:${size}px;border-radius:50%;background:${fill};border:${ring};box-shadow:0 0 0 1px rgba(0,0,0,.35);color:#fff;font:700 9px/${size - 3}px system-ui;text-align:center;opacity:${state === 'off' ? 0.7 : 1}">${TYPE_LETTER[u.type] ?? ''}</div>`,
           iconSize: [size, size],
           iconAnchor: [size / 2, size / 2],
         }),
         keyboard: false,
-        title: `${u.unit_id}, ${u.status === 'available' ? 'available' : 'on a call'}`,
+        title: `${u.unit_id}, ${UNIT_STATE[state].label.toLowerCase()}`,
+        zIndexOffset: state === 'busy' ? 500 : 0,
       })
-        .bindPopup(popup([u.unit_id, 'b'], [`${u.type} · ${u.status === 'available' ? 'available' : 'on a call'}`],
+        .bindPopup(popup([u.unit_id, 'b'], [`${u.type} · ${UNIT_STATE[state].label.toLowerCase()}`],
+          [`${u.station ?? ''}`, 'i'], [`Position: ${where}`],
           ...(proposed ? [['Proposed backup', 'b']] : [])))
         .addTo(fleetLayer.current);
     }
   }, [fleet, highlightUnit]);
+
+  // Hospitals and stations: their own layers, with switches and a legend
+  // once the map shows the city (not part of the fit either).
+  const hospitalLayer = useRef(null);
+  const stationLayer = useRef(null);
+  const cityControls = useRef(null);
+  const callLayer = useRef(null);
+  const showCity = hospitals.length > 0 || stations.length > 0;
+  useEffect(() => {
+    if (!map.current || !showCity || cityControls.current) return;
+    hospitalLayer.current = L.layerGroup().addTo(map.current);
+    stationLayer.current = L.layerGroup().addTo(map.current);
+    callLayer.current = L.layerGroup().addTo(map.current);
+    if (!fleetLayer.current) fleetLayer.current = L.layerGroup().addTo(map.current);
+    const switches = L.control.layers(null, {
+      Hospitals: hospitalLayer.current,
+      Stations: stationLayer.current,
+      Vehicles: fleetLayer.current,
+      Emergencies: callLayer.current,
+    }, { position: 'topright', collapsed: false });
+    const legend = legendControl();
+    switches.addTo(map.current);
+    legend.addTo(map.current);
+    cityControls.current = [switches, legend];
+  }, [showCity]);
+  useEffect(() => () => {
+    (cityControls.current ?? []).forEach((c) => c.remove());
+  }, []);
+  useEffect(() => {
+    if (!hospitalLayer.current) return;
+    hospitalLayer.current.clearLayers();
+    for (const h of hospitals) {
+      const at = h.location ?? h;
+      if (!Number.isFinite(at?.lat) || !Number.isFinite(at?.lng)) continue;
+      const strengths = Object.entries(h.capabilities ?? {})
+        .filter(([, v]) => v >= 0.7).sort((a, b) => b[1] - a[1]).slice(0, 3)
+        .map(([k]) => k.replace(/_/g, ' '));
+      L.marker([at.lat, at.lng], { icon: hospitalIcon(h.on_divert), keyboard: false, title: h.name })
+        .bindPopup(popup([h.name, 'b'],
+          [h.on_divert ? 'On divert: not taking new patients' : 'Taking patients', h.on_divert ? 'b' : undefined],
+          ...(strengths.length ? [[`Strong in: ${strengths.join(', ')}`]] : []),
+          ...(Number.isFinite(h.beds_total) ? [[`${h.beds_total} beds${Number.isFinite(h.beds_available) ? `, ${h.beds_available} free (reported)` : ''}`]] : [])))
+        .addTo(hospitalLayer.current);
+    }
+  }, [hospitals, showCity]);
+  useEffect(() => {
+    if (!stationLayer.current) return;
+    stationLayer.current.clearLayers();
+    for (const st of stations) {
+      if (!Number.isFinite(st.lat) || !Number.isFinite(st.lng)) continue;
+      L.marker([st.lat, st.lng], { icon: stationIcon(st.type), keyboard: false, title: st.name })
+        .bindPopup(popup([st.name, 'b'], [`${st.type} station`]))
+        .addTo(stationLayer.current);
+    }
+  }, [stations, showCity]);
+  useEffect(() => {
+    if (!callLayer.current) return;
+    callLayer.current.clearLayers();
+    const label = { processing: 'Being assessed', awaiting_dispatcher_approval: 'Waiting for dispatch',
+      dispatched: 'Unit on the way', patient_picked_up: 'Patient on board' };
+    for (const c of calls) {
+      const at = c.location;
+      if (!Number.isFinite(at?.lat) || !Number.isFinite(at?.lng) || !label[c.status]) continue;
+      const waiting = c.status === 'processing' || c.status === 'awaiting_dispatcher_approval';
+      L.marker([at.lat, at.lng], {
+        icon: L.divIcon({
+          className: '',
+          html: `<div class="rg-call${waiting ? ' rg-call-waiting' : ''}" style="width:22px;height:22px;border-radius:50%;background:${waiting ? '#c23a2b' : '#e8a020'};color:#fff;border:2px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.4);font:800 13px/18px system-ui;text-align:center">!</div>`,
+          iconSize: [22, 22],
+          iconAnchor: [11, 11],
+        }),
+        keyboard: false,
+        zIndexOffset: 800,
+        title: `${c.emergency_type ?? 'Emergency'}: ${label[c.status]}`,
+      })
+        .bindPopup(popup([c.short_id ?? c.incident_id, 'b'], [`${c.emergency_type ?? 'Emergency'} · ${label[c.status]}`],
+          ...(c.assigned_unit ? [[`Unit: ${c.assigned_unit}`]] : []),
+          ...(c.background ? [['Simulated city call', 'i']] : [])))
+        .addTo(callLayer.current);
+    }
+  }, [calls, showCity]);
 
   // The responding unit and its trajectory live on their own layer and are
   // moved in place on every poll, so an open popup stays open. Not part of

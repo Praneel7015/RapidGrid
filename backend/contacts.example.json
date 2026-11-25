@@ -8,7 +8,18 @@
     { "unit_id": "AMB-03", "type": "Ambulance", "station": "Victoria Hospital Paramedic Base", "crew": "", "phone": null, "staff_pin": null, "tracker_key": null },
     { "unit_id": "FIRE-01", "type": "Fire Engine", "station": "Hebbal Fire & Rescue Station #4", "crew": "", "phone": null, "staff_pin": null, "tracker_key": null },
     { "unit_id": "POLICE-01", "type": "Police Cruiser", "station": "Hebbal Police Patrol Base", "crew": "", "phone": null, "staff_pin": null, "tracker_key": null },
-    { "unit_id": "RESCUE-01", "type": "Disaster Rescue", "station": "NDRF Disaster Rescue Hub North", "crew": "", "phone": null, "staff_pin": null, "tracker_key": null }
+    { "unit_id": "RESCUE-01", "type": "Disaster Rescue", "station": "NDRF Disaster Rescue Hub North", "crew": "", "phone": null, "staff_pin": null, "tracker_key": null },
+    { "unit_id": "AMB-04", "type": "Ambulance", "station": "Aster CMI Emergency Ambulance Hub", "crew": "", "phone": null, "staff_pin": null, "tracker_key": null },
+    { "unit_id": "AMB-05", "type": "Ambulance", "station": "Manipal Ambulance Base Depot", "crew": "", "phone": null, "staff_pin": null, "tracker_key": null },
+    { "unit_id": "AMB-06", "type": "Ambulance", "station": "Victoria Hospital Paramedic Base", "crew": "", "phone": null, "staff_pin": null, "tracker_key": null },
+    { "unit_id": "AMB-07", "type": "Ambulance", "station": "Aster CMI Emergency Ambulance Hub", "crew": "", "phone": null, "staff_pin": null, "tracker_key": null },
+    { "unit_id": "AMB-08", "type": "Ambulance", "station": "Manipal Ambulance Base Depot", "crew": "", "phone": null, "staff_pin": null, "tracker_key": null },
+    { "unit_id": "AMB-09", "type": "Ambulance", "station": "Victoria Hospital Paramedic Base", "crew": "", "phone": null, "staff_pin": null, "tracker_key": null },
+    { "unit_id": "FIRE-02", "type": "Fire Engine", "station": "High Grounds Central Fire Station", "crew": "", "phone": null, "staff_pin": null, "tracker_key": null },
+    { "unit_id": "FIRE-03", "type": "Fire Engine", "station": "Jayanagar Emergency Fire Station", "crew": "", "phone": null, "staff_pin": null, "tracker_key": null },
+    { "unit_id": "POLICE-02", "type": "Police Cruiser", "station": "Central MG Road Police Precinct", "crew": "", "phone": null, "staff_pin": null, "tracker_key": null },
+    { "unit_id": "POLICE-03", "type": "Police Cruiser", "station": "Cubbon Park Traffic Police Hub", "crew": "", "phone": null, "staff_pin": null, "tracker_key": null },
+    { "unit_id": "RESCUE-02", "type": "Disaster Rescue", "station": "Civil Defence Emergency Depot", "crew": "", "phone": null, "staff_pin": null, "tracker_key": null }
   ],
   "hospitals": [
     { "hospital_id": "blr-007", "name": "Aster CMI Hospital (Hebbal)", "emergency_phone": null, "icu_phone": null, "staff_pin": null },
