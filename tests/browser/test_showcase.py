@@ -716,7 +716,7 @@ def test_share_my_location_sends_the_phones_gps(browser, server):
         page.get_by_role("button").filter(has_text="Field unit").click()
         page.get_by_role("button").filter(has_text="AMB-02").click()
         page.wait_for_url("**/driver")
-        page.get_by_role("switch").check()
+        page.get_by_role("switch", name="Share my location").check()
         expect(page.get_by_text("Live GPS", exact=False)).to_be_visible(timeout=10000)
         page.wait_for_timeout(2500)
         unit = ctx.request.get(server + "/api/units/AMB-02").json()
