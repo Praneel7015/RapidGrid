@@ -94,7 +94,9 @@ def context(browser, server, request):
 
 
 def unlock(context, server):
-    response = context.request.post(server + "/api/session", data={"token": ACCESS_TOKEN})
+    """No token gate any more; kept so the flows below read the same. The
+    session endpoint still answers, so this is a harmless no-op."""
+    response = context.request.post(server + "/api/session", data={"token": ""})
     assert response.ok, response.text()
 
 
@@ -148,21 +150,15 @@ def poll_incident(context, server, incident_id, status, timeout=30):
     pytest.fail(f"{incident_id} did not reach {status}: {incident['status']}")
 
 
-def test_operator_unlock_denies_wrong_token_and_keeps_secret_out_of_js(context, server):
+def test_showcase_opens_without_a_token_and_the_old_token_stays_out_of_js(context, server):
+    """The operator token gate was removed: pages open directly, and the
+    removed token never appears in the page the browser receives."""
     page = context.new_page()
     page.goto(server + "/dispatcher")
-    expect(page.get_by_role("heading", name="RapidGrid showcase access")).to_be_visible()
-    page.get_by_label("Operator access token").fill("wrong-test-token")
-    page.get_by_role("button", name="Unlock showcase", exact=True).click()
-    expect(page.get_by_role("alert")).to_contain_text("Invalid")
-    assert context.request.get(server + "/api/incidents/").status == 401
-    page.get_by_label("Operator access token").fill(ACCESS_TOKEN)
-    page.get_by_role("button", name="Unlock showcase", exact=True).click()
     expect(page.get_by_role("heading", name="RapidGrid showcase access")).not_to_be_visible()
     expect(page.get_by_text("Call queue", exact=False).first).to_be_visible()
-    assert "rapidgrid_operator" not in page.evaluate("document.cookie")
-    cookie = next(cookie for cookie in context.cookies() if cookie["name"] == "rapidgrid_operator")
-    assert cookie["httpOnly"] and cookie["sameSite"] == "Strict"
+    assert page.get_by_label("Operator access token").count() == 0
+    assert ACCESS_TOKEN not in page.content()
 
 
 def test_report_refresh_dispatch_chat_pickup_refresh_and_handover(context, server):

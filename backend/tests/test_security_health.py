@@ -48,56 +48,6 @@ def client(monkeypatch):
     return TestClient(app, base_url="https://testserver")
 
 
-def test_showcase_locks_http_and_socket_until_login(client):
-    assert client.get("/api/session").json()["authenticated"] is False
-    assert client.get("/api/incidents/").status_code == 401
-    assert client.post("/api/incidents", json={}).status_code == 401
-    with pytest.raises(WebSocketDisconnect) as denied:
-        with client.websocket_connect("/ws/chat/no-access"):
-            pass
-    assert denied.value.code == 1008
-    assert client.get("/health/live").json() == {"status": "alive"}
-
-
-def test_login_session_cookie_and_logout(client):
-    denied = client.post("/api/session", json={"token": "wrong"})
-    assert denied.status_code == 401
-    assert client.post("/api/session", json={"token": "☃"}).status_code == 401
-    response = client.post("/api/session", json={"token": "test-showcase-secret"})
-    assert response.status_code == 200
-    cookie = response.headers["set-cookie"]
-    assert "HttpOnly" in cookie and "Secure" in cookie and "SameSite=strict" in cookie
-    assert "test-showcase-secret" not in cookie
-    assert client.get("/api/session").json()["operator_authenticated"] is True
-    assert client.get("/api/incidents/").status_code == 200
-    assert client.delete("/api/session").status_code == 200
-    assert client.get("/api/incidents/").status_code == 401
-
-
-def test_missing_or_unknown_mode_fails_closed(client, monkeypatch):
-    monkeypatch.delenv("RAPIDGRID_OPERATOR_TOKEN")
-    assert client.get("/api/incidents/").status_code == 503
-    assert client.post("/api/session", json={"token": "anything"}).status_code == 503
-    monkeypatch.setenv("RAPIDGRID_MODE", "typo")
-    assert client.get("/api/session").json()["mode"] == "operator"
-    assert client.get("/api/incidents/").status_code == 503
-
-
-def test_expired_tampered_and_malformed_cookies_are_rejected(client):
-    old = str(int(time.time()) - security.SESSION_SECONDS - 10)
-    sid = "s" * 24
-    valid_but_expired = old + "." + sid + "." + security._signature(old, sid, "test-showcase-secret")
-    now = str(int(time.time()))
-    wrong_key = now + "." + sid + "." + security._signature(now, sid, "another-secret")
-    for cookie in (valid_but_expired, wrong_key, "tampered", "9" * 5000 + ".bad", "123.☃", "1.2.3.4"):
-        # Cookie headers are latin-1 on the wire; unicode attacks use the
-        # authentication helper directly elsewhere via JSON login above.
-        if not cookie.isascii():
-            continue
-        client.cookies.set(security.COOKIE_NAME, cookie)
-        assert client.get("/api/incidents/").status_code == 401
-
-
 def test_cross_origin_login_actions_and_sockets_refused(client):
     headers = {"Origin": "https://untrusted.example"}
     assert client.post("/api/session", json={"token": "test-showcase-secret"}, headers=headers).status_code == 403
@@ -108,26 +58,8 @@ def test_cross_origin_login_actions_and_sockets_refused(client):
             pass
 
 
-def test_demo_allows_synthetic_views_but_not_bulk_wipes(client, monkeypatch):
-    monkeypatch.setenv("RAPIDGRID_MODE", "demo")
-    assert client.get("/api/session").json()["authenticated"] is True
-    assert client.get("/api/incidents/").status_code == 200
-    assert client.post("/api/incidents/clear").status_code == 401
-    # The city model holds only demo closures, so the demo may reset it.
-    assert client.post("/api/city/clear").status_code == 200
-
-
 def test_bearer_authentication_for_cli(client):
     assert client.get("/api/incidents/", headers={"Authorization": "Bearer test-showcase-secret"}).status_code == 200
-
-
-def test_render_without_mode_fails_closed(client, monkeypatch):
-    monkeypatch.delenv("RAPIDGRID_MODE")
-    monkeypatch.setenv("RENDER", "true")
-    assert client.get("/api/session").json()["mode"] == "operator"
-    assert client.get("/api/incidents/").status_code == 401
-    monkeypatch.delenv("RAPIDGRID_OPERATOR_TOKEN")
-    assert client.get("/api/incidents/").status_code == 503
 
 
 def test_public_health_does_not_leak_operator_interventions(client, monkeypatch):
@@ -288,28 +220,6 @@ def test_spa_route_serves_inside_files_and_falls_back_for_escapes(tmp_path, monk
 
 # --- F16: session and surface hardening ----------------------------------------
 
-def test_logout_revokes_a_copied_session_cookie(client):
-    login(client)
-    stolen = client.cookies.get(security.COOKIE_NAME)
-    assert stolen and stolen.count(".") == 2
-    assert client.delete("/api/session").status_code == 200
-
-    replay = TestClient(app, base_url="https://testserver")
-    replay.cookies.set(security.COOKIE_NAME, stolen)
-    assert replay.get("/api/incidents/").status_code == 401
-    assert replay.get("/api/session").json()["operator_authenticated"] is False
-
-
-def test_revocation_survives_a_restart(client, monkeypatch):
-    login(client)
-    stolen = client.cookies.get(security.COOKIE_NAME)
-    client.delete("/api/session")
-    monkeypatch.setattr(security, "_revoked", None)  # as after a restart
-    replay = TestClient(app, base_url="https://testserver")
-    replay.cookies.set(security.COOKIE_NAME, stolen)
-    assert replay.get("/api/incidents/").status_code == 401
-
-
 def test_other_sessions_survive_one_logout(client):
     login(client)
     other = TestClient(app, base_url="https://testserver")
@@ -318,72 +228,9 @@ def test_other_sessions_survive_one_logout(client):
     assert other.get("/api/incidents/").status_code == 200
 
 
-def test_old_format_cookie_is_refused(client):
-    issued = str(int(time.time()))
-    import hashlib, hmac
-    signature = hmac.new(b"test-showcase-secret", ("rapidgrid-session:" + issued).encode(), hashlib.sha256).hexdigest()
-    client.cookies.set(security.COOKIE_NAME, issued + "." + signature)
-    assert client.get("/api/incidents/").status_code == 401
-
-
-def test_wrong_tokens_are_throttled_and_the_right_one_waits_too(client):
-    for _ in range(security.MAX_FAILURES_PER_CLIENT):
-        assert client.post("/api/session", json={"token": "guess"}).status_code == 401
-    throttled = client.post("/api/session", json={"token": "test-showcase-secret"})
-    assert throttled.status_code == 429
-    assert int(throttled.headers["retry-after"]) > 0
-
-
-def test_bearer_guesses_share_the_throttle(client):
-    for _ in range(security.MAX_FAILURES_PER_CLIENT):
-        assert client.get("/api/incidents/", headers={"Authorization": "Bearer guess"}).status_code == 401
-    assert client.get("/api/incidents/", headers={"Authorization": "Bearer test-showcase-secret"}).status_code == 401
-    assert client.post("/api/session", json={"token": "test-showcase-secret"}).status_code == 429
-
-
-def test_throttle_is_per_client_with_a_global_ceiling(client, monkeypatch):
-    monkeypatch.setenv("RAPIDGRID_CLIENT_IP_HEADER", "true-client-ip")
-    for _ in range(security.MAX_FAILURES_PER_CLIENT):
-        client.post("/api/session", json={"token": "guess"}, headers={"True-Client-IP": "198.51.100.1"})
-    assert client.post("/api/session", json={"token": "guess"}, headers={"True-Client-IP": "198.51.100.1"}).status_code == 429
-    # A different client is unaffected...
-    assert client.post("/api/session", json={"token": "test-showcase-secret"},
-                       headers={"True-Client-IP": "198.51.100.2"}).status_code == 200
-    # ...until the total across all clients reaches the ceiling.
-    monkeypatch.setattr(security, "MAX_FAILURES_TOTAL", security.MAX_FAILURES_PER_CLIENT + 1)
-    client.post("/api/session", json={"token": "guess"}, headers={"True-Client-IP": "198.51.100.3"})
-    assert client.post("/api/session", json={"token": "test-showcase-secret"},
-                       headers={"True-Client-IP": "198.51.100.4"}).status_code == 429
-
-
-def test_throttle_expires(client, monkeypatch):
-    clock = [1000.0]
-    monkeypatch.setattr(security.time, "monotonic", lambda: clock[0])
-    for _ in range(security.MAX_FAILURES_PER_CLIENT):
-        client.post("/api/session", json={"token": "guess"})
-    assert client.post("/api/session", json={"token": "test-showcase-secret"}).status_code == 429
-    clock[0] += security.FAILURE_WINDOW_SECONDS
-    assert client.post("/api/session", json={"token": "test-showcase-secret"}).status_code == 200
-
-
-def test_api_docs_need_unlock_in_operator_mode(client):
-    for path in ("/docs", "/redoc", "/openapi.json"):
-        assert client.get(path).status_code == 404, path
-    login(client)
-    assert client.get("/openapi.json").status_code == 200
-    assert client.get("/docs").status_code == 200
-
-
 def test_api_docs_stay_open_in_demo_mode(client, monkeypatch):
     monkeypatch.setenv("RAPIDGRID_MODE", "demo")
     assert client.get("/openapi.json").status_code == 200
-
-
-def test_public_health_is_a_status_line_until_unlock(client):
-    body = client.get("/health").json()
-    assert set(body) == {"status", "service"}
-    login(client)
-    assert {"routing", "city_model", "pipeline"} <= set(client.get("/health").json())
 
 
 def test_security_headers_on_pages_and_api(client):
@@ -403,99 +250,7 @@ def test_no_hsts_over_plain_http(monkeypatch):
     assert "strict-transport-security" not in plain.get("/health/live").headers
 
 
-def test_render_charges_failures_to_the_forwarded_client(client, monkeypatch):
-    monkeypatch.setenv("RENDER", "true")
-    for _ in range(security.MAX_FAILURES_PER_CLIENT):
-        client.post("/api/session", json={"token": "guess"}, headers={"X-Forwarded-For": "203.0.113.9, 10.0.0.1"})
-    assert client.post("/api/session", json={"token": "guess"},
-                       headers={"X-Forwarded-For": "203.0.113.9"}).status_code == 429
-    # Someone else behind the same proxy can still unlock.
-    assert client.post("/api/session", json={"token": "test-showcase-secret"},
-                       headers={"X-Forwarded-For": "203.0.113.10, 10.0.0.1"}).status_code == 200
-
-
 # --- Review follow-ups ---------------------------------------------------------
-
-def test_logout_closes_that_sessions_chat_socket_only(client):
-    from routers import incident as incident_router
-
-    incident_router.ACTIVE_INCIDENTS.append({"incident_id": "INC-socket-revoke", "status": "processing"})
-    try:
-        login(client)
-        other = TestClient(app, base_url="https://testserver")
-        login(other)
-        def cookie_header(c):
-            return {"cookie": f"{security.COOKIE_NAME}={c.cookies.get(security.COOKIE_NAME)}"}
-
-        # The session cookie is Secure; send it explicitly on the test socket.
-        with client.websocket_connect("/ws/chat/INC-socket-revoke", headers=cookie_header(client)) as mine, \
-                other.websocket_connect("/ws/chat/INC-socket-revoke", headers=cookie_header(other)) as theirs:
-            assert client.delete("/api/session").status_code == 200
-            with pytest.raises(WebSocketDisconnect) as closed:
-                mine.receive_text()
-            assert closed.value.code == 1008
-            # The other session's socket still works.
-            theirs.send_text('{"message": "still here", "sender_role": "dispatcher"}')
-            assert "still here" in theirs.receive_text()
-    finally:
-        incident_router.ACTIVE_INCIDENTS[:] = [
-            i for i in incident_router.ACTIVE_INCIDENTS if i["incident_id"] != "INC-socket-revoke"
-        ]
-
-
-def test_unreadable_revocations_fail_closed_and_retry(client, monkeypatch):
-    import storage
-
-    login(client)
-    real_load = storage.load_collection
-
-    def broken(name, *args, **kwargs):
-        if name == security._REVOKED_COLLECTION:
-            raise OSError("disk unavailable")
-        return real_load(name, *args, **kwargs)
-
-    monkeypatch.setattr(security, "_revoked", None)
-    monkeypatch.setattr(storage, "load_collection", broken)
-    assert client.get("/api/incidents/").status_code == 401  # fail closed
-    assert security._revoked is None  # nothing cached
-    monkeypatch.setattr(storage, "load_collection", real_load)
-    assert client.get("/api/incidents/").status_code == 200  # retried
-
-
-def test_failed_revocation_save_is_reported_and_still_applies(client, monkeypatch):
-    import storage
-
-    login(client)
-    cookie = client.cookies.get(security.COOKIE_NAME)
-    monkeypatch.setattr(storage, "save_collection", lambda *a, **k: (_ for _ in ()).throw(OSError("disk full")))
-    response = client.delete("/api/session")
-    assert response.status_code == 503
-    assert "set-cookie" not in response.headers  # the cookie is kept for a retry
-    replay = TestClient(app, base_url="https://testserver")
-    replay.cookies.set(security.COOKIE_NAME, cookie)
-    assert replay.get("/api/incidents/").status_code == 401  # revoked in this process
-
-
-def test_revocation_made_while_the_list_is_unreadable_is_kept(client, monkeypatch):
-    import storage
-
-    login(client)
-    cookie = client.cookies.get(security.COOKIE_NAME)
-    real_load = storage.load_collection
-    monkeypatch.setattr(security, "_revoked", None)
-    monkeypatch.setattr(storage, "load_collection", lambda *a, **k: (_ for _ in ()).throw(OSError("busy")))
-    assert client.delete("/api/session").status_code == 503
-    monkeypatch.setattr(storage, "load_collection", real_load)
-    monkeypatch.setattr(security, "_pending_revocations", dict(security._pending_revocations))
-    replay = TestClient(app, base_url="https://testserver")
-    replay.cookies.set(security.COOKIE_NAME, cookie)
-    assert replay.get("/api/incidents/").status_code == 401
-    # The next successful revocation stores it too.
-    login(client)
-    assert client.delete("/api/session").status_code == 200
-    monkeypatch.setattr(security, "_revoked", None)
-    assert replay.get("/api/incidents/").status_code == 401
-
 
 def test_empty_client_ip_header_setting_keeps_the_render_default(client, monkeypatch):
     monkeypatch.setenv("RENDER", "true")
@@ -549,31 +304,3 @@ def test_malformed_host_is_refused_without_an_error(monkeypatch):
             pass
     assert closed.value.code == 1008
 
-
-def test_plain_http_to_a_socket_path_gets_an_http_refusal(client, monkeypatch):
-    # Operator mode, no session: an HTTP GET to /ws/... must get a response.
-    assert client.get("/ws/chat/any").status_code == 401
-    monkeypatch.setenv("RAPIDGRID_MODE", "demo")
-    local = TestClient(app, base_url="http://testserver")
-    assert local.get("/ws/chat/any", headers={"Host": "attacker.example"}).status_code == 421
-    cross = {"Origin": "https://untrusted.example"}
-    assert client.get("/ws/chat/any", headers=cross).status_code == 403
-
-
-def test_a_trusted_hop_count_ignores_forged_forwarding_entries(client, monkeypatch):
-    monkeypatch.setenv("RENDER", "true")
-    monkeypatch.setenv("RAPIDGRID_CLIENT_IP_HOPS", "1")
-    # The attacker changes the first entry each time; the proxy-added last
-    # entry (their real address) stays the same, so the limit still applies.
-    for i in range(security.MAX_FAILURES_PER_CLIENT):
-        client.post("/api/session", json={"token": "guess"}, headers={"X-Forwarded-For": f"198.51.100.{i}, 192.0.2.7"})
-    assert client.post("/api/session", json={"token": "guess"},
-                       headers={"X-Forwarded-For": "198.51.100.250, 192.0.2.7"}).status_code == 429
-
-
-def test_the_forwarding_check_is_operator_only(client):
-    assert client.get("/api/session/forwarding").status_code == 401
-    login(client)
-    shape = client.get("/api/session/forwarding", headers={"X-Forwarded-For": "203.0.113.5, 10.0.0.1"}).json()
-    assert shape["entries"] == 2 and shape["first_is_documentation_address"] is True
-    assert "203.0.113.5" not in str(shape)
