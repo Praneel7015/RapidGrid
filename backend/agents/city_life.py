@@ -194,7 +194,8 @@ _leg_end_cache: dict[str, Optional[dict]] = {}
 def _leg_end(inc: dict) -> Optional[dict]:
     from agents.simulator import fleet_leg
 
-    key = f"{inc['incident_id']}:{inc.get('status')}"
+    # The hospital is part of the key: a reroute keeps the status but changes the leg.
+    key = f"{inc['incident_id']}:{inc.get('status')}:{inc.get('approved_hospital_id') or ''}"
     if key not in _leg_end_cache:
         _key, route, _eta = fleet_leg(inc)
         _leg_end_cache[key] = route[-1] if route else None
@@ -213,8 +214,9 @@ async def advance() -> None:
     now = time.time()
     calls = [i for i in incident_router.ACTIVE_INCIDENTS
              if i.get("background") and i.get("status") in ("dispatched", "patient_picked_up")]
+    live_ids = {i["incident_id"] for i in calls}
     live = {f"{i['incident_id']}:{i.get('status')}" for i in calls}
-    for gone in [k for k in _leg_end_cache if k not in live]:
+    for gone in [k for k in _leg_end_cache if k.split(":", 1)[0] not in live_ids]:
         _leg_end_cache.pop(gone, None)
     for gone in [k for k in _arrived_at if k not in live]:
         _arrived_at.pop(gone, None)
