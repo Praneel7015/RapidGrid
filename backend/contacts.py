@@ -205,7 +205,9 @@ def unit_for_tracker(key: str) -> Optional[str]:
 
     found = None
     for u in directory().units:
-        if u.tracker_key and hmac.compare_digest(u.tracker_key.encode(), key.encode()):
+        # surrogatepass: a lone surrogate in a request is a wrong key, not a server error.
+        if u.tracker_key and hmac.compare_digest(
+                u.tracker_key.encode("utf-8", "surrogatepass"), key.encode("utf-8", "surrogatepass")):
             found = u.unit_id
     return found
 

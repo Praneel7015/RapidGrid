@@ -129,9 +129,30 @@ def incident_exists(incident_id: str) -> bool:
 RESERVED_NAMES = {"route monitoring", "dispatch decision"}
 
 
+# Letters that look like Latin ones (Cyrillic and Greek), so a spoofed sender
+# cannot pass by swapping in a look-alike.
+_LOOKALIKES = str.maketrans({
+    "а": "a", "е": "e", "о": "o", "р": "p", "с": "c", "у": "y", "х": "x", "і": "i", "ј": "j",
+    "ο": "o", "α": "a", "ρ": "p", "ν": "v", "ι": "i", "κ": "k", "τ": "t", "υ": "u",
+})
+
+
+def _spoof_key(name: str) -> str:
+    """Name folded for comparison: invisible characters dropped, look-alikes
+    mapped to Latin, case and spacing ignored."""
+    import unicodedata
+
+    text = unicodedata.normalize("NFKC", name or "")
+    text = "".join(ch for ch in text if unicodedata.category(ch) != "Cf")
+    return " ".join(text.translate(_LOOKALIKES).casefold().split())
+
+
 def safe_sender_name(name: str) -> str:
-    """User names may not imitate the system's senders."""
-    return "User" if (name or "").strip().casefold() in RESERVED_NAMES else name
+    """User names may not imitate the system's senders, including look-alikes."""
+    key = _spoof_key(name)
+    if key in RESERVED_NAMES or any(word in key for word in ("dispatch decision", "route monitoring")):
+        return "User"
+    return name
 
 
 class ChatMessagePayload(BaseModel):

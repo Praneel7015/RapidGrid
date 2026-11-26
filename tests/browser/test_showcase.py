@@ -249,7 +249,11 @@ def test_fire_scene_arrival_keeps_backup_ambulance_workflow_active(context, serv
     assert incident["status"] == "dispatched"
     assert incident["unit_statuses"] == {"primary": "arrived", "ambulance": "dispatched"}
 
-    ambulance = unit_page("Ambulance", "AMB-TEST")
+    # The backup must be a real ambulance from the fleet, free for this call.
+    fleet_units = context.request.get(server + "/api/units").json()["units"]
+    backup_id = next(u["unit_id"] for u in fleet_units
+                     if u["type"] == "Ambulance" and u["status"] == "available")
+    ambulance = unit_page("Ambulance", backup_id)
     ambulance.get_by_role("button", name="I have reached the patient", exact=True).click()
     poll_incident(context, server, incident_id, "patient_picked_up")
     ambulance.reload()
