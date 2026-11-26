@@ -26,7 +26,7 @@ AREAS = [
     {"id": "whitefield", "name": "Whitefield", "lat": 12.9698, "lng": 77.7500, "radius_m": 6000},
     {"id": "mathikere", "name": "Mathikere", "lat": 13.0330, "lng": 77.5640, "radius_m": 3000},
     # The venue: The Chancery Pavilion, Residency Road (OpenStreetMap point).
-    {"id": "venue", "name": "The Chancery Pavilion", "lat": 12.9658944, "lng": 77.5986765, "radius_m": 3000},
+    {"id": "venue", "name": "The Chancery Pavilion", "lat": 12.9658944, "lng": 77.5986765, "radius_m": 5000},
 ]
 OUT = Path(__file__).resolve().parent.parent / "data" / "bangalore_hospitals.json"
 

@@ -27,7 +27,7 @@
    "name": "The Chancery Pavilion",
    "lat": 12.9658944,
    "lng": 77.5986765,
-   "radius_m": 3000
+   "radius_m": 5000
   }
  ],
  "count": 1118,
@@ -46,24 +46,6 @@
    "name": "A.M. Hospital",
    "lat": 12.960102,
    "lng": 77.531556,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/3556103531",
-   "name": "ALDOS Medical Service Pvt LTD",
-   "lat": 12.982667,
-   "lng": 77.638104,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/12917084092",
-   "name": "AMC Multispeciality Hospital",
-   "lat": 12.92967,
-   "lng": 77.576408,
    "area": "bangalore",
    "operator_type": null,
    "emergency": null
@@ -105,24 +87,6 @@
    "emergency": null
   },
   {
-   "osm_id": "node/7572526762",
-   "name": "Abhinav Hospital",
-   "lat": 12.975749,
-   "lng": 77.553782,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/6945001435",
-   "name": "Abhinava Eye Hospital",
-   "lat": 12.955018,
-   "lng": 77.56839,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
    "osm_id": "node/12144434658",
    "name": "Abiramm Hospital",
    "lat": 12.872853,
@@ -141,15 +105,6 @@
    "emergency": null
   },
   {
-   "osm_id": "node/4447087999",
-   "name": "Acura Speciality Hospital",
-   "lat": 12.935321,
-   "lng": 77.62055,
-   "area": "bangalore",
-   "operator_type": "private",
-   "emergency": null
-  },
-  {
    "osm_id": "node/9192967331",
    "name": "Adarsh Hospital",
    "lat": 12.920844,
@@ -163,15 +118,6 @@
    "name": "Agarahara Government Hospital",
    "lat": 13.095733,
    "lng": 77.627307,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/1472015890",
-   "name": "Agarwal Eye Hospital",
-   "lat": 12.927342,
-   "lng": 77.62213,
    "area": "bangalore",
    "operator_type": null,
    "emergency": null
@@ -195,28 +141,10 @@
    "emergency": null
   },
   {
-   "osm_id": "node/5157373807",
-   "name": "Altius Hospital",
-   "lat": 12.984954,
-   "lng": 77.556922,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
    "osm_id": "node/9739831278",
    "name": "Altius Hospital",
    "lat": 13.034464,
    "lng": 77.629195,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/4286285517",
-   "name": "Ameena Medical centre",
-   "lat": 12.977708,
-   "lng": 77.632341,
    "area": "bangalore",
    "operator_type": null,
    "emergency": null
@@ -271,15 +199,6 @@
    "name": "Anjani Women's Day Care Hospital",
    "lat": 13.018812,
    "lng": 77.647187,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "way/345954862",
-   "name": "Annasawmy Mudaliar General Hospital",
-   "lat": 12.99998,
-   "lng": 77.614499,
    "area": "bangalore",
    "operator_type": null,
    "emergency": null
@@ -357,15 +276,6 @@
    "emergency": null
   },
   {
-   "osm_id": "node/5915195092",
-   "name": "Aparna Hospital",
-   "lat": 12.936209,
-   "lng": 77.616947,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
    "osm_id": "way/1427144679",
    "name": "Apex Hospital",
    "lat": 13.115139,
@@ -390,15 +300,6 @@
    "lng": 77.668147,
    "area": "bangalore",
    "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/4392383890",
-   "name": "Apollo Cradle",
-   "lat": 12.93681,
-   "lng": 77.620634,
-   "area": "bangalore",
-   "operator_type": "private",
    "emergency": null
   },
   {
@@ -447,15 +348,6 @@
    "emergency": "yes"
   },
   {
-   "osm_id": "way/347485349",
-   "name": "Apollo Hospital",
-   "lat": 12.988342,
-   "lng": 77.572698,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
    "osm_id": "node/10137293053",
    "name": "Apollo Pharmacy",
    "lat": 12.926386,
@@ -465,37 +357,10 @@
    "emergency": null
   },
   {
-   "osm_id": "way/306861065",
-   "name": "Apollo Speciality Hospital",
-   "lat": 12.936368,
-   "lng": 77.584316,
-   "area": "bangalore",
-   "operator_type": "private",
-   "emergency": null
-  },
-  {
-   "osm_id": "node/5915409411",
-   "name": "Apollo Spectra Hospitals",
-   "lat": 12.933817,
-   "lng": 77.620161,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
    "osm_id": "node/6938775815",
    "name": "Apple Hospital",
    "lat": 13.103924,
    "lng": 77.583786,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/8188038706",
-   "name": "Appllo Diagnostic",
-   "lat": 12.998106,
-   "lng": 77.600813,
    "area": "bangalore",
    "operator_type": null,
    "emergency": null
@@ -600,15 +465,6 @@
    "emergency": null
   },
   {
-   "osm_id": "node/11853321328",
-   "name": "Aspire Hospital",
-   "lat": 12.997168,
-   "lng": 77.614588,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
    "osm_id": "way/1040899005",
    "name": "Aster CMI Hospital",
    "lat": 13.054532,
@@ -649,24 +505,6 @@
    "name": "Atharva Ayurdhama Ayurvedic Hospital",
    "lat": 13.004314,
    "lng": 77.547749,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/7572526750",
-   "name": "Athoz Hospitals",
-   "lat": 12.967343,
-   "lng": 77.6425,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/6944392363",
-   "name": "Av Hospital",
-   "lat": 12.938853,
-   "lng": 77.57861,
    "area": "bangalore",
    "operator_type": null,
    "emergency": null
@@ -726,15 +564,6 @@
    "emergency": null
   },
   {
-   "osm_id": "node/4446857201",
-   "name": "Ayur jagruti",
-   "lat": 12.966725,
-   "lng": 77.637829,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
    "osm_id": "node/6944274074",
    "name": "Ayurseva Hospital",
    "lat": 13.013925,
@@ -744,46 +573,10 @@
    "emergency": null
   },
   {
-   "osm_id": "node/4446329807",
-   "name": "Ayurvaid Hospital",
-   "lat": 12.95527,
-   "lng": 77.642851,
-   "area": "bangalore",
-   "operator_type": "private",
-   "emergency": null
-  },
-  {
-   "osm_id": "way/1395462350",
-   "name": "Ayurveda Prathisthana Hospital",
-   "lat": 12.926794,
-   "lng": 77.577297,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/4447003711",
-   "name": "Ayushman Ayurvedic therapy centre",
-   "lat": 12.994616,
-   "lng": 77.602387,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
    "osm_id": "node/6944464994",
    "name": "Azad Nagar Maternity Home",
    "lat": 12.955964,
    "lng": 77.548564,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "way/1195581196",
-   "name": "BBMP Hospital",
-   "lat": 12.994988,
-   "lng": 77.593786,
    "area": "bangalore",
    "operator_type": null,
    "emergency": null
@@ -816,46 +609,10 @@
    "emergency": null
   },
   {
-   "osm_id": "way/687319732",
-   "name": "BMS Hospital",
-   "lat": 12.941336,
-   "lng": 77.567468,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/691930445",
-   "name": "BMTC Hospital",
-   "lat": 12.923432,
-   "lng": 77.592337,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
    "osm_id": "way/1071257248",
    "name": "BN Specialty Hospital",
    "lat": 12.912486,
    "lng": 77.676557,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/6937814427",
-   "name": "Balaji Hospital and Gastroenterology Center",
-   "lat": 12.937609,
-   "lng": 77.566643,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/6944392364",
-   "name": "Balaji Hospital, K.H. Ranganath Colony",
-   "lat": 12.963251,
-   "lng": 77.56029,
    "area": "bangalore",
    "operator_type": null,
    "emergency": null
@@ -942,33 +699,6 @@
    "emergency": null
   },
   {
-   "osm_id": "node/7576958033",
-   "name": "Bangaluru Unani Hospital",
-   "lat": 12.94052,
-   "lng": 77.579439,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/1474820321",
-   "name": "Baptist",
-   "lat": 12.997091,
-   "lng": 77.571977,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/12508687328",
-   "name": "Beams Hospitals Private Limited",
-   "lat": 12.934228,
-   "lng": 77.629632,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
    "osm_id": "node/6944400794",
    "name": "Belaku Eye Hospital",
    "lat": 12.911077,
@@ -1011,15 +741,6 @@
    "lng": 77.570781,
    "area": "bangalore",
    "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/582384953",
-   "name": "Bengaluru Hospital, Susruta Medical Aid AndResearch Home Limited",
-   "lat": 12.937673,
-   "lng": 77.580284,
-   "area": "bangalore",
-   "operator_type": "private",
    "emergency": null
   },
   {
@@ -1090,24 +811,6 @@
    "name": "Bhumika Hospital",
    "lat": 12.826249,
    "lng": 77.678792,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/12995318310",
-   "name": "Big Hospitals",
-   "lat": 12.940505,
-   "lng": 77.584868,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/6938717993",
-   "name": "Bilva Hospital",
-   "lat": 12.998983,
-   "lng": 77.580202,
    "area": "bangalore",
    "operator_type": null,
    "emergency": null
@@ -1207,15 +910,6 @@
    "name": "Cadabam's Hospitals",
    "lat": 12.906071,
    "lng": 77.586928,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/4840185928",
-   "name": "Cambridge Hospital",
-   "lat": 12.971624,
-   "lng": 77.627383,
    "area": "bangalore",
    "operator_type": null,
    "emergency": null
@@ -1500,24 +1194,6 @@
    "emergency": null
   },
   {
-   "osm_id": "way/478206073",
-   "name": "Command Hospital (Air Force)",
-   "lat": 12.963877,
-   "lng": 77.627935,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/7576958043",
-   "name": "Corporation Hospital",
-   "lat": 12.961345,
-   "lng": 77.560893,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
    "osm_id": "node/1835512586",
    "name": "Cure & Care Dental Clinic Dr. Moumita Mukherjee",
    "lat": 12.907497,
@@ -1581,15 +1257,6 @@
    "emergency": null
   },
   {
-   "osm_id": "node/7576958118",
-   "name": "Dave Gray Hospital",
-   "lat": 12.945829,
-   "lng": 77.579902,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
    "osm_id": "way/726506664",
    "name": "Deeksha Hospital",
    "lat": 13.09824,
@@ -1617,28 +1284,10 @@
    "emergency": null
   },
   {
-   "osm_id": "way/351326759",
-   "name": "Deepak Hospital",
-   "lat": 12.926224,
-   "lng": 77.577511,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
    "osm_id": "node/6948391975",
    "name": "Deepashri Hospital",
    "lat": 12.97059,
    "lng": 77.51085,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/4446518811",
-   "name": "Desai Nursing Home",
-   "lat": 12.986374,
-   "lng": 77.579315,
    "area": "bangalore",
    "operator_type": null,
    "emergency": null
@@ -1662,28 +1311,10 @@
    "emergency": null
   },
   {
-   "osm_id": "node/6939253041",
-   "name": "Devi Eye Hospital",
-   "lat": 12.941211,
-   "lng": 77.623899,
-   "area": "bangalore",
-   "operator_type": "private",
-   "emergency": null
-  },
-  {
    "osm_id": "node/7579924738",
    "name": "Devi Hospital",
    "lat": 12.923944,
    "lng": 77.619863,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/1067181192",
-   "name": "Devine Hospital",
-   "lat": 13.0039,
-   "lng": 77.603931,
    "area": "bangalore",
    "operator_type": null,
    "emergency": null
@@ -1767,15 +1398,6 @@
    "lng": 77.592459,
    "area": "bangalore",
    "operator_type": "private",
-   "emergency": null
-  },
-  {
-   "osm_id": "way/53859295",
-   "name": "Divisional Railway Hospital",
-   "lat": 12.979835,
-   "lng": 77.565111,
-   "area": "bangalore",
-   "operator_type": null,
    "emergency": null
   },
   {
@@ -1905,15 +1527,6 @@
    "emergency": null
   },
   {
-   "osm_id": "node/4445397516",
-   "name": "Dr Solankis Eye Hospital",
-   "lat": 12.995163,
-   "lng": 77.573814,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
    "osm_id": "node/6947106775",
    "name": "Dr Zamindar's Micro Surgical Eye Centre",
    "lat": 13.002198,
@@ -1959,15 +1572,6 @@
    "emergency": "yes"
   },
   {
-   "osm_id": "node/6937892396",
-   "name": "Dr. B. Venkatasubbarao Memorial Hospital",
-   "lat": 12.998198,
-   "lng": 77.568151,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
    "osm_id": "node/4445578787",
    "name": "Dr. Bhargavi Reddy Women & Children Hospital",
    "lat": 12.975403,
@@ -1995,24 +1599,6 @@
    "emergency": null
   },
   {
-   "osm_id": "way/997923996",
-   "name": "Dr. P.R. Desai Hospital Pvt Ltd",
-   "lat": 12.986358,
-   "lng": 77.579211,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/7572526687",
-   "name": "Dr. Rajesh Hospitals Eye and Dental",
-   "lat": 12.968899,
-   "lng": 77.642213,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
    "osm_id": "node/4782423379",
    "name": "Dr. Roshni's Tooth Planet Dental Clinic",
    "lat": 12.987633,
@@ -2035,24 +1621,6 @@
    "name": "Dr. Vidyananda's Surgery and Dia Centre",
    "lat": 12.924252,
    "lng": 77.573217,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/4322812542",
-   "name": "Dr.Agarwal Eye & Dental Hospital",
-   "lat": 12.970036,
-   "lng": 77.636244,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/6947499711",
-   "name": "Dr.Agarwal Eye Hospital, Frazer Town, Bangalore",
-   "lat": 12.99602,
-   "lng": 77.612841,
    "area": "bangalore",
    "operator_type": null,
    "emergency": null
@@ -2103,15 +1671,6 @@
    "emergency": null
   },
   {
-   "osm_id": "way/59358741",
-   "name": "ESI Hospital",
-   "lat": 12.971348,
-   "lng": 77.636724,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
    "osm_id": "way/328758432",
    "name": "ESI Hospital",
    "lat": 12.995246,
@@ -2121,28 +1680,10 @@
    "emergency": null
   },
   {
-   "osm_id": "way/347187836",
-   "name": "ESI Hospital",
-   "lat": 12.927995,
-   "lng": 77.589406,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
    "osm_id": "way/1280619026",
    "name": "ESI Hospital Peenya",
    "lat": 13.024986,
    "lng": 77.530936,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/7572526767",
-   "name": "ESIC Hospital",
-   "lat": 12.969301,
-   "lng": 77.631754,
    "area": "bangalore",
    "operator_type": null,
    "emergency": null
@@ -2301,15 +1842,6 @@
    "emergency": null
   },
   {
-   "osm_id": "node/4446849884",
-   "name": "Fj Merrit Hydrotherapy And Wellness",
-   "lat": 12.934422,
-   "lng": 77.629979,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
    "osm_id": "node/7235403985",
    "name": "Focus Diagnostic Center",
    "lat": 12.987063,
@@ -2427,24 +1959,6 @@
    "emergency": "yes"
   },
   {
-   "osm_id": "node/6944269353",
-   "name": "Gavipuramguttahalli Maternity Home",
-   "lat": 12.952651,
-   "lng": 77.554863,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/12460939644",
-   "name": "Gawai Hospital",
-   "lat": 12.996274,
-   "lng": 77.607569,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
    "osm_id": "node/1778953072",
    "name": "Gayathri Hospital, Bengaluru Urban",
    "lat": 12.974405,
@@ -2467,15 +1981,6 @@
    "name": "Geriatric Hospitals",
    "lat": 13.028398,
    "lng": 77.659958,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/3725710400",
-   "name": "Gift IVF center",
-   "lat": 12.962951,
-   "lng": 77.641871,
    "area": "bangalore",
    "operator_type": null,
    "emergency": null
@@ -2562,15 +2067,6 @@
    "emergency": null
   },
   {
-   "osm_id": "node/5259407821",
-   "name": "Government Hospital",
-   "lat": 12.966103,
-   "lng": 77.554965,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
    "osm_id": "node/7572526703",
    "name": "Government Hospital",
    "lat": 12.978073,
@@ -2584,24 +2080,6 @@
    "name": "Government Hospital",
    "lat": 12.963983,
    "lng": 77.51889,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/7576958052",
-   "name": "Government Hospital",
-   "lat": 12.960949,
-   "lng": 77.561394,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/7576958066",
-   "name": "Government Hospital",
-   "lat": 12.949104,
-   "lng": 77.563226,
    "area": "bangalore",
    "operator_type": null,
    "emergency": null
@@ -2661,46 +2139,10 @@
    "emergency": null
   },
   {
-   "osm_id": "node/7576958061",
-   "name": "Government Hospital, Banglore",
-   "lat": 12.958746,
-   "lng": 77.557346,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
    "osm_id": "node/7202935841",
    "name": "Government Hospital, Budigere",
    "lat": 13.137652,
    "lng": 77.744809,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/4577045761",
-   "name": "Government Maternity Home",
-   "lat": 12.99834,
-   "lng": 77.620093,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/1101622501",
-   "name": "Government Maternity Hospital",
-   "lat": 12.99886,
-   "lng": 77.581742,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "way/496821816",
-   "name": "Government Maternity Hospital",
-   "lat": 12.937727,
-   "lng": 77.569786,
    "area": "bangalore",
    "operator_type": null,
    "emergency": null
@@ -2751,15 +2193,6 @@
    "emergency": null
   },
   {
-   "osm_id": "way/53849361",
-   "name": "Government Veterinary Hospital",
-   "lat": 12.964165,
-   "lng": 77.567695,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
    "osm_id": "node/4447156427",
    "name": "Green City Hospital, Bengaluru Urban",
    "lat": 12.906219,
@@ -2787,28 +2220,10 @@
    "emergency": "yes"
   },
   {
-   "osm_id": "node/4097027897",
-   "name": "Gulecha Dental Care",
-   "lat": 12.929242,
-   "lng": 77.589362,
-   "area": "bangalore",
-   "operator_type": "private",
-   "emergency": null
-  },
-  {
    "osm_id": "node/4442516055",
    "name": "Gunasheela Hospitals",
    "lat": 12.925011,
    "lng": 77.627871,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/6944507652",
-   "name": "Gunasheela Surgical and Maternity Hospital",
-   "lat": 12.940301,
-   "lng": 77.57647,
    "area": "bangalore",
    "operator_type": null,
    "emergency": null
@@ -2850,15 +2265,6 @@
    "emergency": null
   },
   {
-   "osm_id": "node/6939445234",
-   "name": "HCG, Koramangala",
-   "lat": 12.934328,
-   "lng": 77.622885,
-   "area": "bangalore",
-   "operator_type": "private",
-   "emergency": null
-  },
-  {
    "osm_id": "node/6944616329",
    "name": "HK Hospital",
    "lat": 12.908598,
@@ -2872,15 +2278,6 @@
    "name": "HOSMAT Hospital, Kalyan Nagar",
    "lat": 13.028489,
    "lng": 77.632556,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "way/369295552",
-   "name": "Halasuru Referal Hospital",
-   "lat": 12.973692,
-   "lng": 77.626677,
    "area": "bangalore",
    "operator_type": null,
    "emergency": null
@@ -2922,15 +2319,6 @@
    "emergency": null
   },
   {
-   "osm_id": "node/13817232442",
-   "name": "Healing Hands Clinic - Indiranagar, Bengaluru",
-   "lat": 12.978309,
-   "lng": 77.64262,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
    "osm_id": "node/13817067479",
    "name": "Healing Hands Clinic - J.P Nagar, Bengaluru",
    "lat": 12.906136,
@@ -2967,24 +2355,6 @@
    "emergency": null
   },
   {
-   "osm_id": "node/6947371813",
-   "name": "Health Cottage Hospital",
-   "lat": 12.970914,
-   "lng": 77.632112,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/7579924766",
-   "name": "Health India Hospital",
-   "lat": 12.926518,
-   "lng": 77.609099,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
    "osm_id": "node/7572131842",
    "name": "Health Plus Multi Speciality Hospital",
    "lat": 13.021952,
@@ -3003,24 +2373,6 @@
    "emergency": null
   },
   {
-   "osm_id": "node/7576958096",
-   "name": "Herige Hospital",
-   "lat": 12.960972,
-   "lng": 77.56097,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/6944507655",
-   "name": "Hi Tech Kidney Stone Hospital",
-   "lat": 12.927139,
-   "lng": 77.579028,
-   "area": "bangalore",
-   "operator_type": "private",
-   "emergency": null
-  },
-  {
    "osm_id": "node/6947750361",
    "name": "Hillside Hospital",
    "lat": 12.916275,
@@ -3034,42 +2386,6 @@
    "name": "Hiremath Hospital",
    "lat": 12.975435,
    "lng": 77.535897,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/6938690598",
-   "name": "Hitech Kidney Stone Hospital, Bengaluru Urban",
-   "lat": 12.98781,
-   "lng": 77.580983,
-   "area": "bangalore",
-   "operator_type": "private",
-   "emergency": null
-  },
-  {
-   "osm_id": "node/4849107926",
-   "name": "Hosmat Hospital",
-   "lat": 13.008,
-   "lng": 77.583748,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/4446312027",
-   "name": "Hospital",
-   "lat": 12.991412,
-   "lng": 77.611733,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "way/40631657",
-   "name": "Hospital Complex",
-   "lat": 12.938368,
-   "lng": 77.589907,
    "area": "bangalore",
    "operator_type": null,
    "emergency": null
@@ -3115,15 +2431,6 @@
    "name": "Icon Hospital",
    "lat": 13.052821,
    "lng": 77.604104,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/4445139977",
-   "name": "Indianova Healthcare Pvt Ltd",
-   "lat": 12.970358,
-   "lng": 77.63022,
    "area": "bangalore",
    "operator_type": null,
    "emergency": null
@@ -3201,15 +2508,6 @@
    "emergency": null
   },
   {
-   "osm_id": "way/796374051",
-   "name": "JC Nagar Municipal Hospital",
-   "lat": 13.009931,
-   "lng": 77.594122,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
    "osm_id": "node/11342710964",
    "name": "JJ Hospital",
    "lat": 12.835045,
@@ -3264,33 +2562,6 @@
    "emergency": null
   },
   {
-   "osm_id": "way/40631131",
-   "name": "Jayanagar General Hospital",
-   "lat": 12.926118,
-   "lng": 77.592549,
-   "area": "bangalore",
-   "operator_type": "government",
-   "emergency": null
-  },
-  {
-   "osm_id": "node/1473296715",
-   "name": "Jayanagar Orthopaedic Centre",
-   "lat": 12.929329,
-   "lng": 77.587709,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": "no"
-  },
-  {
-   "osm_id": "node/364629734",
-   "name": "Jayanagar heart Centre",
-   "lat": 12.923168,
-   "lng": 77.584433,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
    "osm_id": "node/5959076193",
    "name": "Jayashree Multi Specilaity Hospital",
    "lat": 12.881611,
@@ -3304,15 +2575,6 @@
    "name": "Jeevan Hospital",
    "lat": 12.99013,
    "lng": 77.671332,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/7576958068",
-   "name": "Jeevini Sarvodaya Hospital",
-   "lat": 12.941588,
-   "lng": 77.564192,
    "area": "bangalore",
    "operator_type": null,
    "emergency": null
@@ -3372,15 +2634,6 @@
    "emergency": null
   },
   {
-   "osm_id": "way/38536360",
-   "name": "K C General Hospital",
-   "lat": 12.995053,
-   "lng": 77.569743,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
    "osm_id": "node/6938781514",
    "name": "K C Raju Multi Speciality Hospital",
    "lat": 13.009083,
@@ -3397,24 +2650,6 @@
    "area": "bangalore",
    "operator_type": null,
    "emergency": "yes"
-  },
-  {
-   "osm_id": "node/7202935829",
-   "name": "K.C. General Hospital",
-   "lat": 12.993382,
-   "lng": 77.569417,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/8188038718",
-   "name": "K.C.General Hospital",
-   "lat": 12.996024,
-   "lng": 77.569371,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
   },
   {
    "osm_id": "node/6947226705",
@@ -3466,15 +2701,6 @@
    "name": "Kaggalipura Government Hospital",
    "lat": 12.805038,
    "lng": 77.512179,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/6939319393",
-   "name": "Kalasa Maternity Home",
-   "lat": 12.954821,
-   "lng": 77.567258,
    "area": "bangalore",
    "operator_type": null,
    "emergency": null
@@ -3624,15 +2850,6 @@
    "emergency": null
   },
   {
-   "osm_id": "node/7576958078",
-   "name": "Khincha Orthopaedic Centre",
-   "lat": 12.939882,
-   "lng": 77.573989,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
    "osm_id": "node/1470603498",
    "name": "Kids Care Clinic",
    "lat": 12.914434,
@@ -3640,24 +2857,6 @@
    "area": "bangalore",
    "operator_type": null,
    "emergency": null
-  },
-  {
-   "osm_id": "node/9730853893",
-   "name": "Kidwai Cancer Institute Radiation Block",
-   "lat": 12.935597,
-   "lng": 77.597157,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "way/239738408",
-   "name": "Kidwai Memorial Institute of Oncology",
-   "lat": 12.936526,
-   "lng": 77.598139,
-   "area": "bangalore",
-   "operator_type": "private",
-   "emergency": "yes"
   },
   {
    "osm_id": "way/1362578786",
@@ -3685,15 +2884,6 @@
    "area": "bangalore",
    "operator_type": null,
    "emergency": null
-  },
-  {
-   "osm_id": "node/1905152108",
-   "name": "Kottakkal Arya Vaidya Sala",
-   "lat": 12.941106,
-   "lng": 77.585059,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": "no"
   },
   {
    "osm_id": "node/2720498311",
@@ -3777,15 +2967,6 @@
    "emergency": null
   },
   {
-   "osm_id": "node/5862574185",
-   "name": "Lakeside Medical Centre and Hospital",
-   "lat": 12.987863,
-   "lng": 77.617743,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
    "osm_id": "node/6938948962",
    "name": "Lakshmi Hospital, Ganganagar",
    "lat": 13.024837,
@@ -3804,33 +2985,6 @@
    "emergency": null
   },
   {
-   "osm_id": "node/7579924711",
-   "name": "Lavis Hospital",
-   "lat": 12.925461,
-   "lng": 77.609021,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/3400223539",
-   "name": "Leela Hospital and Diagnostic Center",
-   "lat": 13.000267,
-   "lng": 77.569489,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "way/337987686",
-   "name": "Leprosy Hospital",
-   "lat": 12.974455,
-   "lng": 77.564022,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
    "osm_id": "node/4441961605",
    "name": "Life Care Hospital",
    "lat": 12.919471,
@@ -3838,15 +2992,6 @@
    "area": "bangalore",
    "operator_type": null,
    "emergency": null
-  },
-  {
-   "osm_id": "way/1442330288",
-   "name": "Life Care Hospital",
-   "lat": 12.923974,
-   "lng": 77.613323,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": "yes"
   },
   {
    "osm_id": "way/535587224",
@@ -3885,15 +3030,6 @@
    "emergency": "yes"
   },
   {
-   "osm_id": "node/7572526782",
-   "name": "Lohitha Hospital",
-   "lat": 12.963951,
-   "lng": 77.64308,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
    "osm_id": "node/6938949273",
    "name": "Lokhande S Hospital",
    "lat": 13.018605,
@@ -3916,15 +3052,6 @@
    "name": "Lourdes High School",
    "lat": 13.01821,
    "lng": 77.540004,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/4578753189",
-   "name": "Lucid Medical Diagnostics",
-   "lat": 12.930688,
-   "lng": 77.579454,
    "area": "bangalore",
    "operator_type": null,
    "emergency": null
@@ -3984,15 +3111,6 @@
    "emergency": null
   },
   {
-   "osm_id": "node/6947003707",
-   "name": "Magadi Road Maternity Home",
-   "lat": 12.974125,
-   "lng": 77.561823,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
    "osm_id": "node/7572526747",
    "name": "Magdum Hospital",
    "lat": 12.958949,
@@ -4000,15 +3118,6 @@
    "area": "bangalore",
    "operator_type": null,
    "emergency": null
-  },
-  {
-   "osm_id": "node/2285453337",
-   "name": "Magnus Diagnostic Lab",
-   "lat": 12.934919,
-   "lng": 77.630502,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": "no"
   },
   {
    "osm_id": "node/6938896388",
@@ -4029,15 +3138,6 @@
    "emergency": "yes"
   },
   {
-   "osm_id": "node/6938717991",
-   "name": "Mahaveer Eye Hospital Private Limited",
-   "lat": 12.993355,
-   "lng": 77.572959,
-   "area": "bangalore",
-   "operator_type": "private",
-   "emergency": null
-  },
-  {
    "osm_id": "node/7572131866",
    "name": "Mahaveer Hospitals",
    "lat": 12.989505,
@@ -4047,28 +3147,10 @@
    "emergency": null
   },
   {
-   "osm_id": "node/7576958070",
-   "name": "Mahaveer Ortho Care Speciality Centre",
-   "lat": 12.956968,
-   "lng": 77.569504,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
    "osm_id": "node/4446018021",
    "name": "Maithri Nursing Home",
    "lat": 13.00484,
    "lng": 77.703643,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/6938717990",
-   "name": "Malleswaram Eye Day Care Hospital - Bengalore",
-   "lat": 12.996668,
-   "lng": 77.571604,
    "area": "bangalore",
    "operator_type": null,
    "emergency": null
@@ -4200,15 +3282,6 @@
    "emergency": null
   },
   {
-   "osm_id": "node/7576958093",
-   "name": "Matha Pitha Hospital",
-   "lat": 12.942028,
-   "lng": 77.575634,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
    "osm_id": "node/6944231472",
    "name": "Mathru Hospital - Bangalore",
    "lat": 12.911098,
@@ -4236,28 +3309,10 @@
    "emergency": null
   },
   {
-   "osm_id": "node/7576958037",
-   "name": "Medcare Hospital",
-   "lat": 12.953049,
-   "lng": 77.574203,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
    "osm_id": "node/6944231456",
    "name": "Medi Derma Hospital",
    "lat": 13.055556,
    "lng": 77.651714,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/4446899253",
-   "name": "Medi-Tech Multi Speciality Hospital",
-   "lat": 12.940867,
-   "lng": 77.560366,
    "area": "bangalore",
    "operator_type": null,
    "emergency": null
@@ -4296,15 +3351,6 @@
    "lng": 77.675186,
    "area": "bangalore",
    "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/6944231454",
-   "name": "Mediscope Hospital Private Limited",
-   "lat": 12.999447,
-   "lng": 77.616258,
-   "area": "bangalore",
-   "operator_type": "private",
    "emergency": null
   },
   {
@@ -4353,15 +3399,6 @@
    "emergency": null
   },
   {
-   "osm_id": "way/331365081",
-   "name": "Milann Fertility Center",
-   "lat": 12.978801,
-   "lng": 77.638085,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
    "osm_id": "node/7572526802",
    "name": "Miracle Hopital",
    "lat": 12.958861,
@@ -4375,15 +3412,6 @@
    "name": "Mission Hospital, Bengaluru Rural",
    "lat": 13.07441,
    "lng": 77.783552,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/7576958045",
-   "name": "Mitralaya Hospital",
-   "lat": 12.945591,
-   "lng": 77.571286,
    "area": "bangalore",
    "operator_type": null,
    "emergency": null
@@ -4420,15 +3448,6 @@
    "name": "Motherhood Children's Hospital",
    "lat": 13.062005,
    "lng": 77.593064,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/3370028968",
-   "name": "Motherhood Hospital(Unit Of Rhea Healthcare Pvt Ltd)",
-   "lat": 12.978441,
-   "lng": 77.637585,
    "area": "bangalore",
    "operator_type": null,
    "emergency": null
@@ -4524,24 +3543,6 @@
    "emergency": null
   },
   {
-   "osm_id": "node/1474472859",
-   "name": "NIMHANS OPD",
-   "lat": 12.938806,
-   "lng": 77.594299,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/1474472488",
-   "name": "NIMHANS Screening block",
-   "lat": 12.938712,
-   "lng": 77.593774,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": "no"
-  },
-  {
    "osm_id": "node/7572131816",
    "name": "NMPC Hospital",
    "lat": 13.006205,
@@ -4614,15 +3615,6 @@
    "emergency": null
   },
   {
-   "osm_id": "node/8873805759",
-   "name": "Narayan Multispeciality clinic",
-   "lat": 12.928844,
-   "lng": 77.58287,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
    "osm_id": "way/188320000",
    "name": "Narayana Hrudayalaya",
    "lat": 12.807754,
@@ -4665,24 +3657,6 @@
    "lng": 77.59501,
    "area": "bangalore",
    "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/6938777910",
-   "name": "National Institute of Mental Health and Neuro Sciences",
-   "lat": 12.938632,
-   "lng": 77.59441,
-   "area": "bangalore",
-   "operator_type": "government",
-   "emergency": null
-  },
-  {
-   "osm_id": "node/5234739990",
-   "name": "Nature Cure Hospital",
-   "lat": 12.933223,
-   "lng": 77.584263,
-   "area": "bangalore",
-   "operator_type": "private",
    "emergency": null
   },
   {
@@ -4794,15 +3768,6 @@
    "emergency": null
   },
   {
-   "osm_id": "node/3370453173",
-   "name": "Netradama Eye Hospital",
-   "lat": 12.973484,
-   "lng": 77.635728,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
    "osm_id": "node/12240737170",
    "name": "Netradhama",
    "lat": 12.99743,
@@ -4863,15 +3828,6 @@
    "lng": 77.584928,
    "area": "bangalore",
    "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/6938759412",
-   "name": "Nova Specialty Surgery Center, Koramangala",
-   "lat": 12.93391,
-   "lng": 77.620208,
-   "area": "bangalore",
-   "operator_type": "private",
    "emergency": null
   },
   {
@@ -4956,15 +3912,6 @@
    "emergency": null
   },
   {
-   "osm_id": "node/4447273084",
-   "name": "Oxford Hospital",
-   "lat": 12.93121,
-   "lng": 77.575691,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
    "osm_id": "node/4447308983",
    "name": "Oxford Hospital",
    "lat": 12.858418,
@@ -5032,15 +3979,6 @@
    "name": "Panchsheela Nagar Hospital",
    "lat": 12.97455,
    "lng": 77.520894,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/7576958080",
-   "name": "Parameshwari Hospital",
-   "lat": 12.948971,
-   "lng": 77.563543,
    "area": "bangalore",
    "operator_type": null,
    "emergency": null
@@ -5145,15 +4083,6 @@
    "emergency": "yes"
   },
   {
-   "osm_id": "node/6939699617",
-   "name": "Place Guttahalli Maternity Home",
-   "lat": 12.998824,
-   "lng": 77.581989,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
    "osm_id": "node/8188038705",
    "name": "Poornayu Ayurveda Hospital",
    "lat": 12.998238,
@@ -5170,15 +4099,6 @@
    "area": "bangalore",
    "operator_type": null,
    "emergency": null
-  },
-  {
-   "osm_id": "node/6944256037",
-   "name": "Popular Hospital",
-   "lat": 12.951485,
-   "lng": 77.570356,
-   "area": "bangalore",
-   "operator_type": "private",
-   "emergency": "yes"
   },
   {
    "osm_id": "node/7579924753",
@@ -5230,24 +4150,6 @@
    "name": "Pranam Dental Hospital",
    "lat": 13.029101,
    "lng": 77.620568,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/1474458358",
-   "name": "Prasad Eye Hospital",
-   "lat": 12.935193,
-   "lng": 77.608682,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/6944525392",
-   "name": "Prasad Eye Hospital, Bengaluru Urban",
-   "lat": 12.93567,
-   "lng": 77.60799,
    "area": "bangalore",
    "operator_type": null,
    "emergency": null
@@ -5325,15 +4227,6 @@
    "emergency": null
   },
   {
-   "osm_id": "node/1471128628",
-   "name": "Pristine Health care",
-   "lat": 12.938277,
-   "lng": 77.618675,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": "yes"
-  },
-  {
    "osm_id": "node/4447009524",
    "name": "Pristine Hospital",
    "lat": 12.998423,
@@ -5383,24 +4276,6 @@
    "name": "Prolife Hospital",
    "lat": 13.065084,
    "lng": 77.593634,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/12956090274",
-   "name": "Proteeth Dental",
-   "lat": 12.934622,
-   "lng": 77.628467,
-   "area": "bangalore",
-   "operator_type": "private",
-   "emergency": "no"
-  },
-  {
-   "osm_id": "way/347236718",
-   "name": "Proteeth Dental",
-   "lat": 12.934625,
-   "lng": 77.628467,
    "area": "bangalore",
    "operator_type": null,
    "emergency": null
@@ -5482,24 +4357,6 @@
    "name": "R.R. Hospital and Trauma Centre",
    "lat": 12.907427,
    "lng": 77.571632,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/8188038691",
-   "name": "RICH CARE HOMEOPATHY",
-   "lat": 13.001546,
-   "lng": 77.572168,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/6938690597",
-   "name": "Radha Maternity and Surgical Hospital",
-   "lat": 12.969044,
-   "lng": 77.568854,
    "area": "bangalore",
    "operator_type": null,
    "emergency": null
@@ -5694,46 +4551,10 @@
    "emergency": "yes"
   },
   {
-   "osm_id": "node/769216417",
-   "name": "Ramakrishna Nursing Home and Hospital",
-   "lat": 12.936433,
-   "lng": 77.583477,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/8188038683",
-   "name": "Ramani Orthopaedic Hospital",
-   "lat": 13.004431,
-   "lng": 77.578524,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "way/1307949928",
-   "name": "Rangadore Memorial Hospital",
-   "lat": 12.953891,
-   "lng": 77.571146,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": "yes"
-  },
-  {
    "osm_id": "node/7579683215",
    "name": "Rangalakshmi Netralaya",
    "lat": 13.098943,
    "lng": 77.576716,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/3370279044",
-   "name": "Rashmi Hospital",
-   "lat": 12.976695,
-   "lng": 77.636228,
    "area": "bangalore",
    "operator_type": null,
    "emergency": null
@@ -5763,24 +4584,6 @@
    "lng": 77.634717,
    "area": "bangalore",
    "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/3370244392",
-   "name": "Respiratory and womens health clinic.",
-   "lat": 12.976264,
-   "lng": 77.637653,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/6938775845",
-   "name": "Retina Institute Of Karnataka",
-   "lat": 12.95727,
-   "lng": 77.564083,
-   "area": "bangalore",
-   "operator_type": "private",
    "emergency": null
   },
   {
@@ -5838,15 +4641,6 @@
    "emergency": null
   },
   {
-   "osm_id": "node/7576958062",
-   "name": "Royan Maternity & Child Welfare Centre",
-   "lat": 12.960311,
-   "lng": 77.568274,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
    "osm_id": "node/4447155158",
    "name": "S K Hospital, Bengaluru Urban",
    "lat": 12.957572,
@@ -5881,15 +4675,6 @@
    "area": "bangalore",
    "operator_type": null,
    "emergency": null
-  },
-  {
-   "osm_id": "node/1438212033",
-   "name": "SDS Tuberculosis Research Centre and Rajiv Gandhi Institute of Chest diseases",
-   "lat": 12.936796,
-   "lng": 77.590709,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": "no"
   },
   {
    "osm_id": "way/1544830710",
@@ -5928,24 +4713,6 @@
    "emergency": null
   },
   {
-   "osm_id": "node/6944364980",
-   "name": "Sadhana Eye Hospital, Bengaluru Urban",
-   "lat": 12.970023,
-   "lng": 77.630799,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/4349307192",
-   "name": "Sagar Chandramma Hospitals",
-   "lat": 12.948553,
-   "lng": 77.574825,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
    "osm_id": "node/1472111625",
    "name": "Sagar Dental Clinic",
    "lat": 12.916972,
@@ -5964,15 +4731,6 @@
    "emergency": null
   },
   {
-   "osm_id": "way/442048030",
-   "name": "Sagar Hospitals",
-   "lat": 12.927899,
-   "lng": 77.599855,
-   "area": "bangalore",
-   "operator_type": "private",
-   "emergency": "yes"
-  },
-  {
    "osm_id": "node/7579924762",
    "name": "Sahasra Hospital",
    "lat": 12.920651,
@@ -5986,15 +4744,6 @@
    "name": "Sai Baba Hospital",
    "lat": 13.00936,
    "lng": 77.522211,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/7572526710",
-   "name": "Sai Baba Hospital",
-   "lat": 12.969819,
-   "lng": 77.631747,
    "area": "bangalore",
    "operator_type": null,
    "emergency": null
@@ -6081,15 +4830,6 @@
    "emergency": null
   },
   {
-   "osm_id": "node/6938690626",
-   "name": "Samprathi Eye Hospital And Squint Centre",
-   "lat": 12.993281,
-   "lng": 77.580691,
-   "area": "bangalore",
-   "operator_type": "private",
-   "emergency": null
-  },
-  {
    "osm_id": "node/6947716888",
    "name": "Sandhyashree Hospital",
    "lat": 12.97618,
@@ -6106,24 +4846,6 @@
    "area": "bangalore",
    "operator_type": null,
    "emergency": null
-  },
-  {
-   "osm_id": "way/334493050",
-   "name": "Sanjay Gandhi Accident and Trauma Hospital",
-   "lat": 12.935639,
-   "lng": 77.593594,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": "yes"
-  },
-  {
-   "osm_id": "way/334493056",
-   "name": "Sanjay Gandhi Accident and Trauma Hospital",
-   "lat": 12.935771,
-   "lng": 77.593943,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": "yes"
   },
   {
    "osm_id": "node/3120578218",
@@ -6180,15 +4902,6 @@
    "emergency": null
   },
   {
-   "osm_id": "node/4446300155",
-   "name": "Santosh Hospital",
-   "lat": 12.995941,
-   "lng": 77.608257,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
    "osm_id": "node/7579683247",
    "name": "Sapthagiri Hospital",
    "lat": 13.121367,
@@ -6229,15 +4942,6 @@
    "name": "Sarjapura Urban Primary Health Centre",
    "lat": 12.860555,
    "lng": 77.784048,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/4444989840",
-   "name": "Sarvodaya Hospital",
-   "lat": 12.939094,
-   "lng": 77.561906,
    "area": "bangalore",
    "operator_type": null,
    "emergency": null
@@ -6306,15 +5010,6 @@
    "emergency": "yes"
   },
   {
-   "osm_id": "node/1469181813",
-   "name": "Seventh Day Adventist Hospital",
-   "lat": 12.995625,
-   "lng": 77.611327,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
    "osm_id": "node/6939582677",
    "name": "Sg Hospital",
    "lat": 12.927531,
@@ -6378,15 +5073,6 @@
    "emergency": null
   },
   {
-   "osm_id": "node/303924572",
-   "name": "Shanti Hospital",
-   "lat": 12.923504,
-   "lng": 77.585752,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
    "osm_id": "node/7579924768",
    "name": "Shanti Hospital",
    "lat": 12.92022,
@@ -6414,37 +5100,10 @@
    "emergency": null
   },
   {
-   "osm_id": "way/347120748",
-   "name": "Shashank Clinic",
-   "lat": 12.926509,
-   "lng": 77.580839,
-   "area": "bangalore",
-   "operator_type": "public",
-   "emergency": null
-  },
-  {
    "osm_id": "node/4447015118",
    "name": "Shathayu Ayurveda Wellness Centre",
    "lat": 12.95739,
    "lng": 77.527688,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/1473921774",
-   "name": "Shekar Hospital",
-   "lat": 12.945871,
-   "lng": 77.567519,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": "no"
-  },
-  {
-   "osm_id": "node/7576958065",
-   "name": "Shekhar Hospital",
-   "lat": 12.945944,
-   "lng": 77.567404,
    "area": "bangalore",
    "operator_type": null,
    "emergency": null
@@ -6481,15 +5140,6 @@
    "name": "Shiva Kumaraswamy Building",
    "lat": 12.971705,
    "lng": 77.549372,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/6124618183",
-   "name": "Shiva Vision Care",
-   "lat": 12.936653,
-   "lng": 77.627713,
    "area": "bangalore",
    "operator_type": null,
    "emergency": null
@@ -6544,15 +5194,6 @@
    "name": "Shree Sai Hospital",
    "lat": 13.088579,
    "lng": 77.545506,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/7572526717",
-   "name": "Shree Sai Speciality Hospital",
-   "lat": 12.955595,
-   "lng": 77.641801,
    "area": "bangalore",
    "operator_type": null,
    "emergency": null
@@ -6666,15 +5307,6 @@
    "emergency": null
   },
   {
-   "osm_id": "way/346711854",
-   "name": "Shyamala Hospital",
-   "lat": 12.971427,
-   "lng": 77.627494,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": "no"
-  },
-  {
    "osm_id": "node/6939438895",
    "name": "Sidvin Hospital Pvt Ltd",
    "lat": 12.982442,
@@ -6738,28 +5370,10 @@
    "emergency": null
   },
   {
-   "osm_id": "node/11684501144",
-   "name": "Span Health Center",
-   "lat": 12.977445,
-   "lng": 77.62713,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
    "osm_id": "way/1071057533",
    "name": "Spandana",
    "lat": 12.867005,
    "lng": 77.767129,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/7576958091",
-   "name": "Spandana Heart Centre",
-   "lat": 12.957222,
-   "lng": 77.566486,
    "area": "bangalore",
    "operator_type": null,
    "emergency": null
@@ -6846,24 +5460,6 @@
    "emergency": null
   },
   {
-   "osm_id": "node/1474449391",
-   "name": "Spurthy Hospital",
-   "lat": 12.923934,
-   "lng": 77.61116,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/7579924779",
-   "name": "Spurthy Hospital",
-   "lat": 12.923857,
-   "lng": 77.611355,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
    "osm_id": "node/6944143695",
    "name": "Sree Lakshmi Hospital",
    "lat": 12.982594,
@@ -6882,15 +5478,6 @@
    "emergency": null
   },
   {
-   "osm_id": "way/271786067",
-   "name": "Sreerampura Referal Hospital",
-   "lat": 12.990743,
-   "lng": 77.564908,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
    "osm_id": "node/6944096856",
    "name": "Sri Annapoorneshwari Hospital",
    "lat": 12.92557,
@@ -6904,15 +5491,6 @@
    "name": "Sri Arogya Hospital",
    "lat": 13.121566,
    "lng": 77.625051,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/6938690600",
-   "name": "Sri Dhavantari Ayurveda Hoapital",
-   "lat": 12.982219,
-   "lng": 77.559937,
    "area": "bangalore",
    "operator_type": null,
    "emergency": null
@@ -6985,15 +5563,6 @@
    "name": "Sri Laxmi Hospital",
    "lat": 12.850472,
    "lng": 77.655306,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/1617398469",
-   "name": "Sri Maruthi hospital, Sheshadripuram",
-   "lat": 12.992644,
-   "lng": 77.574205,
    "area": "bangalore",
    "operator_type": null,
    "emergency": null
@@ -7098,15 +5667,6 @@
    "emergency": null
   },
   {
-   "osm_id": "node/5716797221",
-   "name": "Sri Shankara Cancer Hospital And Research Centre (A Service Unit Of Sscf)",
-   "lat": 12.954262,
-   "lng": 77.570947,
-   "area": "bangalore",
-   "operator_type": "private",
-   "emergency": null
-  },
-  {
    "osm_id": "way/668074515",
    "name": "Sri Sri Ayurveda hospital",
    "lat": 12.8222,
@@ -7131,15 +5691,6 @@
    "lng": 77.513665,
    "area": "bangalore",
    "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/6938758526",
-   "name": "Sri Venkateshwara Hospitals",
-   "lat": 12.926471,
-   "lng": 77.61674,
-   "area": "bangalore",
-   "operator_type": "private",
    "emergency": null
   },
   {
@@ -7215,24 +5766,6 @@
    "emergency": null
   },
   {
-   "osm_id": "node/1466638204",
-   "name": "Srinivasa Nursing Home",
-   "lat": 12.942304,
-   "lng": 77.617489,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/1469314053",
-   "name": "Srinivasa Nursing Home",
-   "lat": 12.996508,
-   "lng": 77.622046,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
    "osm_id": "node/7572526728",
    "name": "Srinivasam Cancer Care Multi Speciality Hospital",
    "lat": 12.961509,
@@ -7296,15 +5829,6 @@
    "emergency": null
   },
   {
-   "osm_id": "node/8428403226",
-   "name": "St. Johns hospital Emergency ward",
-   "lat": 12.930594,
-   "lng": 77.618616,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
    "osm_id": "node/7579924783",
    "name": "St. Martha's Hospital",
    "lat": 12.906113,
@@ -7359,37 +5883,10 @@
    "emergency": null
   },
   {
-   "osm_id": "way/1141353122",
-   "name": "Suguna Hospital",
-   "lat": 12.98823,
-   "lng": 77.560039,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": "yes"
-  },
-  {
    "osm_id": "node/7572526763",
    "name": "Suhusannidhi Hospital",
    "lat": 12.969102,
    "lng": 77.534951,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/6393830707",
-   "name": "Sujatha Hospital",
-   "lat": 12.978129,
-   "lng": 77.637239,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/7576958039",
-   "name": "Sumanjara Hospital",
-   "lat": 12.941744,
-   "lng": 77.560178,
    "area": "bangalore",
    "operator_type": null,
    "emergency": null
@@ -7401,15 +5898,6 @@
    "lng": 77.524439,
    "area": "bangalore",
    "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/6938912267",
-   "name": "Sunayana Eye Hospital",
-   "lat": 12.925523,
-   "lng": 77.593775,
-   "area": "bangalore",
-   "operator_type": "private",
    "emergency": null
   },
   {
@@ -7453,15 +5941,6 @@
    "name": "Super Specialty Eye Hospital",
    "lat": 13.016688,
    "lng": 77.660405,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/8188038712",
-   "name": "Supra Diagnostics Spine Care And Ortho Care Hospital",
-   "lat": 12.997,
-   "lng": 77.573004,
    "area": "bangalore",
    "operator_type": null,
    "emergency": null
@@ -7584,24 +6063,6 @@
    "emergency": null
   },
   {
-   "osm_id": "node/7572526801",
-   "name": "Swasthya Hospitals",
-   "lat": 12.954498,
-   "lng": 77.640157,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/7576958117",
-   "name": "Swastik Eye Hospital",
-   "lat": 12.947965,
-   "lng": 77.569639,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
    "osm_id": "node/2002686385",
    "name": "T.R.Hospital",
    "lat": 12.880755,
@@ -7665,15 +6126,6 @@
    "emergency": null
   },
   {
-   "osm_id": "node/4447171840",
-   "name": "The Homoeo World",
-   "lat": 12.99472,
-   "lng": 77.571588,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
    "osm_id": "node/10963251389",
    "name": "The Local Dentist",
    "lat": 12.909416,
@@ -7687,15 +6139,6 @@
    "name": "The Pulse Multi Speciality Hospital",
    "lat": 12.94248,
    "lng": 77.547328,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/6938775846",
-   "name": "The Venlakh Hospital",
-   "lat": 12.957298,
-   "lng": 77.564452,
    "area": "bangalore",
    "operator_type": null,
    "emergency": null
@@ -7755,15 +6198,6 @@
    "emergency": null
   },
   {
-   "osm_id": "node/7576958089",
-   "name": "Trinity Hospital and Heart Foundation",
-   "lat": 12.9435,
-   "lng": 77.579658,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
    "osm_id": "node/2268407035",
    "name": "Trupti Nursing Home",
    "lat": 12.994657,
@@ -7791,15 +6225,6 @@
    "emergency": null
   },
   {
-   "osm_id": "node/2533566686",
-   "name": "United Medical lab",
-   "lat": 13.000768,
-   "lng": 77.61329,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
    "osm_id": "node/6944578226",
    "name": "Unity Hospital, Bengaluru Urban",
    "lat": 12.910823,
@@ -7822,15 +6247,6 @@
    "name": "Usha Vikranth Diagnostic Center and Hospital",
    "lat": 12.913809,
    "lng": 77.527363,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/11710491602",
-   "name": "Uvin Care Hospital",
-   "lat": 12.977835,
-   "lng": 77.628284,
    "area": "bangalore",
    "operator_type": null,
    "emergency": null
@@ -7935,24 +6351,6 @@
    "emergency": null
   },
   {
-   "osm_id": "node/6944507654",
-   "name": "Vasan Eye Care Hospital, Jayanagar",
-   "lat": 12.929201,
-   "lng": 77.581981,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/1468540733",
-   "name": "Vasan Eye Care Hospital, Koramangala",
-   "lat": 12.940237,
-   "lng": 77.62534,
-   "area": "bangalore",
-   "operator_type": "private",
-   "emergency": "yes"
-  },
-  {
    "osm_id": "node/1463507632",
    "name": "Vasan Eye Care Hospital, Nagarabhavi",
    "lat": 12.974613,
@@ -8047,15 +6445,6 @@
    "name": "Venkat Charmalaya",
    "lat": 12.964423,
    "lng": 77.533332,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/1472735174",
-   "name": "Venkateshwara Hospital",
-   "lat": 12.925784,
-   "lng": 77.617083,
    "area": "bangalore",
    "operator_type": null,
    "emergency": null
@@ -8223,15 +6612,6 @@
    "emergency": "no"
   },
   {
-   "osm_id": "node/6938775854",
-   "name": "Vishwabharathi Hospital Pvt. Ltd",
-   "lat": 12.94067,
-   "lng": 77.56446,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
    "osm_id": "node/7258378647",
    "name": "Vittal Eye HOspital",
    "lat": 12.931298,
@@ -8248,15 +6628,6 @@
    "area": "bangalore",
    "operator_type": null,
    "emergency": "yes"
-  },
-  {
-   "osm_id": "node/6947701126",
-   "name": "Well Spring hospital",
-   "lat": 12.942568,
-   "lng": 77.622435,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
   },
   {
    "osm_id": "node/4445213681",
@@ -8284,15 +6655,6 @@
    "area": "bangalore",
    "operator_type": null,
    "emergency": "no"
-  },
-  {
-   "osm_id": "way/1395462349",
-   "name": "Yadiyuru Maternity Hospital",
-   "lat": 12.927106,
-   "lng": 77.576658,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
   },
   {
    "osm_id": "node/7235403686",
@@ -8353,15 +6715,6 @@
    "name": "apollo medical shop",
    "lat": 12.843785,
    "lng": 77.665927,
-   "area": "bangalore",
-   "operator_type": null,
-   "emergency": null
-  },
-  {
-   "osm_id": "node/9276855256",
-   "name": "clinic",
-   "lat": 12.939528,
-   "lng": 77.586437,
    "area": "bangalore",
    "operator_type": null,
    "emergency": null
@@ -8745,6 +7098,24 @@
    "emergency": null
   },
   {
+   "osm_id": "node/3556103531",
+   "name": "ALDOS Medical Service Pvt LTD",
+   "lat": 12.982667,
+   "lng": 77.638104,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/12917084092",
+   "name": "AMC Multispeciality Hospital",
+   "lat": 12.92967,
+   "lng": 77.576408,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
    "osm_id": "way/347074890",
    "name": "Abhaya Hospital",
    "lat": 12.946286,
@@ -8754,10 +7125,46 @@
    "emergency": null
   },
   {
+   "osm_id": "node/7572526762",
+   "name": "Abhinav Hospital",
+   "lat": 12.975749,
+   "lng": 77.553782,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/6945001435",
+   "name": "Abhinava Eye Hospital",
+   "lat": 12.955018,
+   "lng": 77.56839,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/4447087999",
+   "name": "Acura Speciality Hospital",
+   "lat": 12.935321,
+   "lng": 77.62055,
+   "area": "venue",
+   "operator_type": "private",
+   "emergency": null
+  },
+  {
    "osm_id": "way/639010019",
    "name": "Agadi Hospital",
    "lat": 12.949202,
    "lng": 77.597794,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/1472015890",
+   "name": "Agarwal Eye Hospital",
+   "lat": 12.927342,
+   "lng": 77.62213,
    "area": "venue",
    "operator_type": null,
    "emergency": null
@@ -8781,6 +7188,15 @@
    "emergency": null
   },
   {
+   "osm_id": "node/5157373807",
+   "name": "Altius Hospital",
+   "lat": 12.984954,
+   "lng": 77.556922,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
    "osm_id": "node/6938775840",
    "name": "Amar Hospital",
    "lat": 12.971182,
@@ -8790,10 +7206,190 @@
    "emergency": null
   },
   {
+   "osm_id": "node/4286285517",
+   "name": "Ameena Medical centre",
+   "lat": 12.977708,
+   "lng": 77.632341,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "way/345954862",
+   "name": "Annasawmy Mudaliar General Hospital",
+   "lat": 12.99998,
+   "lng": 77.614499,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/5915195092",
+   "name": "Aparna Hospital",
+   "lat": 12.936209,
+   "lng": 77.616947,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/4392383890",
+   "name": "Apollo Cradle",
+   "lat": 12.93681,
+   "lng": 77.620634,
+   "area": "venue",
+   "operator_type": "private",
+   "emergency": null
+  },
+  {
+   "osm_id": "way/347485349",
+   "name": "Apollo Hospital",
+   "lat": 12.988342,
+   "lng": 77.572698,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "way/306861065",
+   "name": "Apollo Speciality Hospital",
+   "lat": 12.936368,
+   "lng": 77.584316,
+   "area": "venue",
+   "operator_type": "private",
+   "emergency": null
+  },
+  {
+   "osm_id": "node/5915409411",
+   "name": "Apollo Spectra Hospitals",
+   "lat": 12.933817,
+   "lng": 77.620161,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/8188038706",
+   "name": "Appllo Diagnostic",
+   "lat": 12.998106,
+   "lng": 77.600813,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/11853321328",
+   "name": "Aspire Hospital",
+   "lat": 12.997168,
+   "lng": 77.614588,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/7572526750",
+   "name": "Athoz Hospitals",
+   "lat": 12.967343,
+   "lng": 77.6425,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/6944392363",
+   "name": "Av Hospital",
+   "lat": 12.938853,
+   "lng": 77.57861,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/4446857201",
+   "name": "Ayur jagruti",
+   "lat": 12.966725,
+   "lng": 77.637829,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/4446329807",
+   "name": "Ayurvaid Hospital",
+   "lat": 12.95527,
+   "lng": 77.642851,
+   "area": "venue",
+   "operator_type": "private",
+   "emergency": null
+  },
+  {
+   "osm_id": "way/1395462350",
+   "name": "Ayurveda Prathisthana Hospital",
+   "lat": 12.926794,
+   "lng": 77.577297,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/4447003711",
+   "name": "Ayushman Ayurvedic therapy centre",
+   "lat": 12.994616,
+   "lng": 77.602387,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "way/1195581196",
+   "name": "BBMP Hospital",
+   "lat": 12.994988,
+   "lng": 77.593786,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
    "osm_id": "way/347167749",
    "name": "BBMP Maternity Hospital",
    "lat": 12.949189,
    "lng": 77.596815,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "way/687319732",
+   "name": "BMS Hospital",
+   "lat": 12.941336,
+   "lng": 77.567468,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/691930445",
+   "name": "BMTC Hospital",
+   "lat": 12.923432,
+   "lng": 77.592337,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/6937814427",
+   "name": "Balaji Hospital and Gastroenterology Center",
+   "lat": 12.937609,
+   "lng": 77.566643,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/6944392364",
+   "name": "Balaji Hospital, K.H. Ranganath Colony",
+   "lat": 12.963251,
+   "lng": 77.56029,
    "area": "venue",
    "operator_type": null,
    "emergency": null
@@ -8814,6 +7410,42 @@
    "lng": 77.589267,
    "area": "venue",
    "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/7576958033",
+   "name": "Bangaluru Unani Hospital",
+   "lat": 12.94052,
+   "lng": 77.579439,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/1474820321",
+   "name": "Baptist",
+   "lat": 12.997091,
+   "lng": 77.571977,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/12508687328",
+   "name": "Beams Hospitals Private Limited",
+   "lat": 12.934228,
+   "lng": 77.629632,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/582384953",
+   "name": "Bengaluru Hospital, Susruta Medical Aid AndResearch Home Limited",
+   "lat": 12.937673,
+   "lng": 77.580284,
+   "area": "venue",
+   "operator_type": "private",
    "emergency": null
   },
   {
@@ -8839,6 +7471,24 @@
    "name": "Bhavatprabhu Hospitals Pvt Limited",
    "lat": 12.967061,
    "lng": 77.590316,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/12995318310",
+   "name": "Big Hospitals",
+   "lat": 12.940505,
+   "lng": 77.584868,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/6938717993",
+   "name": "Bilva Hospital",
+   "lat": 12.998983,
+   "lng": 77.580202,
    "area": "venue",
    "operator_type": null,
    "emergency": null
@@ -8871,10 +7521,37 @@
    "emergency": null
   },
   {
+   "osm_id": "node/4840185928",
+   "name": "Cambridge Hospital",
+   "lat": 12.971624,
+   "lng": 77.627383,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
    "osm_id": "way/1083566607",
    "name": "Charaka Super Speciality Hospital",
    "lat": 12.989639,
    "lng": 77.60226,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "way/478206073",
+   "name": "Command Hospital (Air Force)",
+   "lat": 12.963877,
+   "lng": 77.627935,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/7576958043",
+   "name": "Corporation Hospital",
+   "lat": 12.961345,
+   "lng": 77.560893,
    "area": "venue",
    "operator_type": null,
    "emergency": null
@@ -8889,6 +7566,60 @@
    "emergency": "yes"
   },
   {
+   "osm_id": "node/7576958118",
+   "name": "Dave Gray Hospital",
+   "lat": 12.945829,
+   "lng": 77.579902,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "way/351326759",
+   "name": "Deepak Hospital",
+   "lat": 12.926224,
+   "lng": 77.577511,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/4446518811",
+   "name": "Desai Nursing Home",
+   "lat": 12.986374,
+   "lng": 77.579315,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/6939253041",
+   "name": "Devi Eye Hospital",
+   "lat": 12.941211,
+   "lng": 77.623899,
+   "area": "venue",
+   "operator_type": "private",
+   "emergency": null
+  },
+  {
+   "osm_id": "node/1067181192",
+   "name": "Devine Hospital",
+   "lat": 13.0039,
+   "lng": 77.603931,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "way/53859295",
+   "name": "Divisional Railway Hospital",
+   "lat": 12.979835,
+   "lng": 77.565111,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
    "osm_id": "way/1149213001",
    "name": "Dr Agarwal's Eye Hospital",
    "lat": 12.9569,
@@ -8896,6 +7627,42 @@
    "area": "venue",
    "operator_type": null,
    "emergency": "no"
+  },
+  {
+   "osm_id": "node/4445397516",
+   "name": "Dr Solankis Eye Hospital",
+   "lat": 12.995163,
+   "lng": 77.573814,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/6937892396",
+   "name": "Dr. B. Venkatasubbarao Memorial Hospital",
+   "lat": 12.998198,
+   "lng": 77.568151,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "way/997923996",
+   "name": "Dr. P.R. Desai Hospital Pvt Ltd",
+   "lat": 12.986358,
+   "lng": 77.579211,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/7572526687",
+   "name": "Dr. Rajesh Hospitals Eye and Dental",
+   "lat": 12.968899,
+   "lng": 77.642213,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
   },
   {
    "osm_id": "node/3400223541",
@@ -8916,10 +7683,55 @@
    "emergency": null
   },
   {
+   "osm_id": "node/4322812542",
+   "name": "Dr.Agarwal Eye & Dental Hospital",
+   "lat": 12.970036,
+   "lng": 77.636244,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/6947499711",
+   "name": "Dr.Agarwal Eye Hospital, Frazer Town, Bangalore",
+   "lat": 12.99602,
+   "lng": 77.612841,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "way/59358741",
+   "name": "ESI Hospital",
+   "lat": 12.971348,
+   "lng": 77.636724,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "way/347187836",
+   "name": "ESI Hospital",
+   "lat": 12.927995,
+   "lng": 77.589406,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
    "osm_id": "node/7576958095",
    "name": "ESI Hospital",
    "lat": 12.972126,
    "lng": 77.573351,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/7572526767",
+   "name": "ESIC Hospital",
+   "lat": 12.969301,
+   "lng": 77.631754,
    "area": "venue",
    "operator_type": null,
    "emergency": null
@@ -8932,6 +7744,15 @@
    "area": "venue",
    "operator_type": null,
    "emergency": "yes"
+  },
+  {
+   "osm_id": "node/4446849884",
+   "name": "Fj Merrit Hydrotherapy And Wellness",
+   "lat": 12.934422,
+   "lng": 77.629979,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
   },
   {
    "osm_id": "way/325436710",
@@ -8952,10 +7773,37 @@
    "emergency": null
   },
   {
+   "osm_id": "node/6944269353",
+   "name": "Gavipuramguttahalli Maternity Home",
+   "lat": 12.952651,
+   "lng": 77.554863,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/12460939644",
+   "name": "Gawai Hospital",
+   "lat": 12.996274,
+   "lng": 77.607569,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
    "osm_id": "node/6948552667",
    "name": "Get Well Hospital",
    "lat": 12.952662,
    "lng": 77.61503,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/3725710400",
+   "name": "Gift IVF center",
+   "lat": 12.962951,
+   "lng": 77.641871,
    "area": "venue",
    "operator_type": null,
    "emergency": null
@@ -8970,6 +7818,33 @@
    "emergency": null
   },
   {
+   "osm_id": "node/5259407821",
+   "name": "Government Hospital",
+   "lat": 12.966103,
+   "lng": 77.554965,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/7576958052",
+   "name": "Government Hospital",
+   "lat": 12.960949,
+   "lng": 77.561394,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/7576958066",
+   "name": "Government Hospital",
+   "lat": 12.949104,
+   "lng": 77.563226,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
    "osm_id": "way/401993917",
    "name": "Government Hospital",
    "lat": 12.949023,
@@ -8979,10 +7854,73 @@
    "emergency": null
   },
   {
+   "osm_id": "node/7576958061",
+   "name": "Government Hospital, Banglore",
+   "lat": 12.958746,
+   "lng": 77.557346,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/4577045761",
+   "name": "Government Maternity Home",
+   "lat": 12.99834,
+   "lng": 77.620093,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/1101622501",
+   "name": "Government Maternity Hospital",
+   "lat": 12.99886,
+   "lng": 77.581742,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "way/496821816",
+   "name": "Government Maternity Hospital",
+   "lat": 12.937727,
+   "lng": 77.569786,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
    "osm_id": "node/663604723",
    "name": "Government Primary Health Centre",
    "lat": 12.950323,
    "lng": 77.616262,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "way/53849361",
+   "name": "Government Veterinary Hospital",
+   "lat": 12.964165,
+   "lng": 77.567695,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/4097027897",
+   "name": "Gulecha Dental Care",
+   "lat": 12.929242,
+   "lng": 77.589362,
+   "area": "venue",
+   "operator_type": "private",
+   "emergency": null
+  },
+  {
+   "osm_id": "node/6944507652",
+   "name": "Gunasheela Surgical and Maternity Hospital",
+   "lat": 12.940301,
+   "lng": 77.57647,
    "area": "venue",
    "operator_type": null,
    "emergency": null
@@ -9033,10 +7971,91 @@
    "emergency": null
   },
   {
+   "osm_id": "node/6939445234",
+   "name": "HCG, Koramangala",
+   "lat": 12.934328,
+   "lng": 77.622885,
+   "area": "venue",
+   "operator_type": "private",
+   "emergency": null
+  },
+  {
+   "osm_id": "way/369295552",
+   "name": "Halasuru Referal Hospital",
+   "lat": 12.973692,
+   "lng": 77.626677,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/13817232442",
+   "name": "Healing Hands Clinic - Indiranagar, Bengaluru",
+   "lat": 12.978309,
+   "lng": 77.64262,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
    "osm_id": "node/3922280181",
    "name": "Health Care Global",
    "lat": 12.958476,
    "lng": 77.591928,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/6947371813",
+   "name": "Health Cottage Hospital",
+   "lat": 12.970914,
+   "lng": 77.632112,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/7579924766",
+   "name": "Health India Hospital",
+   "lat": 12.926518,
+   "lng": 77.609099,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/7576958096",
+   "name": "Herige Hospital",
+   "lat": 12.960972,
+   "lng": 77.56097,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/6944507655",
+   "name": "Hi Tech Kidney Stone Hospital",
+   "lat": 12.927139,
+   "lng": 77.579028,
+   "area": "venue",
+   "operator_type": "private",
+   "emergency": null
+  },
+  {
+   "osm_id": "node/6938690598",
+   "name": "Hitech Kidney Stone Hospital, Bengaluru Urban",
+   "lat": 12.98781,
+   "lng": 77.580983,
+   "area": "venue",
+   "operator_type": "private",
+   "emergency": null
+  },
+  {
+   "osm_id": "node/4849107926",
+   "name": "Hosmat Hospital",
+   "lat": 13.008,
+   "lng": 77.583748,
    "area": "venue",
    "operator_type": null,
    "emergency": null
@@ -9060,10 +8079,37 @@
    "emergency": null
   },
   {
+   "osm_id": "node/4446312027",
+   "name": "Hospital",
+   "lat": 12.991412,
+   "lng": 77.611733,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "way/40631657",
+   "name": "Hospital Complex",
+   "lat": 12.938368,
+   "lng": 77.589907,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
    "osm_id": "node/4446289881",
    "name": "Hsis Gosha Hospital",
    "lat": 12.985698,
    "lng": 77.605858,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/4445139977",
+   "name": "Indianova Healthcare Pvt Ltd",
+   "lat": 12.970358,
+   "lng": 77.63022,
    "area": "venue",
    "operator_type": null,
    "emergency": null
@@ -9078,10 +8124,91 @@
    "emergency": null
   },
   {
+   "osm_id": "way/796374051",
+   "name": "JC Nagar Municipal Hospital",
+   "lat": 13.009931,
+   "lng": 77.594122,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "way/40631131",
+   "name": "Jayanagar General Hospital",
+   "lat": 12.926118,
+   "lng": 77.592549,
+   "area": "venue",
+   "operator_type": "government",
+   "emergency": null
+  },
+  {
+   "osm_id": "node/1473296715",
+   "name": "Jayanagar Orthopaedic Centre",
+   "lat": 12.929329,
+   "lng": 77.587709,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": "no"
+  },
+  {
+   "osm_id": "node/364629734",
+   "name": "Jayanagar heart Centre",
+   "lat": 12.923168,
+   "lng": 77.584433,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/7576958068",
+   "name": "Jeevini Sarvodaya Hospital",
+   "lat": 12.941588,
+   "lng": 77.564192,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
    "osm_id": "node/6944888150",
    "name": "Jyothi The Lasik Vision Centre",
    "lat": 12.949611,
    "lng": 77.579079,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "way/38536360",
+   "name": "K C General Hospital",
+   "lat": 12.995053,
+   "lng": 77.569743,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/7202935829",
+   "name": "K.C. General Hospital",
+   "lat": 12.993382,
+   "lng": 77.569417,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/8188038718",
+   "name": "K.C.General Hospital",
+   "lat": 12.996024,
+   "lng": 77.569371,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/6939319393",
+   "name": "Kalasa Maternity Home",
+   "lat": 12.954821,
+   "lng": 77.567258,
    "area": "venue",
    "operator_type": null,
    "emergency": null
@@ -9105,6 +8232,33 @@
    "emergency": null
   },
   {
+   "osm_id": "node/7576958078",
+   "name": "Khincha Orthopaedic Centre",
+   "lat": 12.939882,
+   "lng": 77.573989,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/9730853893",
+   "name": "Kidwai Cancer Institute Radiation Block",
+   "lat": 12.935597,
+   "lng": 77.597157,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "way/239738408",
+   "name": "Kidwai Memorial Institute of Oncology",
+   "lat": 12.936526,
+   "lng": 77.598139,
+   "area": "venue",
+   "operator_type": "private",
+   "emergency": "yes"
+  },
+  {
    "osm_id": "node/6944128588",
    "name": "Kims Hospital and Research Centre",
    "lat": 12.956302,
@@ -9114,10 +8268,28 @@
    "emergency": null
   },
   {
+   "osm_id": "node/1905152108",
+   "name": "Kottakkal Arya Vaidya Sala",
+   "lat": 12.941106,
+   "lng": 77.585059,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": "no"
+  },
+  {
    "osm_id": "node/3710210170",
    "name": "Krishna Nursing Home",
    "lat": 12.947422,
    "lng": 77.598692,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/5862574185",
+   "name": "Lakeside Medical Centre and Hospital",
+   "lat": 12.987863,
+   "lng": 77.617743,
    "area": "venue",
    "operator_type": null,
    "emergency": null
@@ -9132,10 +8304,109 @@
    "emergency": null
   },
   {
+   "osm_id": "node/7579924711",
+   "name": "Lavis Hospital",
+   "lat": 12.925461,
+   "lng": 77.609021,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/3400223539",
+   "name": "Leela Hospital and Diagnostic Center",
+   "lat": 13.000267,
+   "lng": 77.569489,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "way/337987686",
+   "name": "Leprosy Hospital",
+   "lat": 12.974455,
+   "lng": 77.564022,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "way/1442330288",
+   "name": "Life Care Hospital",
+   "lat": 12.923974,
+   "lng": 77.613323,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": "yes"
+  },
+  {
+   "osm_id": "node/7572526782",
+   "name": "Lohitha Hospital",
+   "lat": 12.963951,
+   "lng": 77.64308,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/4578753189",
+   "name": "Lucid Medical Diagnostics",
+   "lat": 12.930688,
+   "lng": 77.579454,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/6947003707",
+   "name": "Magadi Road Maternity Home",
+   "lat": 12.974125,
+   "lng": 77.561823,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/2285453337",
+   "name": "Magnus Diagnostic Lab",
+   "lat": 12.934919,
+   "lng": 77.630502,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": "no"
+  },
+  {
+   "osm_id": "node/6938717991",
+   "name": "Mahaveer Eye Hospital Private Limited",
+   "lat": 12.993355,
+   "lng": 77.572959,
+   "area": "venue",
+   "operator_type": "private",
+   "emergency": null
+  },
+  {
+   "osm_id": "node/7576958070",
+   "name": "Mahaveer Ortho Care Speciality Centre",
+   "lat": 12.956968,
+   "lng": 77.569504,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
    "osm_id": "node/1440343668",
    "name": "Maiya Multispecialty Hospital",
    "lat": 12.942614,
    "lng": 77.585453,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/6938717990",
+   "name": "Malleswaram Eye Day Care Hospital - Bengalore",
+   "lat": 12.996668,
+   "lng": 77.571604,
    "area": "venue",
    "operator_type": null,
    "emergency": null
@@ -9195,10 +8466,73 @@
    "emergency": null
   },
   {
+   "osm_id": "node/7576958093",
+   "name": "Matha Pitha Hospital",
+   "lat": 12.942028,
+   "lng": 77.575634,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/7576958037",
+   "name": "Medcare Hospital",
+   "lat": 12.953049,
+   "lng": 77.574203,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/4446899253",
+   "name": "Medi-Tech Multi Speciality Hospital",
+   "lat": 12.940867,
+   "lng": 77.560366,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
    "osm_id": "node/4446285519",
    "name": "Medic Star Hospital",
    "lat": 12.987687,
    "lng": 77.60931,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/6944231454",
+   "name": "Mediscope Hospital Private Limited",
+   "lat": 12.999447,
+   "lng": 77.616258,
+   "area": "venue",
+   "operator_type": "private",
+   "emergency": null
+  },
+  {
+   "osm_id": "way/331365081",
+   "name": "Milann Fertility Center",
+   "lat": 12.978801,
+   "lng": 77.638085,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/7576958045",
+   "name": "Mitralaya Hospital",
+   "lat": 12.945591,
+   "lng": 77.571286,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/3370028968",
+   "name": "Motherhood Hospital(Unit Of Rhea Healthcare Pvt Ltd)",
+   "lat": 12.978441,
+   "lng": 77.637585,
    "area": "venue",
    "operator_type": null,
    "emergency": null
@@ -9231,12 +8565,39 @@
    "emergency": null
   },
   {
+   "osm_id": "node/1474472859",
+   "name": "NIMHANS OPD",
+   "lat": 12.938806,
+   "lng": 77.594299,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
    "osm_id": "node/11295246682",
    "name": "NIMHANS Physiotherapy Center",
    "lat": 12.940204,
    "lng": 77.595472,
    "area": "venue",
    "operator_type": "government",
+   "emergency": null
+  },
+  {
+   "osm_id": "node/1474472488",
+   "name": "NIMHANS Screening block",
+   "lat": 12.938712,
+   "lng": 77.593774,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": "no"
+  },
+  {
+   "osm_id": "node/8873805759",
+   "name": "Narayan Multispeciality clinic",
+   "lat": 12.928844,
+   "lng": 77.58287,
+   "area": "venue",
+   "operator_type": null,
    "emergency": null
   },
   {
@@ -9249,10 +8610,37 @@
    "emergency": null
   },
   {
+   "osm_id": "node/6938777910",
+   "name": "National Institute of Mental Health and Neuro Sciences",
+   "lat": 12.938632,
+   "lng": 77.59441,
+   "area": "venue",
+   "operator_type": "government",
+   "emergency": null
+  },
+  {
    "osm_id": "node/4729472422",
    "name": "National Institute of Mental Health and Neuro Sciences",
    "lat": 12.940067,
    "lng": 77.59316,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/5234739990",
+   "name": "Nature Cure Hospital",
+   "lat": 12.933223,
+   "lng": 77.584263,
+   "area": "venue",
+   "operator_type": "private",
+   "emergency": null
+  },
+  {
+   "osm_id": "node/3370453173",
+   "name": "Netradama Eye Hospital",
+   "lat": 12.973484,
+   "lng": 77.635728,
    "area": "venue",
    "operator_type": null,
    "emergency": null
@@ -9276,6 +8664,24 @@
    "emergency": null
   },
   {
+   "osm_id": "node/6938759412",
+   "name": "Nova Specialty Surgery Center, Koramangala",
+   "lat": 12.93391,
+   "lng": 77.620208,
+   "area": "venue",
+   "operator_type": "private",
+   "emergency": null
+  },
+  {
+   "osm_id": "node/4447273084",
+   "name": "Oxford Hospital",
+   "lat": 12.93121,
+   "lng": 77.575691,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
    "osm_id": "way/256703169",
    "name": "P.D. Hinduja Sindhi Hospital",
    "lat": 12.964441,
@@ -9283,6 +8689,15 @@
    "area": "venue",
    "operator_type": "private",
    "emergency": "yes"
+  },
+  {
+   "osm_id": "node/7576958080",
+   "name": "Parameshwari Hospital",
+   "lat": 12.948971,
+   "lng": 77.563543,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
   },
   {
    "osm_id": "node/6947915400",
@@ -9298,6 +8713,69 @@
    "name": "Phoenix Hospital, Bengaluru Urban",
    "lat": 12.960803,
    "lng": 77.591172,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/6939699617",
+   "name": "Place Guttahalli Maternity Home",
+   "lat": 12.998824,
+   "lng": 77.581989,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/6944256037",
+   "name": "Popular Hospital",
+   "lat": 12.951485,
+   "lng": 77.570356,
+   "area": "venue",
+   "operator_type": "private",
+   "emergency": "yes"
+  },
+  {
+   "osm_id": "node/1474458358",
+   "name": "Prasad Eye Hospital",
+   "lat": 12.935193,
+   "lng": 77.608682,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/6944525392",
+   "name": "Prasad Eye Hospital, Bengaluru Urban",
+   "lat": 12.93567,
+   "lng": 77.60799,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/1471128628",
+   "name": "Pristine Health care",
+   "lat": 12.938277,
+   "lng": 77.618675,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": "yes"
+  },
+  {
+   "osm_id": "node/12956090274",
+   "name": "Proteeth Dental",
+   "lat": 12.934622,
+   "lng": 77.628467,
+   "area": "venue",
+   "operator_type": "private",
+   "emergency": "no"
+  },
+  {
+   "osm_id": "way/347236718",
+   "name": "Proteeth Dental",
+   "lat": 12.934625,
+   "lng": 77.628467,
    "area": "venue",
    "operator_type": null,
    "emergency": null
@@ -9321,6 +8799,24 @@
    "emergency": null
   },
   {
+   "osm_id": "node/8188038691",
+   "name": "RICH CARE HOMEOPATHY",
+   "lat": 13.001546,
+   "lng": 77.572168,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/6938690597",
+   "name": "Radha Maternity and Surgical Hospital",
+   "lat": 12.969044,
+   "lng": 77.568854,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
    "osm_id": "node/7576958032",
    "name": "Rahul Maternity & Child Health Centre",
    "lat": 12.959623,
@@ -9337,6 +8833,42 @@
    "area": "venue",
    "operator_type": null,
    "emergency": "no"
+  },
+  {
+   "osm_id": "node/769216417",
+   "name": "Ramakrishna Nursing Home and Hospital",
+   "lat": 12.936433,
+   "lng": 77.583477,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/8188038683",
+   "name": "Ramani Orthopaedic Hospital",
+   "lat": 13.004431,
+   "lng": 77.578524,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "way/1307949928",
+   "name": "Rangadore Memorial Hospital",
+   "lat": 12.953891,
+   "lng": 77.571146,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": "yes"
+  },
+  {
+   "osm_id": "node/3370279044",
+   "name": "Rashmi Hospital",
+   "lat": 12.976695,
+   "lng": 77.636228,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
   },
   {
    "osm_id": "node/6947504038",
@@ -9357,6 +8889,51 @@
    "emergency": null
   },
   {
+   "osm_id": "node/3370244392",
+   "name": "Respiratory and womens health clinic.",
+   "lat": 12.976264,
+   "lng": 77.637653,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/6938775845",
+   "name": "Retina Institute Of Karnataka",
+   "lat": 12.95727,
+   "lng": 77.564083,
+   "area": "venue",
+   "operator_type": "private",
+   "emergency": null
+  },
+  {
+   "osm_id": "node/7576958062",
+   "name": "Royan Maternity & Child Welfare Centre",
+   "lat": 12.960311,
+   "lng": 77.568274,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/1438212033",
+   "name": "SDS Tuberculosis Research Centre and Rajiv Gandhi Institute of Chest diseases",
+   "lat": 12.936796,
+   "lng": 77.590709,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": "no"
+  },
+  {
+   "osm_id": "node/6944364980",
+   "name": "Sadhana Eye Hospital, Bengaluru Urban",
+   "lat": 12.970023,
+   "lng": 77.630799,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
    "osm_id": "way/1298074067",
    "name": "Safa Medicure Hospital",
    "lat": 12.944739,
@@ -9364,6 +8941,60 @@
    "area": "venue",
    "operator_type": null,
    "emergency": null
+  },
+  {
+   "osm_id": "node/4349307192",
+   "name": "Sagar Chandramma Hospitals",
+   "lat": 12.948553,
+   "lng": 77.574825,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "way/442048030",
+   "name": "Sagar Hospitals",
+   "lat": 12.927899,
+   "lng": 77.599855,
+   "area": "venue",
+   "operator_type": "private",
+   "emergency": "yes"
+  },
+  {
+   "osm_id": "node/7572526710",
+   "name": "Sai Baba Hospital",
+   "lat": 12.969819,
+   "lng": 77.631747,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/6938690626",
+   "name": "Samprathi Eye Hospital And Squint Centre",
+   "lat": 12.993281,
+   "lng": 77.580691,
+   "area": "venue",
+   "operator_type": "private",
+   "emergency": null
+  },
+  {
+   "osm_id": "way/334493050",
+   "name": "Sanjay Gandhi Accident and Trauma Hospital",
+   "lat": 12.935639,
+   "lng": 77.593594,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": "yes"
+  },
+  {
+   "osm_id": "way/334493056",
+   "name": "Sanjay Gandhi Accident and Trauma Hospital",
+   "lat": 12.935771,
+   "lng": 77.593943,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": "yes"
   },
   {
    "osm_id": "node/6950412318",
@@ -9375,10 +9006,73 @@
    "emergency": null
   },
   {
+   "osm_id": "node/4446300155",
+   "name": "Santosh Hospital",
+   "lat": 12.995941,
+   "lng": 77.608257,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/4444989840",
+   "name": "Sarvodaya Hospital",
+   "lat": 12.939094,
+   "lng": 77.561906,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/1469181813",
+   "name": "Seventh Day Adventist Hospital",
+   "lat": 12.995625,
+   "lng": 77.611327,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/303924572",
+   "name": "Shanti Hospital",
+   "lat": 12.923504,
+   "lng": 77.585752,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
    "osm_id": "node/7576958092",
    "name": "Shas Eye Care",
    "lat": 12.960296,
    "lng": 77.614714,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "way/347120748",
+   "name": "Shashank Clinic",
+   "lat": 12.926509,
+   "lng": 77.580839,
+   "area": "venue",
+   "operator_type": "public",
+   "emergency": null
+  },
+  {
+   "osm_id": "node/1473921774",
+   "name": "Shekar Hospital",
+   "lat": 12.945871,
+   "lng": 77.567519,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": "no"
+  },
+  {
+   "osm_id": "node/7576958065",
+   "name": "Shekhar Hospital",
+   "lat": 12.945944,
+   "lng": 77.567404,
    "area": "venue",
    "operator_type": null,
    "emergency": null
@@ -9400,6 +9094,33 @@
    "area": "venue",
    "operator_type": "private",
    "emergency": null
+  },
+  {
+   "osm_id": "node/6124618183",
+   "name": "Shiva Vision Care",
+   "lat": 12.936653,
+   "lng": 77.627713,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/7572526717",
+   "name": "Shree Sai Speciality Hospital",
+   "lat": 12.955595,
+   "lng": 77.641801,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "way/346711854",
+   "name": "Shyamala Hospital",
+   "lat": 12.971427,
+   "lng": 77.627494,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": "no"
   },
   {
    "osm_id": "way/52063534",
@@ -9429,10 +9150,46 @@
    "emergency": null
   },
   {
+   "osm_id": "node/11684501144",
+   "name": "Span Health Center",
+   "lat": 12.977445,
+   "lng": 77.62713,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/7576958091",
+   "name": "Spandana Heart Centre",
+   "lat": 12.957222,
+   "lng": 77.566486,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
    "osm_id": "way/124760551",
    "name": "Sparsh Hospital For Advanced Surgeries, Bengaluru Urban",
    "lat": 12.983334,
    "lng": 77.594536,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/1474449391",
+   "name": "Spurthy Hospital",
+   "lat": 12.923934,
+   "lng": 77.61116,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/7579924779",
+   "name": "Spurthy Hospital",
+   "lat": 12.923857,
+   "lng": 77.611355,
    "area": "venue",
    "operator_type": null,
    "emergency": null
@@ -9456,10 +9213,73 @@
    "emergency": null
   },
   {
+   "osm_id": "way/271786067",
+   "name": "Sreerampura Referal Hospital",
+   "lat": 12.990743,
+   "lng": 77.564908,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/6938690600",
+   "name": "Sri Dhavantari Ayurveda Hoapital",
+   "lat": 12.982219,
+   "lng": 77.559937,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/1617398469",
+   "name": "Sri Maruthi hospital, Sheshadripuram",
+   "lat": 12.992644,
+   "lng": 77.574205,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
    "osm_id": "node/6947674447",
    "name": "Sri Ram Speciality Hospital",
    "lat": 12.954378,
    "lng": 77.620976,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/5716797221",
+   "name": "Sri Shankara Cancer Hospital And Research Centre (A Service Unit Of Sscf)",
+   "lat": 12.954262,
+   "lng": 77.570947,
+   "area": "venue",
+   "operator_type": "private",
+   "emergency": null
+  },
+  {
+   "osm_id": "node/6938758526",
+   "name": "Sri Venkateshwara Hospitals",
+   "lat": 12.926471,
+   "lng": 77.61674,
+   "area": "venue",
+   "operator_type": "private",
+   "emergency": null
+  },
+  {
+   "osm_id": "node/1466638204",
+   "name": "Srinivasa Nursing Home",
+   "lat": 12.942304,
+   "lng": 77.617489,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/1469314053",
+   "name": "Srinivasa Nursing Home",
+   "lat": 12.996508,
+   "lng": 77.622046,
    "area": "venue",
    "operator_type": null,
    "emergency": null
@@ -9483,6 +9303,15 @@
    "emergency": null
   },
   {
+   "osm_id": "node/8428403226",
+   "name": "St. Johns hospital Emergency ward",
+   "lat": 12.930594,
+   "lng": 77.618616,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
    "osm_id": "node/4446346449",
    "name": "St. Martha's Heart Centre",
    "lat": 12.970544,
@@ -9496,6 +9325,96 @@
    "name": "St. Philomena's Hospital",
    "lat": 12.964957,
    "lng": 77.611185,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "way/1141353122",
+   "name": "Suguna Hospital",
+   "lat": 12.98823,
+   "lng": 77.560039,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": "yes"
+  },
+  {
+   "osm_id": "node/6393830707",
+   "name": "Sujatha Hospital",
+   "lat": 12.978129,
+   "lng": 77.637239,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/7576958039",
+   "name": "Sumanjara Hospital",
+   "lat": 12.941744,
+   "lng": 77.560178,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/6938912267",
+   "name": "Sunayana Eye Hospital",
+   "lat": 12.925523,
+   "lng": 77.593775,
+   "area": "venue",
+   "operator_type": "private",
+   "emergency": null
+  },
+  {
+   "osm_id": "node/8188038712",
+   "name": "Supra Diagnostics Spine Care And Ortho Care Hospital",
+   "lat": 12.997,
+   "lng": 77.573004,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/7572526801",
+   "name": "Swasthya Hospitals",
+   "lat": 12.954498,
+   "lng": 77.640157,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/7576958117",
+   "name": "Swastik Eye Hospital",
+   "lat": 12.947965,
+   "lng": 77.569639,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/4447171840",
+   "name": "The Homoeo World",
+   "lat": 12.99472,
+   "lng": 77.571588,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/6938775846",
+   "name": "The Venlakh Hospital",
+   "lat": 12.957298,
+   "lng": 77.564452,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/7576958089",
+   "name": "Trinity Hospital and Heart Foundation",
+   "lat": 12.9435,
+   "lng": 77.579658,
    "area": "venue",
    "operator_type": null,
    "emergency": null
@@ -9519,10 +9438,55 @@
    "emergency": null
   },
   {
+   "osm_id": "node/2533566686",
+   "name": "United Medical lab",
+   "lat": 13.000768,
+   "lng": 77.61329,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/11710491602",
+   "name": "Uvin Care Hospital",
+   "lat": 12.977835,
+   "lng": 77.628284,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
    "osm_id": "node/5234723863",
    "name": "V. S. Achar Multispeciality Hospital",
    "lat": 12.947209,
    "lng": 77.596691,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/6944507654",
+   "name": "Vasan Eye Care Hospital, Jayanagar",
+   "lat": 12.929201,
+   "lng": 77.581981,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/1468540733",
+   "name": "Vasan Eye Care Hospital, Koramangala",
+   "lat": 12.940237,
+   "lng": 77.62534,
+   "area": "venue",
+   "operator_type": "private",
+   "emergency": "yes"
+  },
+  {
+   "osm_id": "node/1472735174",
+   "name": "Venkateshwara Hospital",
+   "lat": 12.925784,
+   "lng": 77.617083,
    "area": "venue",
    "operator_type": null,
    "emergency": null
@@ -9573,12 +9537,48 @@
    "emergency": null
   },
   {
+   "osm_id": "node/6938775854",
+   "name": "Vishwabharathi Hospital Pvt. Ltd",
+   "lat": 12.94067,
+   "lng": 77.56446,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
    "osm_id": "way/38750705",
    "name": "Vydehi Superspeciality Hospital",
    "lat": 12.968155,
    "lng": 77.595042,
    "area": "venue",
    "operator_type": "private",
+   "emergency": null
+  },
+  {
+   "osm_id": "node/6947701126",
+   "name": "Well Spring hospital",
+   "lat": 12.942568,
+   "lng": 77.622435,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "way/1395462349",
+   "name": "Yadiyuru Maternity Hospital",
+   "lat": 12.927106,
+   "lng": 77.576658,
+   "area": "venue",
+   "operator_type": null,
+   "emergency": null
+  },
+  {
+   "osm_id": "node/9276855256",
+   "name": "clinic",
+   "lat": 12.939528,
+   "lng": 77.586437,
+   "area": "venue",
+   "operator_type": null,
    "emergency": null
   },
   {
