@@ -46,8 +46,11 @@ export default function DriverDashboard() {
       .catch(() => {});
     return () => { cancelled = true; };
   }, [driverInfo?.unitId]);
+  const [dutyPending, setDutyPending] = useState(false);
   const changeDuty = async (on) => {
+    if (dutyPending) return;
     setDutyError(null);
+    setDutyPending(true);
     try {
       const res = await fetch(`/api/units/${encodeURIComponent(driverInfo.unitId)}/duty`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ on_duty: on }),
@@ -57,6 +60,8 @@ export default function DriverDashboard() {
       setOnDuty(data.on_duty !== false);
     } catch (err) {
       setDutyError(err.message);
+    } finally {
+      setDutyPending(false);
     }
   };
   const [dispatches, setDispatches] = useState([]);
@@ -236,6 +241,7 @@ export default function DriverDashboard() {
             role="switch"
             aria-label="On duty"
             checked={onDuty}
+            disabled={dutyPending}
             onChange={(e) => changeDuty(e.target.checked)}
             className="h-5 w-5 shrink-0 accent-[var(--color-signal)]"
           />
