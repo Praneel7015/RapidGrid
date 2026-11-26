@@ -89,6 +89,20 @@ async def decision_log(request: Request = None, limit: int = 50):
     return {"decisions": list(monitor.decision_log)[: max(1, min(limit, monitor.LOG_SIZE))]}
 
 
+async def _announce_confirmed_deviation(incident_id: str, alert: dict) -> None:
+    """Once dispatch confirms an off-route alert, the caller hears its facts:
+    what happened, the cause and the new ETA. Not before (it is dispatch's call)."""
+    if alert.get("trigger") != "deviation":
+        return
+    from routers.chat import post_system_message
+
+    try:
+        await asyncio.wait_for(post_system_message(incident_id, simulator.caller_safe_summary(alert)),
+                               simulator.POST_TIMEOUT_S)
+    except Exception:
+        logger.warning("Posting the confirmed off-route alert to the incident channel failed")
+
+
 @router.post("/api/incidents/{incident_id}/alerts/{alert_id}/accept")
 async def accept_reroute(incident_id: str, alert_id: str, choice: AcceptRoute, request: Request = None):
     who = require_staff(request, "dispatcher")
@@ -131,6 +145,7 @@ async def accept_reroute(incident_id: str, alert_id: str, choice: AcceptRoute, r
     text = (f"Dispatcher accepted {named} for {alert['unit_id']}; "
             f"new ETA {route['eta_s'] / 60:.1f} min.")
     monitor._log(incident_id, alert["unit_id"], "decision", text, alert_id=alert_id)
+    await _announce_confirmed_deviation(incident_id, alert)
     from routers.chat import post_system_message
 
     await post_system_message(incident_id, text, sender="Dispatch decision")
@@ -212,6 +227,7 @@ async def dispatch_backup(incident_id: str, alert_id: str, request: Request = No
     text = (f"Dispatcher sent backup {backup['unit_id']} from {backup['station']}; "
             f"{alert['unit_id']} released.")
     monitor._log(incident_id, backup["unit_id"], "decision", text, alert_id=alert_id)
+    await _announce_confirmed_deviation(incident_id, alert)
     from routers.chat import post_system_message
 
     await post_system_message(incident_id, text, sender="Dispatch decision")

@@ -382,6 +382,10 @@ async def _post_alerts(stored: list[tuple[str, dict]]) -> None:
     from routers.chat import post_system_message
 
     for incident_id, alert in stored:
+        # An off-route alert is for dispatch to judge first: the caller hears
+        # about it only once dispatch confirms it (see routers/monitoring.py).
+        if alert.get("trigger") == "deviation":
+            continue
         try:
             await asyncio.wait_for(post_system_message(incident_id, caller_safe_summary(alert)), POST_TIMEOUT_S)
         except Exception:
