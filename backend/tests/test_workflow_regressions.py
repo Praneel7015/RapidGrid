@@ -443,8 +443,13 @@ def test_unknown_road_segment_is_refused_and_leaves_the_city_model_working(clien
 def test_demo_can_reset_the_city_without_an_operator_token(client, monkeypatch):
     monkeypatch.delenv("RAPIDGRID_OPERATOR_TOKEN", raising=False)
     assert client.post("/api/city/clear").status_code == 200
-    # Case records stay protected even in the demo.
-    assert client.post("/api/incidents/clear").status_code == 503
+    assert client.post("/api/incidents/clear").status_code == 200
+
+
+def test_bulk_case_clear_needs_dispatch_when_staff_sign_in_is_on(client, monkeypatch):
+    import staff
+    monkeypatch.setattr(staff, "enabled", lambda: True)
+    assert client.post("/api/incidents/clear").status_code == 401
 
 
 def test_divert_after_approval_is_shown_to_driver_and_er(client, mocked_route):
