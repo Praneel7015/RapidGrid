@@ -110,7 +110,7 @@ async def set_duty(unit_id: str, change: DutyChange, request: Request = None):
         # hosted site, taking a unit off duty waits for staff PINs.
         import os
 
-        if os.getenv("RENDER", "").lower() == "true" or os.getenv("RAPIDGRID_MODE", "").lower() == "operator":
+        if os.getenv("RENDER", "").lower() == "true":
             raise HTTPException(status_code=503, detail="Taking a unit off duty is closed until staff PINs are set")
     else:
         try:
