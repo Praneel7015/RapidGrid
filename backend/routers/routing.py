@@ -20,6 +20,7 @@ from staff import require as require_staff
 router = APIRouter(prefix="/api/route", tags=["Route Optimization"])
 
 # In-memory cache of computed routes (keyed by route_id)
+_ROUTE_CACHE_MAX = 512
 _route_cache: dict[str, RouteResponse] = {}
 
 
@@ -39,6 +40,12 @@ async def compute_route(request: RouteRequest, http: Request = None) -> RouteRes
     The request accepts node IDs from the loaded road network
     (e.g. "N1" for Incident Site, "N5" for Hospital Gate).
     """
+
+    from routers.incident import in_service_area
+
+    for label, point in (("origin", request.origin), ("destination", request.destination)):
+        if not in_service_area(point.lat, point.lng):
+            raise HTTPException(status_code=422, detail=f"The {label} is outside the service area")
     require_staff(http, "dispatcher")
     try:
         route = await asyncio.to_thread(route_agent.compute_route, request)
@@ -49,6 +56,9 @@ async def compute_route(request: RouteRequest, http: Request = None) -> RouteRes
 
     # Cache the primary and its alternates for later retrieval
     _route_cache[route.route_id] = route
+    # Bounded: the oldest routes go first (a route is recomputed on demand).
+    while len(_route_cache) > _ROUTE_CACHE_MAX:
+        _route_cache.pop(next(iter(_route_cache)))
     for alt in route.alternate_routes:
         _route_cache[alt.route_id] = alt
 

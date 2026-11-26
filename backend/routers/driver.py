@@ -67,22 +67,20 @@ def _require_driver(incident: dict, driver_id: str, unit_type: str) -> None:
     if unit_type == "primary" and fleet_unit and driver_id != fleet_unit:
         raise HTTPException(status_code=409, detail=f"This call is assigned to {fleet_unit}")
     import staff
-    if staff.enabled():
-        # With staff sign-in, a unit holds only a slot dispatch gave it (A01):
-        # primary is the dispatched unit; the backup slot needs a free (or
-        # already this call's) ambulance.
-        if unit_type == "primary" and not fleet_unit:
-            raise HTTPException(status_code=409, detail="No unit has been dispatched to this call yet")
-        if unit_type == "ambulance":
-            import fleet
-            unit = fleet.get(driver_id)
-            if unit is None or unit.get("type") != "Ambulance":
-                raise HTTPException(status_code=403, detail="Only an ambulance can take the backup slot")
-            if unit.get("incident_id") not in (None, "", incident["incident_id"]):
-                raise HTTPException(status_code=409, detail="This ambulance is on another call")
-            # A backup claim is not in the fleet record: check the other calls.
-            if driver_id in units_on_calls(except_incident=incident["incident_id"]):
-                raise HTTPException(status_code=409, detail="This ambulance is on another call")
+    if staff.enabled() and unit_type == "primary" and not fleet_unit:
+        # With staff sign-in, a unit holds only a slot dispatch gave it (A01).
+        raise HTTPException(status_code=409, detail="No unit has been dispatched to this call yet")
+    # One ambulance is never the backup on two calls at once, in every mode.
+    if unit_type == "ambulance":
+        import fleet
+        unit = fleet.get(driver_id)
+        if unit is None or unit.get("type") != "Ambulance":
+            raise HTTPException(status_code=403, detail="Only an ambulance can take the backup slot")
+        if unit.get("incident_id") not in (None, "", incident["incident_id"]):
+            raise HTTPException(status_code=409, detail="This ambulance is on another call")
+        # A backup claim is not in the fleet record: check the other calls.
+        if driver_id in units_on_calls(except_incident=incident["incident_id"]):
+            raise HTTPException(status_code=409, detail="This ambulance is on another call")
 
 
 def units_on_calls(except_incident: str | None = None) -> set:

@@ -234,10 +234,10 @@ def test_chat_channel_mismatch_is_rejected(client):
 def test_primary_and_backup_claim_and_complete_independently(client, mocked_route, ambulance_first):
     report = seed("dispatched", vehicle_required="Fire Engine", include_ambulance_backup=True)
     primary = {"incident_id": "INC-review", "driver_id": "fire-review", "unit_type": "primary"}
-    backup = {"incident_id": "INC-review", "driver_id": "ambulance-review", "unit_type": "ambulance"}
+    backup = {"incident_id": "INC-review", "driver_id": "AMB-05", "unit_type": "ambulance"}
     assert client.post("/api/driver/claim", json=primary).status_code == 200
     assert client.post("/api/driver/claim", json=backup).status_code == 200
-    assert report["unit_assignments"] == {"primary": "fire-review", "ambulance": "ambulance-review"}
+    assert report["unit_assignments"] == {"primary": "fire-review", "ambulance": "AMB-05"}
     conflict = {**backup, "driver_id": "another-ambulance"}
     assert client.post("/api/driver/claim", json=conflict).status_code == 409
     assert client.post("/api/driver/arrived_pickup", json=primary).status_code == 409
@@ -254,12 +254,14 @@ def test_primary_and_backup_claim_and_complete_independently(client, mocked_rout
     incident.ACTIVE_INCIDENTS.clear()
     incident.load_db()
     report = incident.ACTIVE_INCIDENTS[0]
-    assert report["unit_assignments"]["ambulance"] == "ambulance-review"
+    assert report["unit_assignments"]["ambulance"] == "AMB-05"
     assert len(client.get("/api/hospital/blr-007/incoming").json()["incoming"]) == 1
     handover = client.post("/api/incidents/INC-review/arrived?unit_type=ambulance")
     assert handover.status_code == 200
     if ambulance_first:
-        assert handover.json()["incident_status"] == "dispatched"
+        # The patient is delivered; the fire engine is still on its way. The call
+        # must not rewind to "dispatched" after the handover.
+        assert handover.json()["incident_status"] == "patient_picked_up"
         assert client.get("/api/hospital/blr-007/incoming").json()["incoming"] == []
         assert client.post("/api/incidents/INC-review/arrived?unit_type=primary").status_code == 200
     assert report["status"] == "completed"
@@ -272,7 +274,7 @@ def test_primary_and_backup_claim_and_complete_independently(client, mocked_rout
 
 def test_backup_pickup_cannot_bypass_approval_or_claim_conflict(client, mocked_route):
     report = seed("awaiting_dispatcher_approval", vehicle_required="Fire Engine", include_ambulance_backup=True)
-    payload = {"incident_id": "INC-review", "driver_id": "ambulance-review", "unit_type": "ambulance"}
+    payload = {"incident_id": "INC-review", "driver_id": "AMB-05", "unit_type": "ambulance"}
     assert client.post("/api/driver/arrived_pickup", json=payload).status_code == 409
     report["status"] = "dispatched"
     assert client.post("/api/driver/claim", json=payload).status_code == 200
@@ -569,20 +571,26 @@ def test_contacts_follow_a_diversion_to_the_new_er(client, mocked_route, monkeyp
     import json as _json
     import contacts
 
-    monkeypatch.setenv("RAPIDGRID_CONTACTS", _json.dumps({"hospitals": [
+    monkeypatch.setenv("RAPIDGRID_CONTACTS", _json.dumps({
+        "dispatch": {"name": "Dispatch", "phone": "+91 90000 00100", "staff_pin": "111111"},
+        "units": [{"unit_id": "AMB-01", "type": "Ambulance", "station": "Aster CMI Emergency Ambulance Hub", "staff_pin": "333333"}],
+        "hospitals": [
         {"hospital_id": "blr-001", "name": "Manipal Hospital (Old Airport Road)",
-         "emergency_phone": "+91 80 1111 2222", "icu_phone": "+91 80 1111 3333"}]}))
+         "emergency_phone": "+91 80 1111 2222", "icu_phone": "+91 80 1111 3333", "staff_pin": "222222"}]}))
     contacts.reload()
     other = {"hospital_id": "blr-001", "name": "Manipal Hospital (Old Airport Road)",
              "location": {"lat": 12.9585, "lng": 77.6483}}
-    report = seed("patient_picked_up")
+    report = seed("patient_picked_up", assigned_unit="AMB-01")
     report["action_plan"]["all_hospitals"].append(other)
-    body = client.post("/api/driver/change_hospital", json={"incident_id": "INC-review", "hospital_name": other["name"]}).json()
+    # Staff numbers go to a signed-in dispatcher (PIN), never to an anonymous visitor.
+    assert client.post("/api/staff/session",
+                       json={"role": "unit", "subject": "AMB-01", "pin": "333333"}).status_code == 200
+    body = client.post("/api/driver/change_hospital", json={"incident_id": "INC-review", "hospital_name": other["name"]},
+                       headers={"Origin": "http://testserver"}).json()
     assert "hospital_phone" not in body and "hospital_phone" not in body["citizen_view"]
-    # An operator session counts as staff even with staff sign-in off.
-    monkeypatch.setenv("RAPIDGRID_OPERATOR_TOKEN", "test-operator")
-    listed = client.get("/api/incidents/INC-review/contacts",
-                        headers={"Authorization": "Bearer test-operator"}).json()
+    assert client.post("/api/staff/session",
+                       json={"role": "dispatcher", "subject": "dispatch", "pin": "111111"}).status_code == 200
+    listed = client.get("/api/incidents/INC-review/contacts").json()
     assert listed["hospital"] == {"name": "Manipal Hospital (Old Airport Road)",
                                   "emergency_phone": "+91 80 1111 2222", "icu_phone": "+91 80 1111 3333"}
 

@@ -298,7 +298,7 @@ def security_same_origin(request) -> bool:
 
 # A run of 10+ digits (up to three spaces, dots, dashes or slashes between,
 # a leading + allowed): a phone number a caller typed into the report.
-_PHONE_IN_TEXT = re.compile(r"\+?\d(?:[ \t./-]{0,3}\d){9,}")
+_PHONE_IN_TEXT = re.compile(r"\+?\(?\d(?:[ \t./,()-]{0,4}\d){9,}\)?")
 # A latitude/longitude pair ("13.035 77.597", "13.0358, 77.5970") is a
 # place, not a number to hide; dates have too few digits to match at all.
 _COORDINATES = re.compile(r"\d{1,3}\.\d+[ ,]+\d{1,3}\.\d+")
@@ -769,7 +769,7 @@ async def incident_contacts(incident_id: str, response: Response, request: Reque
         # sign-in off (no PINs configured), nobody is treated as staff here:
         # an open demo must not hand every number to every visitor.
         if not staff.enabled():
-            return bool(request is not None and security.authenticated(request))
+            return False
         try:
             staff.require(request, role, subject)
         except HTTPException:
@@ -1096,7 +1096,11 @@ async def incident_arrived(incident_id: str, request: Request = None, unit_type:
             states[unit_type] = "arrived"
             inc["unit_statuses"] = states
             complete = all(states.get(unit) == "arrived" for unit in required_units(inc))
-            inc["status"] = "completed" if complete else ("patient_picked_up" if "patient_picked_up" in states.values() else "dispatched")
+            # A delivered patient (medical handover by any unit) keeps the call in the
+            # transport phase until every required unit has finished.
+            handed_over = unit_type == "ambulance" and states["ambulance"] == "arrived"
+            on_board = handed_over or "patient_picked_up" in states.values()
+            inc["status"] = "completed" if complete else ("patient_picked_up" if on_board else "dispatched")
             inc["driver_stage"] = "completed" if complete else ("hospital" if inc["status"] == "patient_picked_up" else "pickup")
             if "citizen_view" in inc:
                 inc["citizen_view"]["unit_statuses"] = states
