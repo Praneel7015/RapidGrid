@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Request
@@ -46,6 +47,19 @@ _STALE_NOTES = {
 }
 
 
+# unit_id -> when its phone last reported a place outside the area the road
+# model covers. The fix itself is not used (no route there), but dispatch is
+# told why the unit stopped moving on the map. In memory: a restart forgets it
+# until the next fix, which says it again.
+_OUT_OF_AREA: dict[str, float] = {}
+
+
+def out_of_area(unit: dict) -> bool:
+    """True when the unit's latest report was outside the service area."""
+    at = _OUT_OF_AREA.get(unit["unit_id"])
+    return at is not None and at >= (unit.get("position") or {}).get("at", 0)
+
+
 def store_fix(unit_id: str, lat: float, lng: float, *, accuracy_m=None, heading=None,
               captured_at=None, speed_mps=None) -> dict:
     """Validate and store one real GPS fix (phone screen or tracker app).
@@ -53,6 +67,8 @@ def store_fix(unit_id: str, lat: float, lng: float, *, accuracy_m=None, heading=
     from routers.incident import in_service_area
 
     if not in_service_area(lat, lng):
+        if fleet.get(unit_id) is not None:  # never grow the map for unknown ids
+            _OUT_OF_AREA[unit_id] = time.time()
         raise HTTPException(status_code=422, detail="Position is outside the service area")
     try:
         stored = fleet.record_position(unit_id, lat, lng, source="gps", accuracy_m=accuracy_m,
@@ -68,13 +84,14 @@ def store_fix(unit_id: str, lat: float, lng: float, *, accuracy_m=None, heading=
     except ValueError:
         raise HTTPException(status_code=429, detail="Too many position updates",
                             headers={"Retry-After": "1"}) from None
+    _OUT_OF_AREA.pop(unit_id, None)  # back inside
     return {"unit_id": unit_id, "position": stored}
 
 
 def _public(unit: dict) -> dict:
     """What tracking screens may show: no crew names or phone numbers."""
     return {**{k: unit[k] for k in ("unit_id", "type", "station", "status", "incident_id", "position")},
-            "on_duty": unit.get("on_duty", True)}
+            "on_duty": unit.get("on_duty", True), "out_of_area": out_of_area(unit)}
 
 
 class DutyChange(BaseModel):
@@ -165,5 +182,12 @@ async def track_incident(incident_id: str):
         "status": incident.get("status"),
         "sim_speed": simulator.sim_speed(),
         # One live remaining time for every screen, from where the unit is.
-        "live": monitor.live_status(incident, unit),
+        "live": _live(incident, unit),
     }
+
+
+def _live(incident: dict, unit: dict | None) -> dict | None:
+    live = monitor.live_status(incident, unit)
+    if live is not None and unit is not None and out_of_area(unit):
+        live = {**live, "out_of_area": True}
+    return live

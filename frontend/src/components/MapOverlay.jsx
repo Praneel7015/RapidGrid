@@ -464,6 +464,7 @@ export default function MapOverlay({
       })
         .bindPopup(popup([u.unit_id, 'b'], [`${u.type} · ${UNIT_STATE[state].label.toLowerCase()}`],
           [`${u.station ?? ''}`, 'i'], [`Position: ${where}`],
+          ...(u.out_of_area ? [['Outside the service area', 'b']] : []),
           ...(proposed ? [['Proposed backup', 'b']] : [])))
         .addTo(fleetLayer.current);
     }

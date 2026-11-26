@@ -66,8 +66,10 @@ function Watching({ live, simSpeed }) {
       <dt className="text-text-muted">Off the route</dt>
       <dd className="font-medium">{km(live.off_route_m)}</dd>
       <dt className="text-text-muted">Position</dt>
-      <dd className={live.signal_lost ? 'font-semibold text-critical' : 'font-medium'}>
-        {live.signal_lost ? `GPS signal lost: last fix ${Math.round(live.fix_age_s)} s ago (shown where it was)` : `${source}${age}`}
+      <dd className={live.signal_lost || live.out_of_area ? 'font-semibold text-critical' : 'font-medium'}>
+        {live.out_of_area
+          ? 'Outside the service area: shown at its last fix inside it'
+          : live.signal_lost ? `GPS signal lost: last fix ${Math.round(live.fix_age_s)} s ago (shown where it was)` : `${source}${age}`}
       </dd>
     </dl>
   );
