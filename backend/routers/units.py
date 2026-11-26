@@ -63,7 +63,7 @@ def store_fix(unit_id: str, lat: float, lng: float, *, accuracy_m=None, heading=
         # Not the phone's fault (a delayed or reordered upload): accepted,
         # not used, so it does not retry it. Only fixed notes reach the client;
         # the exception text is logged here instead.
-        logger.info("Fix for unit %s not used: %s", unit_id, reason)
+        logger.info("Fix for unit %r not used: %s", unit_id, reason)
         return {"unit_id": unit_id, "ignored": _STALE_NOTES.get(str(reason), "not used")}
     except ValueError:
         raise HTTPException(status_code=429, detail="Too many position updates",
