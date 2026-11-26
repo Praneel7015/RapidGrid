@@ -106,9 +106,12 @@ async def set_duty(unit_id: str, change: DutyChange, request: Request = None):
     import staff
 
     if not change.on_duty and not staff.enabled():
-        # Open demo: a visitor may put a unit on duty, never take one off.
-        if request is None or not security.authenticated(request):
-            raise HTTPException(status_code=401, detail="Taking a unit off duty needs the operator sign-in")
+        # Open demo: a visitor may put a unit on duty, never take one off. On the
+        # hosted site, taking a unit off duty waits for staff PINs.
+        import os
+
+        if os.getenv("RENDER", "").lower() == "true" or os.getenv("RAPIDGRID_MODE", "").lower() == "operator":
+            raise HTTPException(status_code=503, detail="Taking a unit off duty is closed until staff PINs are set")
     else:
         try:
             require_staff(request, "unit", unit_id)
