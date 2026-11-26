@@ -17,6 +17,7 @@ const ACTIVE = new Set(['processing', 'awaiting_dispatcher_approval', 'dispatche
 
 function useIncidents() {
   const [incidents, setIncidents] = useState([]);
+  const [failed, setFailed] = useState(false);
   useEffect(() => {
     let cancelled = false;
     let inFlight = false;
@@ -25,12 +26,15 @@ function useIncidents() {
       inFlight = true;
       try {
         const res = await fetch('/api/incidents/', { signal: AbortSignal.timeout(8000) });
-        if (res.ok) {
-          const data = await res.json();
-          if (!cancelled) setIncidents(Array.isArray(data) ? data : (data.incidents ?? []));
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        if (!cancelled) {
+          setIncidents(Array.isArray(data) ? data : (data.incidents ?? []));
+          setFailed(false);
         }
       } catch {
-        // keep the last list
+        // Keep the last list, but say that it is no longer current.
+        if (!cancelled) setFailed(true);
       } finally {
         inFlight = false;
       }
@@ -39,7 +43,7 @@ function useIncidents() {
     const timer = setInterval(load, 3000);
     return () => { cancelled = true; clearInterval(timer); };
   }, []);
-  return incidents;
+  return { incidents, failed };
 }
 
 /** "Busy city": other calls already under way, and a background caller. */
@@ -117,7 +121,7 @@ function Count({ Icon, label, value, tone = '' }) {
 }
 
 export default function ControlRoom() {
-  const incidents = useIncidents();
+  const { incidents, failed: incidentsFailed } = useIncidents();
   const fleet = useFleet();
   const hospitals = useHospitals();
   const osmHospitals = useOsmHospitals();
@@ -171,8 +175,15 @@ export default function ControlRoom() {
           <CityLife />
           <Panel>
             <PanelHead label={`Emergencies now · ${active.length}`} right={<Activity size={14} aria-hidden />} />
+            {incidentsFailed && (
+              <p role="status" className="px-4 pt-3 text-[13px] text-critical">
+                Cannot reach the incident list. The calls below may be out of date.
+              </p>
+            )}
             {active.length === 0 ? (
-              <p className="px-4 py-3 text-[13px] text-text-muted">No emergencies right now.</p>
+              <p className="px-4 py-3 text-[13px] text-text-muted">
+                {incidentsFailed ? 'No calls shown: the list could not be refreshed.' : 'No emergencies right now.'}
+              </p>
             ) : (
               <ul className="divide-y divide-rule" data-testid="control-calls">
                 {active.map((i) => (

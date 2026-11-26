@@ -137,6 +137,14 @@ function toLatLngs(coords) {
 // look like new data and redraw (and close popups on) the route layers.
 const NONE = Object.freeze([]);
 
+// A GPS place counts as live only while its fix is recent (the backend stops
+// trusting a fix after 15 s). Older places are labelled as such, never "live".
+const GPS_FRESH_S = 15;
+function gpsFresh(pos) {
+  const when = pos?.captured_at ?? pos?.at;
+  return pos?.source === 'gps' && Number.isFinite(when) && Date.now() / 1000 - when <= GPS_FRESH_S;
+}
+
 export default function MapOverlay({
   routeCoordinates,
   phase1Coordinates,
@@ -437,9 +445,12 @@ export default function MapOverlay({
       }
       const size = proposed ? 20 : 16;
       const fill = UNIT_STATE[state].color;
+      const fresh = gpsFresh(pos);
       const ring = proposed ? `3px solid ${COLOR.proposal}`
-        : pos.source === 'gps' ? '2.5px solid #1d5fd1' : '1.5px solid #ffffff';
-      const where = pos.source === 'gps' ? 'live GPS' : pos.source === 'simulated' ? 'simulated' : 'at station';
+        : fresh ? '2.5px solid #1d5fd1' : '1.5px solid #ffffff';
+      const where = pos.source === 'gps'
+        ? (fresh ? 'live GPS' : 'GPS, no recent fix')
+        : pos.source === 'simulated' ? 'simulated' : 'at station';
       L.marker(at, {
         icon: L.divIcon({
           className: '',
@@ -591,7 +602,9 @@ export default function MapOverlay({
     if (pos && Number.isFinite(pos.lat) && Number.isFinite(pos.lng)) {
       const source =
         pos.source === 'gps'
-          ? `Live GPS${Number.isFinite(pos.accuracy_m) ? ` ±${Math.round(pos.accuracy_m)} m` : ''}`
+          ? (gpsFresh(pos)
+            ? `Live GPS${Number.isFinite(pos.accuracy_m) ? ` ±${Math.round(pos.accuracy_m)} m` : ''}`
+            : `GPS, no recent fix (${Math.round(Date.now() / 1000 - (pos.captured_at ?? pos.at ?? 0))} s old)`)
           : pos.source === 'simulated'
             ? `Simulated GPS${simSpeed ? ` ×${simSpeed}` : ''}`
             : 'At station';
