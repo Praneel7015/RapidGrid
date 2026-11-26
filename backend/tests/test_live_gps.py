@@ -34,7 +34,9 @@ def test_a_fix_is_not_matched_to_a_later_pass_of_a_route_that_comes_back_on_itse
     near_start_but_closer_to_return = {"lat": 13.00025, "lng": 77.003}  # 28 m from out, 10 m from back
     _off, unbounded = monitor.project(route, near_start_but_closer_to_return, 0)
     assert unbounded >= 10  # the old match jumped ~1.7 km ahead
-    off, index = monitor.project_near(route, near_start_but_closer_to_return, 0, monitor.REACH_MIN_M)
+    # The fix is ~324 m along the route, so the reach must cover it (a real unit
+    # is matched from its last matched place, which this test does not model).
+    off, index = monitor.project_near(route, near_start_but_closer_to_return, 0, 400.0)
     assert index <= 2 and off < 40
 
 

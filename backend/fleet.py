@@ -134,6 +134,9 @@ def load(attempts: int = 3) -> None:
             if not (isinstance(saved_pos, dict) and {"lat", "lng", "at"} <= set(saved_pos)
                     and saved_pos.get("source") == "gps"):
                 saved_pos = None
+            elif saved_pos.get("captured_at") is None:
+                # Stored before capture times existed: the arrival time stands in.
+                saved_pos = {**saved_pos, "captured_at": saved_pos.get("at")}
             units[entry.unit_id] = {
                 "unit_id": entry.unit_id,
                 "type": entry.type,
@@ -266,7 +269,7 @@ def swap(incident_id: str, new_unit_id: str) -> dict:
     _ensure()
     with _lock:
         new = _units.get(new_unit_id)
-        if new is None or new["status"] != "available":
+        if new is None or new["status"] != "available" or not new.get("on_duty", True):
             raise ValueError("unit not free")
         old = [u for u in _units.values() if u["incident_id"] == incident_id]
         before = {u["unit_id"]: (u["status"], u["incident_id"]) for u in (*old, new)}
@@ -332,12 +335,14 @@ def record_position(unit_id: str, lat: float, lng: float, *, source: str,
         # A phone clock running ahead cannot put a fix in the future. The clamp
         # is bounded by arrival, so a future-stamped fix never sits above the
         # order of fixes that arrive after it and are captured before it.
-        captured_at = min(captured_at, now) if captured_at <= now + MAX_CLOCK_AHEAD_S else now
+        # Kept as the phone sent it, so a reordered fix is still rejected by the
+        # ordering check below; age is measured from it with a floor at zero.
+        captured_at = captured_at if captured_at <= now + MAX_CLOCK_AHEAD_S else now
     with _lock:
         u = _units[unit_id]
         last = u["position"]
         if source == "gps" and last.get("source") == "gps":
-            if captured_at is not None and captured_at <= last.get("captured_at", 0):
+            if captured_at is not None and captured_at <= (last.get("captured_at") or 0):
                 raise StaleFix("older than the last fix")
             if now - last.get("at", 0) < MIN_FIX_INTERVAL_S:
                 raise ValueError("too many fixes")
