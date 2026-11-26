@@ -439,16 +439,19 @@ async def reset_event_state() -> dict:
 
 
 def _stage_control(request, what: str) -> tuple[str, str]:
-    """Dispatch (or the operator) only. In the open demo (no staff PINs) only
-    the operator may, so a visitor cannot wipe or fill the stage."""
-    import security
+    """Dispatch only, with staff PINs. On the hosted site without PINs these
+    controls are closed (503), so a public visitor cannot wipe or fill the
+    stage. In the local open demo anyone may, as the demo always has."""
+    import os
+
     import staff
 
     if staff.enabled():
         return require_staff(request, "dispatcher")
-    if request is not None and security.authenticated(request):
-        return ("operator", "*")
-    raise HTTPException(status_code=401, detail=f"{what} needs the dispatcher (or operator) sign-in")
+    if os.getenv("RENDER", "").lower() == "true" or os.getenv("RAPIDGRID_MODE", "").lower() == "operator":
+        raise HTTPException(status_code=503,
+                            detail=f"{what} is closed until staff PINs are set on the hosted site")
+    return ("open", "*")
 
 
 class CityLifeChange(BaseModel):

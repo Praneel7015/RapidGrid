@@ -49,3 +49,17 @@ def test_a_route_from_outside_the_service_area_is_refused():
     response = client.post("/api/route/compute", json={
         "origin": {"lat": 0, "lng": 0}, "destination": {"lat": 12.97, "lng": 77.59}})
     assert response.status_code == 422
+
+
+def test_hosted_site_without_staff_pins_closes_stage_controls_and_duty_off(monkeypatch):
+    import fleet
+    import staff
+
+    monkeypatch.setenv("RENDER", "true")
+    monkeypatch.setattr(staff, "enabled", lambda: False)
+    client = TestClient(app, base_url="http://localhost")
+    assert client.post("/api/monitoring/city-life", json={"seed": 1},
+                       headers={"Origin": "http://localhost"}).status_code == 503
+    unit_id = fleet.units()[0]["unit_id"]
+    assert client.post(f"/api/units/{unit_id}/duty", json={"on_duty": False},
+                       headers={"Origin": "http://localhost"}).status_code == 503
