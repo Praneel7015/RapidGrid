@@ -484,6 +484,13 @@ def test_all_hospitals_on_divert_fails_the_report_with_a_reason(client, monkeypa
 
 
 def test_offline_route_does_not_label_the_plan_live(client, monkeypatch):
+    import httpx
+
+    # No network in the test: the hospital catalogue falls back to its seed list.
+    async def no_overpass(self, url, *args, **kwargs):
+        return httpx.Response(200, json={"elements": []}, request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", no_overpass)
     monkeypatch.setattr(incident.route_agent, "api_key", "")
     report = seed("processing")
     payload = incident.IncidentReportPayload(
