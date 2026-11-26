@@ -1,0 +1,23 @@
+# Local run: docker compose up -d --build, then http://localhost:8080
+# Demo mode by default (synthetic data, answers only on localhost/127.0.0.1).
+# For anything public use RAPIDGRID_MODE=operator with a contacts file holding staff PINs.
+services:
+  rapidgrid:
+    build: .
+    image: rapidgrid:local
+    ports:
+      - "127.0.0.1:8080:10000"
+    env_file:
+      - path: backend/.env
+        required: false
+    environment:
+      RAPIDGRID_DATA_DIR: /var/data
+      # RAPIDGRID_MODE: operator
+      # RAPIDGRID_CONTACTS_FILE: /run/secrets/contacts.json
+    volumes:
+      - rapidgrid-data:/var/data
+      # - ./backend/contacts.json:/run/secrets/contacts.json:ro
+    restart: unless-stopped
+
+volumes:
+  rapidgrid-data:

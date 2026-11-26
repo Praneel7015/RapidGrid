@@ -248,7 +248,29 @@ def check_app() -> None:
         record(WARN, "Frontend node_modules missing", "FIX: cd frontend && npm install")
 
 
+OPEN_WARNING = ("WARNING: OPEN DEPLOYMENT: no staff PINs; anyone can act as dispatch, crew or "
+                "ER desk. Set RAPIDGRID_CONTACTS / RAPIDGRID_CONTACTS_FILE with PINs.")
+
+
+def check_deployment() -> None:
+    """Container start check: warn (never block) about an open or misconfigured deployment."""
+    import contacts
+    import security
+
+    hosted = security.mode() == "operator" or os.getenv("RENDER", "").lower() == "true"
+    # An invalid configured directory counts as "configured": the app locks sign-in (fail closed).
+    if hosted and not contacts.staff_pins_configured():
+        print("!" * 68 + "\n" + OPEN_WARNING + "\n" + "!" * 68, file=sys.stderr)
+    if security.mode() == "demo" and (os.getenv("RAPIDGRID_ALLOWED_HOSTS") or os.getenv("RAPIDGRID_ALLOWED_ORIGINS")):
+        print("WARNING: demo mode with RAPIDGRID_ALLOWED_HOSTS/ORIGINS set: the open demo answers "
+              "on those public names. Use RAPIDGRID_MODE=operator for anything public.", file=sys.stderr)
+
+
 def main_() -> int:
+    if "--startup" in sys.argv:
+        # Container boot: no network calls, never a non-zero exit.
+        check_deployment()
+        return 0
     print("=" * 68)
     print("  RapidGrid / GeoAgentic - preflight check")
     print("=" * 68)

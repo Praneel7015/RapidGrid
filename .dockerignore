@@ -16,3 +16,15 @@ test-results
 .pytest_cache
 tests
 temp
+# Local secrets, state and tooling never enter the image.
+**/node_modules
+**/contacts.json
+**/secret.key
+**/*.log
+**/*.db
+.coverage
+.github
+.skills
+.claude
+.agents
+docs

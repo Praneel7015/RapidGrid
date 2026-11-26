@@ -29,6 +29,27 @@ assistants. Read it before you start.
 
 Do not merge to `main` without the maintainer's go. Pushing to `main` deploys to production.
 
+## Docker
+
+- Local: `docker compose up -d --build`, then open http://localhost:8080 (demo
+  mode, synthetic data). State lives in the `rapidgrid-data` volume at
+  `/var/data` (incidents, `secret.key`); `docker compose down -v` deletes it.
+- Anything public: set `RAPIDGRID_MODE=operator` and mount the contacts file
+  read-only (see the commented lines in `docker-compose.yml`) with
+  `RAPIDGRID_CONTACTS_FILE` pointing at it. Never bake contacts into the image.
+- At start the container runs `backend/scripts/preflight.py --startup`. It never
+  blocks boot, but in operator mode (or on Render) with no staff PINs it prints
+  `WARNING: OPEN DEPLOYMENT: no staff PINs ...` to the logs: anyone can then act
+  as dispatch, crew or ER desk. A contacts file that is set but invalid does not
+  warn: the app locks staff sign-in instead. Demo mode with
+  `RAPIDGRID_ALLOWED_HOSTS`/`RAPIDGRID_ALLOWED_ORIGINS` set also warns.
+- One process only (no `--workers`): fleet, chat and sessions are in memory.
+- The browser needs internet for map tiles, fonts and the Whisper voice model.
+- VPS behind Caddy (`reverse_proxy 127.0.0.1:8080`): set
+  `RAPIDGRID_CLIENT_IP_HEADER=x-forwarded-for` and `RAPIDGRID_CLIENT_IP_HOPS=1`,
+  and check them signed in as operator with `GET /api/session/forwarding`
+  (send a made-up `X-Forwarded-For: 203.0.113.7`).
+
 ## Rules for AI tools
 
 - Follow the change loop above. Do not skip the review or CodeRabbit steps.

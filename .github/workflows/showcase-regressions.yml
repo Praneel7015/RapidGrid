@@ -58,3 +58,25 @@ jobs:
           name: browser-failure-artifacts
           path: test-results/
           if-no-files-found: ignore
+
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - run: docker build -t rapidgrid:ci .
+      - name: Serves the app and the API
+        run: |
+          docker run -d --name rg -p 127.0.0.1:8080:10000 rapidgrid:ci
+          for i in $(seq 60); do curl -fsS 127.0.0.1:8080/health/live && break; sleep 2; done
+          curl -fsS 127.0.0.1:8080/health/live
+          curl -fsS 127.0.0.1:8080/demo | grep -q 'id="root"'
+          curl -fsS -o /dev/null 127.0.0.1:8080/api/hospital/list
+          docker rm -f rg
+      - name: Operator mode with no PINs warns in the logs
+        run: |
+          docker run -d --name rg-op -e RAPIDGRID_MODE=operator rapidgrid:ci
+          for i in $(seq 30); do docker logs rg-op 2>&1 | grep -q 'OPEN DEPLOYMENT' && break; sleep 1; done
+          docker logs rg-op 2>&1 | grep 'OPEN DEPLOYMENT'
+          test "$(docker inspect -f '{{.State.Running}}' rg-op)" = true
+          docker rm -f rg-op
