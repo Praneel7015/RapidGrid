@@ -69,7 +69,10 @@ def main() -> int:
                         headers={"User-Agent": "GeoAgentic/1.0 (emergency-routing-research)"},
                     )
                 res.raise_for_status()
-                elements = res.json().get("elements", [])
+                payload = res.json()
+                if payload.get("remark") or "elements" not in payload:
+                    raise ValueError(f"Overpass reported: {payload.get('remark', 'no elements')}")
+                elements = payload["elements"]
                 break
             except (httpx.HTTPError, ValueError) as exc:
                 print(f"{url}: {exc}", file=sys.stderr)
