@@ -116,6 +116,9 @@ async def lifespan(app: FastAPI):
                             logger.info("City model seeded with live weather: %s", condition)
             except Exception:
                 logger.warning("Could not seed live weather; city model starts clear")
+            # After the live weather: what the operator staged (closures,
+            # accidents, a weather preset) wins over it.
+            city_state.restore()
     else:
         logger.warning(
             "Offline routing tier UNAVAILABLE - run scripts/build_road_graph.py"
