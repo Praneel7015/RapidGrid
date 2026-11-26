@@ -145,7 +145,8 @@ async def accept_reroute(incident_id: str, alert_id: str, choice: AcceptRoute, r
     text = (f"Dispatcher accepted {named} for {alert['unit_id']}; "
             f"new ETA {route['eta_s'] / 60:.1f} min.")
     monitor._log(incident_id, alert["unit_id"], "decision", text, alert_id=alert_id)
-    await _announce_confirmed_deviation(incident_id, alert)
+    # The caller hears the ETA of the route dispatch accepted, not the alert's own.
+    await _announce_confirmed_deviation(incident_id, {**alert, "new_eta_s": route["eta_s"]})
     from routers.chat import post_system_message
 
     await post_system_message(incident_id, text, sender="Dispatch decision")
