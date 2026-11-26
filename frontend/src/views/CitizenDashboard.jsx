@@ -217,13 +217,15 @@ export default function CitizenDashboard() {
           timestamp: new Date().toISOString(),
         }),
       });
-      const data = await res.json();
+      // A proxy error page is not JSON: the server did answer, so say that, not "no connection".
+      const data = await res.json().catch(() => ({}));
       if (res.ok || res.status === 202) {
         try { sessionStorage.setItem('rapidgrid_my_incident', data.incident_id); } catch { /* storage off */ }
         setPollUrl(data.poll_url ?? `/api/incidents/${data.incident_id}`);
       } else {
         setError(typeof data.detail === 'string' ? data.detail : `Dispatch rejected the report (HTTP ${res.status}). Try again.`);
         setStage('report');
+        return;
       }
     } catch {
       setError('Cannot reach emergency dispatch. Check your connection and try again.');
