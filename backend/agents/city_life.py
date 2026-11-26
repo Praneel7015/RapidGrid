@@ -223,9 +223,11 @@ async def advance() -> None:
     for inc in calls:
         unit = fleet.unit_for_incident(inc["incident_id"])
         end = _leg_end(inc)
-        if unit is None or end is None or _dist(unit["position"], end) > ARRIVED_M:
-            continue
         key = f"{inc['incident_id']}:{inc.get('status')}"
+        if unit is None or end is None or _dist(unit["position"], end) > ARRIVED_M:
+            # Left the stop (or never reached it): the dwell starts again on arrival.
+            _arrived_at.pop(key, None)
+            continue
         first = _arrived_at.setdefault(key, now)
         if now - first < DWELL_S:
             continue

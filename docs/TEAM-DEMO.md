@@ -49,5 +49,6 @@ the other screens within a few seconds.
 - **A screen looks stale:** reload it. The seat and the sign-in are remembered.
 - **Hosted site asleep or down:** the guided demo (`/demo`) needs the backend. Either
   run the app on the presenter's laptop (backend and frontend, see
-  [DEVELOPMENT.md](../DEVELOPMENT.md)), or fall back to the screens-only recovery steps
-  in this document: the printed route map and the recorded video.
+  [DEVELOPMENT.md](../DEVELOPMENT.md)). Or present screens only: before the event, save
+  screenshots of the citizen, dispatcher, driver, hospital and control-room screens
+  on the presenter's laptop, and rehearse walking through them in order.
