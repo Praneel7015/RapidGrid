@@ -143,6 +143,10 @@ class CityState:
         self.closed_edges: set[int] = set()
         self.incident_edges: set[int] = set()
         self.interventions: list[Intervention] = []
+        # What was staged, in order, so a restart can stage it again:
+        # ("close" | "incident", edge ids, label).
+        self._applied: list[tuple[str, list[int], str]] = []
+        self._restoring = False
 
         # edge -> multiplier, by cause. Kept separate so a segment can explain
         # which mechanism slowed it rather than reporting one opaque number.
@@ -184,6 +188,62 @@ class CityState:
     def ready(self) -> bool:
         return self._router is not None
 
+    # -- persistence ----------------------------------------------------------
+    # Closures, accidents and the weather are stored on every change, so a
+    # restart does not silently reopen a road an open alert is about. Traffic
+    # multipliers are derived, and the hour follows the clock: neither is kept.
+
+    _STORE = "city:state"
+
+    def _persist(self) -> None:
+        if self._restoring:
+            return
+        import storage
+
+        try:
+            storage.save_collection(self._STORE, {
+                "weather": self.weather,
+                "applied": [[kind, ids, label] for kind, ids, label in self._applied],
+            })
+        except Exception:
+            logger.exception("Could not store the city state; it is kept in memory only")
+
+    def restore(self) -> int:
+        """Stage again what was staged before a restart. Returns how many
+        closures and accidents came back."""
+        import storage
+
+        if not self._router:
+            return 0
+        try:
+            saved = storage.load_collection(self._STORE, {}) or {}
+        except Exception:
+            logger.exception("Could not read the stored city state; starting clear")
+            return 0
+        edges = len(self._router.edge_to)
+        restored = 0
+        self._restoring = True
+        try:
+            if saved.get("weather") and saved["weather"] != self.weather:
+                self.set_weather(saved["weather"])
+            for kind, ids, label in saved.get("applied") or []:
+                ids = [int(e) for e in ids if 0 <= int(e) < edges]  # a rebuilt graph may have fewer edges
+                if not ids:
+                    continue
+                if kind == "close":
+                    self.close_road(ids, label=label)
+                elif kind == "incident":
+                    self.report_incident(ids, label=label)
+                else:
+                    continue
+                restored += 1
+        finally:
+            self._restoring = False
+        self._persist()
+        if restored:
+            logger.info("City state restored: %d closure(s)/accident(s) staged again", restored)
+        return restored
+
     # -- exogenous variables --------------------------------------------------
 
     @_locked
@@ -200,6 +260,7 @@ class CityState:
     def set_weather(self, condition: str) -> None:
         """Weather -> Congestion. Applied globally at push time."""
         self.weather = condition or "Clear"
+        self._persist()
         self.interventions.append(
             Intervention(
                 kind="weather",
@@ -255,6 +316,8 @@ class CityState:
         if not ids:
             return {"closed": 0, "displaced": 0}
         self.closed_edges.update(ids)
+        self._applied.append(("close", ids, label))
+        self._persist()
         affected = self._spread(
             ids, _DISPLACEMENT_HOPS, _DISPLACEMENT_STRENGTH, _DISPLACEMENT_DECAY,
             self._displacement,
@@ -280,6 +343,8 @@ class CityState:
         if not ids:
             return {"segments": 0, "affected": 0}
         self.incident_edges.update(ids)
+        self._applied.append(("incident", ids, label))
+        self._persist()
         for e in ids:
             self._incident[e] = max(self._incident.get(e, 1.0), _INCIDENT_SELF)
         affected = self._spread(
@@ -298,6 +363,8 @@ class CityState:
         """Undo every intervention and return the city to baseline."""
         self.closed_edges.clear()
         self.incident_edges.clear()
+        self._applied.clear()
+        self._persist()
         self._displacement.clear()
         self._incident.clear()
         self.interventions.append(Intervention(kind="clear", target="all"))
