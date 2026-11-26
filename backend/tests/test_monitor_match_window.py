@@ -35,16 +35,16 @@ def test_the_window_starts_at_the_matched_position_so_the_next_segment_is_reacha
 
 
 def test_without_the_matched_position_the_same_fix_is_out_of_reach():
-    # The old origin (the first vertex of the matched segment) excludes segment 1:
-    # the fix is only ~100 m from the route's end on segment 0.
+    # The window from the start of segment 0 ends 250 m along the route, and only
+    # that part of the segment counts: the fix at 1100 m is 850 m out of reach.
     off, index = monitor.project_near(ROUTE, _east(1100), 0, monitor.REACH_MIN_M)
-    assert index == 0 and abs(off - 100) < 5
+    assert index == 0 and abs(off - 850) < 5
 
 
 def test_the_reach_limit_still_holds_from_the_matched_position():
-    # Four vertices; matched at 1000 m, reach 250 m: segment 2 (starts at
-    # 2000 m) is out of reach, so a fix on it is scored against segment 1 only.
+    # Four vertices; matched at 1000 m, reach 250 m: the window ends at 1250 m.
+    # Segment 1 counts only up to 1250 m, so the fix at 2600 m is 1350 m away.
     route = [_east(0), _east(1000), _east(2000), _east(3000)]
     origin = monitor.matched_m(route, _east(1000), 0)
     off, index = monitor.project_near(route, _east(2600), 0, monitor.REACH_MIN_M, origin_m=origin)
-    assert index == 1 and abs(off - 600) < 5
+    assert index == 1 and abs(off - 1350) < 5

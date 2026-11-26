@@ -1098,7 +1098,7 @@ async def incident_arrived(incident_id: str, request: Request = None, unit_type:
             complete = all(states.get(unit) == "arrived" for unit in required_units(inc))
             # A delivered patient (medical handover by any unit) keeps the call in the
             # transport phase until every required unit has finished.
-            handed_over = unit_type == "ambulance" and states["ambulance"] == "arrived"
+            handed_over = medical and states[unit_type] == "arrived"
             on_board = handed_over or "patient_picked_up" in states.values()
             inc["status"] = "completed" if complete else ("patient_picked_up" if on_board else "dispatched")
             inc["driver_stage"] = "completed" if complete else ("hospital" if inc["status"] == "patient_picked_up" else "pickup")

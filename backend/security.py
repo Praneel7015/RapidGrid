@@ -539,6 +539,9 @@ async def purge_personal_data(request: Request, response: Response):
     response.headers["Cache-Control"] = "no-store"
     import staff
 
+    if not staff.enabled() and mode() != "demo":
+        # Hosted with no staff PINs: nobody could be held to it, so it stays shut.
+        raise HTTPException(status_code=403, detail="Set staff PINs before the data can be purged")
     staff.require(request, "dispatcher")
     # A JSON body cannot be sent cross-site without a CORS preflight (CSRF).
     if request.headers.get("content-type", "").split(";")[0].strip() != "application/json":

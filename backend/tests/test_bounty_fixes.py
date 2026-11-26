@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import secrets
 import sys
 from pathlib import Path
 
@@ -30,10 +31,13 @@ def test_ordinary_names_are_kept():
 
 
 def test_a_lone_surrogate_tracker_key_is_a_wrong_key_not_an_error(monkeypatch):
+    # Generated at run time: no secret-shaped literal in the source.
+    key = secrets.token_hex(16)
     monkeypatch.setenv("RAPIDGRID_CONTACTS", '{"units": [{"unit_id": "AMB-01", "type": "Ambulance", '
-                       '"station": "Hub", "tracker_key": "' + "a" * 32 + '"}]}')
+                       '"station": "Hub", "tracker_key": "' + key + '"}]}')
     contacts.reload()
     try:
+        assert contacts.unit_for_tracker(key) == "AMB-01"
         assert contacts.unit_for_tracker("\ud800") is None
     finally:
         monkeypatch.delenv("RAPIDGRID_CONTACTS")

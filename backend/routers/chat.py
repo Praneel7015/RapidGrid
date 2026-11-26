@@ -144,7 +144,7 @@ def _spoof_key(name: str) -> str:
 
     text = unicodedata.normalize("NFKC", name or "")
     text = "".join(ch for ch in text if unicodedata.category(ch) != "Cf")
-    return " ".join(text.translate(_LOOKALIKES).casefold().split())
+    return " ".join(text.casefold().translate(_LOOKALIKES).split())
 
 
 def safe_sender_name(name: str) -> str:

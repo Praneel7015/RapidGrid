@@ -66,6 +66,11 @@ def _require_driver(incident: dict, driver_id: str, unit_type: str) -> None:
     fleet_unit = incident.get("assigned_unit")
     if unit_type == "primary" and fleet_unit and driver_id != fleet_unit:
         raise HTTPException(status_code=409, detail=f"This call is assigned to {fleet_unit}")
+    # One vehicle never fills both slots on the same call, in either order.
+    if any(other == driver_id for slot, other in _assignments(incident).items() if slot != unit_type):
+        raise HTTPException(status_code=409, detail="This vehicle already holds another slot on this call")
+    if unit_type != "primary" and fleet_unit == driver_id:
+        raise HTTPException(status_code=409, detail="This vehicle is the dispatched primary for this call")
     import staff
     if staff.enabled() and unit_type == "primary" and not fleet_unit:
         # With staff sign-in, a unit holds only a slot dispatch gave it (A01).

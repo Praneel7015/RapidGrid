@@ -170,7 +170,14 @@ def project_near(route: list[dict], point: dict, progress: int, reach_m: Optiona
             continue
         if cum[i] > hi:
             break
-        d, _t = point_segment_m(point, route[i], route[i + 1])
+        # Only the part of this segment inside the window counts.
+        a, b = route[i], route[i + 1]
+        length = cum[i + 1] - cum[i] or 1.0
+        t0 = max(0.0, (lo - cum[i]) / length)
+        t1 = min(1.0, (hi - cum[i]) / length)
+        start = {"lat": a["lat"] + (b["lat"] - a["lat"]) * t0, "lng": a["lng"] + (b["lng"] - a["lng"]) * t0}
+        end = {"lat": a["lat"] + (b["lat"] - a["lat"]) * t1, "lng": a["lng"] + (b["lng"] - a["lng"]) * t1}
+        d, _t = point_segment_m(point, start, end)
         if d < best[0]:
             best = (d, i)
     return best

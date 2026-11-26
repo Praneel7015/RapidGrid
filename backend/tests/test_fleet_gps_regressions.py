@@ -4,6 +4,7 @@ from capture time rather than arrival."""
 
 from __future__ import annotations
 
+import pytest
 import sys
 import time
 from pathlib import Path
@@ -43,18 +44,15 @@ def test_a_fix_captured_ahead_of_arrival_does_not_block_an_older_fix():
     now = time.time()
     fleet.assign("INC-1", "Ambulance", HEBBAL, prefer_station=STATION)
     ahead = fleet.record_position("AMB-01", 13.0400, 77.5950, source="gps", at=now, captured_at=now + 20)
-    assert ahead["captured_at"] == now  # clamped to arrival, never in the future
+    assert ahead["captured_at"] == now + 20  # kept as the phone sent it, for ordering
 
-    # Captured before the future-stamped fix, but arriving after it: accepted.
-    older = fleet.record_position("AMB-01", 13.0410, 77.5940, source="gps", at=now + 2, captured_at=now + 10)
-    assert older["lat"] == 13.0410
-    # A fix captured before the one already kept is still refused.
-    try:
-        fleet.record_position("AMB-01", 13.0420, 77.5930, source="gps", at=now + 4, captured_at=now - 5)
-    except fleet.StaleFix:
-        pass
-    else:
-        raise AssertionError("an out-of-order fix was accepted")
+    # A fix the phone captured before the one already kept is out of order, even
+    # though it arrives later: refused (the phone's own clock decides the order).
+    with pytest.raises(fleet.StaleFix):
+        fleet.record_position("AMB-01", 13.0410, 77.5940, source="gps", at=now + 2, captured_at=now + 10)
+    # The next fix in the phone's own order is accepted.
+    newer = fleet.record_position("AMB-01", 13.0420, 77.5930, source="gps", at=now + 4, captured_at=now + 21)
+    assert newer["lat"] == 13.0420
 
 
 def test_freshness_is_measured_from_capture_not_arrival():
