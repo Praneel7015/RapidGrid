@@ -448,7 +448,7 @@ def _stage_control(request, what: str) -> tuple[str, str]:
 
     if staff.enabled():
         return require_staff(request, "dispatcher")
-    if os.getenv("RENDER", "").lower() == "true" or os.getenv("RAPIDGRID_MODE", "").lower() == "operator":
+    if os.getenv("RENDER", "").lower() == "true":
         raise HTTPException(status_code=503,
                             detail=f"{what} is closed until staff PINs are set on the hosted site")
     return ("open", "*")
