@@ -33,6 +33,8 @@ the change, and the test results. Then:
 - Stage files by name (`git add <path>`), never `git add -A`.
 - Check `git diff --cached --name-only` before every commit.
 - Never commit `backend/data/`, `contacts.json`, `*.sqlite3`, `*.key`, or any `.env`.
+  The one exception is the vetted static dataset `backend/data/bangalore_hospitals.json`,
+  which is committed on purpose so the map works offline.
 
 ## Secrets and contacts
 

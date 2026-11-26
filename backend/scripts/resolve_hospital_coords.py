@@ -242,6 +242,14 @@ def main() -> int:
         else:
             p.pop("coord_note", None)
 
+    # Every profile without a confident match is flagged, including pinned
+    # features missing from this extract: keep its coordinates, drop the OSM link.
+    for hid, _name, reason in flagged:
+        if hid in profiles:
+            profiles[hid]["coord_source"] = "manual-unverified"
+            profiles[hid]["coord_note"] = f"not confirmed: {reason}"
+            profiles[hid].pop("osm_id", None)
+            profiles[hid].pop("osm_name", None)
     for hid, note in UNMATCHED_NOTE.items():
         if hid in profiles:
             profiles[hid]["coord_source"] = "manual-unverified"

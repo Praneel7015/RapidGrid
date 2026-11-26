@@ -47,5 +47,7 @@ the other screens within a few seconds.
 
 - **"No ambulance is free":** reset the demo and start the busy city again.
 - **A screen looks stale:** reload it. The seat and the sign-in are remembered.
-- **Hosted site asleep or down:** use the guided demo (`/demo`, "Play all")
-  on one laptop. It runs the same story on its own.
+- **Hosted site asleep or down:** the guided demo (`/demo`) needs the backend. Either
+  run the app on the presenter's laptop (backend and frontend, see
+  [DEVELOPMENT.md](../DEVELOPMENT.md)), or fall back to the screens-only recovery steps
+  in this document: the printed route map and the recorded video.
